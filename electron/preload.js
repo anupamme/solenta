@@ -2,11 +2,13 @@
 
 const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
+/* <ipc-push> */
 const PUSH_CHANNELS = new Set([
   "threads:changed",
   "thread:updated",
   "thread:select",
 ]);
+/* </ipc-push> */
 
 /**
  * Electron wraps every invoke rejection as
@@ -50,215 +52,179 @@ function on(channel, cb) {
   };
 }
 
+/**
+ * Inlined from src/shared/ipcChannels.ts (issue #623). Sandbox preload
+ * cannot require that file; scripts/sync-ipc-preload.js copies it.
+ * bindChannels is the JS twin of bindCoderApi — keep the loop body the same.
+ */
+/* <ipc-channels> */
+const IPC_CHANNELS = Object.freeze([
+  { ns: "app", method: "status" },
+  { ns: "app", method: "checkUpdate" },
+  { ns: "app", method: "downloadUpdate" },
+  { ns: "app", method: "applyUpdate" },
+  { ns: "memory", method: "search" },
+  { ns: "memory", method: "recent" },
+  { ns: "memory", method: "get" },
+  { ns: "memory", method: "store" },
+  { ns: "memory", method: "update" },
+  { ns: "memory", method: "remove" },
+  { ns: "settings", method: "get" },
+  { ns: "settings", method: "set" },
+  { ns: "skills", method: "list" },
+  { ns: "skills", method: "add" },
+  { ns: "skills", method: "remove" },
+  { ns: "skills", method: "sync" },
+  { ns: "skills", method: "commands" },
+  { ns: "providers", method: "list" },
+  { ns: "sourceControl", method: "discover" },
+  { ns: "workflows", method: "list" },
+  { ns: "workflows", method: "save" },
+  { ns: "workflows", method: "remove" },
+  { ns: "automations", method: "list" },
+  { ns: "automations", method: "add" },
+  { ns: "automations", method: "update" },
+  { ns: "automations", method: "remove" },
+  { ns: "automations", method: "runNow" },
+  { ns: "projects", method: "list" },
+  { ns: "projects", method: "add" },
+  { ns: "projects", method: "create" },
+  { ns: "projects", method: "update" },
+  { ns: "projects", method: "pickIcon" },
+  { ns: "projects", method: "resolveIcon" },
+  { ns: "projects", method: "addViaDialog" },
+  { ns: "projects", method: "pickDirectory" },
+  { ns: "projects", method: "remove" },
+  { ns: "projects", method: "lintAgentConfig" },
+  { ns: "projects", method: "previewAgentConfig" },
+  { ns: "projects", method: "writeAgentConfig" },
+  { ns: "spaces", method: "list" },
+  { ns: "spaces", method: "add" },
+  { ns: "spaces", method: "update" },
+  { ns: "spaces", method: "remove" },
+  { ns: "threads", method: "list" },
+  { ns: "threads", method: "summaries" },
+  { ns: "threads", method: "crewTasks" },
+  { ns: "threads", method: "search" },
+  { ns: "threads", method: "create" },
+  { ns: "threads", method: "get" },
+  { ns: "threads", method: "peek" },
+  { ns: "threads", method: "setPermissionMode" },
+  { ns: "threads", method: "respondPermission" },
+  { ns: "threads", method: "setArchived" },
+  { ns: "threads", method: "setSettled" },
+  { ns: "threads", method: "setPinned" },
+  { ns: "threads", method: "setQueued" },
+  { ns: "threads", method: "setSnoozed" },
+  { ns: "threads", method: "setMuted" },
+  { ns: "threads", method: "setQuotaWaitAutoResume" },
+  { ns: "threads", method: "setNotes" },
+  { ns: "threads", method: "setFeltEstimate" },
+  { ns: "threads", method: "startSpec" },
+  { ns: "threads", method: "stopSpec" },
+  { ns: "threads", method: "reviewSpec" },
+  { ns: "threads", method: "specArtifact" },
+  { ns: "threads", method: "dispatchSpec" },
+  { ns: "threads", method: "convergeSpec" },
+  { ns: "threads", method: "startTeach" },
+  { ns: "threads", method: "stopTeach" },
+  { ns: "threads", method: "requestTeachReview" },
+  { ns: "threads", method: "startAsk" },
+  { ns: "threads", method: "stopAsk" },
+  { ns: "threads", method: "btw" },
+  { ns: "threads", method: "dismissBtw" },
+  { ns: "threads", method: "promoteBtw" },
+  { ns: "threads", method: "rename" },
+  { ns: "threads", method: "fork" },
+  { ns: "threads", method: "resolveSuggestion" },
+  { ns: "threads", method: "rewind" },
+  { ns: "threads", method: "setProvider" },
+  { ns: "threads", method: "setReasoningEffort" },
+  { ns: "threads", method: "setVerifyCommand" },
+  { ns: "threads", method: "runVerify" },
+  { ns: "threads", method: "delete" },
+  { ns: "activity", method: "list" },
+  { ns: "usage", method: "byDay" },
+  { ns: "insights", method: "failureModes" },
+  { ns: "fleet", method: "evidence" },
+  { ns: "digest", method: "list" },
+  { ns: "digest", method: "markSeen" },
+  { ns: "runs", method: "start" },
+  { ns: "runs", method: "startWorkflow" },
+  { ns: "runs", method: "distill" },
+  { ns: "runs", method: "stop" },
+  { ns: "runs", method: "resumeQuotaWait" },
+  { ns: "git", method: "status" },
+  { ns: "git", method: "setupWorktree" },
+  { ns: "git", method: "diff" },
+  { ns: "git", method: "reviewContext" },
+  { ns: "git", method: "setReviewAccepted" },
+  { ns: "git", method: "commit" },
+  { ns: "git", method: "revertFile" },
+  { ns: "git", method: "suggestCommitMessage" },
+  { ns: "git", method: "mergeWorktree" },
+  { ns: "git", method: "removeWorktree" },
+  { ns: "git", method: "push" },
+  { ns: "git", method: "createPr" },
+  { ns: "git", method: "prStatus" },
+  { ns: "git", method: "prChecks" },
+  { ns: "git", method: "prMerge" },
+  { ns: "git", method: "listPrs" },
+  { ns: "git", method: "listCheckpoints" },
+  { ns: "git", method: "restoreCheckpoint" },
+  { ns: "git", method: "syncInfo" },
+  { ns: "git", method: "fetch" },
+  { ns: "git", method: "repoInfo" },
+  { ns: "git", method: "pull" },
+  { ns: "git", method: "runStats" },
+  { ns: "git", method: "conflictForecast" },
+  { ns: "git", method: "gcScan" },
+  { ns: "git", method: "gcClean" },
+  { ns: "issues", method: "fetch" },
+  { ns: "issues", method: "list" },
+  { ns: "issues", method: "setPlanStatus" },
+  { ns: "issues", method: "create" },
+  { ns: "files", method: "list" },
+  { ns: "files", method: "image" },
+  { ns: "files", method: "resolve" },
+  { ns: "fs", method: "browse" },
+  { ns: "attachments", method: "pick" },
+  { ns: "attachments", method: "fromPaths" },
+  { ns: "attachments", method: "saveImage" },
+  { ns: "attachments", method: "readImage" },
+  { ns: "servers", method: "list" },
+  { ns: "shell", method: "reveal" },
+  { ns: "shell", method: "openPath" },
+  { ns: "devserver", method: "scripts" },
+  { ns: "devserver", method: "start" },
+  { ns: "devserver", method: "stop" },
+  { ns: "devserver", method: "status" },
+  { ns: "vibeKanban", method: "preview" },
+  { ns: "vibeKanban", method: "import" },
+  { ns: "vibeKanban", method: "pickDataDir" },
+  { ns: "vibeKanban", method: "export" },
+]);
+/* </ipc-channels> */
+
+/**
+ * @param {(channel: string, ...args: unknown[]) => Promise<unknown>} invokeFn
+ * @param {ReadonlyArray<{ ns: string, method: string }>} channels
+ */
+function bindChannels(invokeFn, channels) {
+  const api = Object.create(null);
+  for (const { ns, method } of channels) {
+    if (!api[ns]) api[ns] = Object.create(null);
+    api[ns][method] = (...args) => invokeFn(`${ns}:${method}`, ...args);
+  }
+  return api;
+}
+
 /** @type {import('../src/shared/ipc').CoderApi} */
-const coder = {
-  app: {
-    status: () => invoke("app:status"),
-    checkUpdate: () => invoke("app:checkUpdate"),
-    downloadUpdate: () => invoke("app:downloadUpdate"),
-    applyUpdate: () => invoke("app:applyUpdate"),
-  },
-  memory: {
-    search: (input) => invoke("memory:search", input),
-    recent: (input) => invoke("memory:recent", input),
-    get: (input) => invoke("memory:get", input),
-    store: (input) => invoke("memory:store", input),
-    update: (input) => invoke("memory:update", input),
-    remove: (input) => invoke("memory:remove", input),
-  },
-  settings: {
-    get: () => invoke("settings:get"),
-    set: (patch) => invoke("settings:set", patch),
-  },
-  skills: {
-    list: (input) => invoke("skills:list", input),
-    add: (input) => invoke("skills:add", input),
-    remove: (input) => invoke("skills:remove", input),
-    sync: () => invoke("skills:sync"),
-    commands: (input) => invoke("skills:commands", input),
-  },
-  providers: {
-    list: () => invoke("providers:list"),
-  },
-  sourceControl: {
-    discover: (input) => invoke("sourceControl:discover", input),
-  },
-  workflows: {
-    list: () => invoke("workflows:list"),
-    save: (template) => invoke("workflows:save", template),
-    remove: (input) => invoke("workflows:remove", input),
-  },
-  automations: {
-    list: () => invoke("automations:list"),
-    add: (input) => invoke("automations:add", input),
-    update: (input) => invoke("automations:update", input),
-    remove: (input) => invoke("automations:remove", input),
-    runNow: (input) => invoke("automations:runNow", input),
-  },
-  projects: {
-    list: () => invoke("projects:list"),
-    add: (projectPath, opts) => invoke("projects:add", projectPath, opts),
-    create: (input) => invoke("projects:create", input),
-    pickDirectory: () => invoke("projects:pickDirectory"),
-    pickIcon: (input) => invoke("projects:pickIcon", input),
-    resolveIcon: (input) => invoke("projects:resolveIcon", input),
-    update: (input) => invoke("projects:update", input),
-    addViaDialog: () => invoke("projects:addViaDialog"),
-    remove: (input) => invoke("projects:remove", input),
-    lintAgentConfig: (input) => invoke("projects:lintAgentConfig", input),
-    previewAgentConfig: (input) => invoke("projects:previewAgentConfig", input),
-    writeAgentConfig: (input) => invoke("projects:writeAgentConfig", input),
-  },
-  spaces: {
-    list: () => invoke("spaces:list"),
-    add: (input) => invoke("spaces:add", input),
-    update: (input) => invoke("spaces:update", input),
-    remove: (input) => invoke("spaces:remove", input),
-  },
-  threads: {
-    list: () => invoke("threads:list"),
-    summaries: () => invoke("threads:summaries"),
-    crewTasks: (input) => invoke("threads:crewTasks", input),
-    search: (input) => invoke("threads:search", input),
-    create: (input) => invoke("threads:create", input),
-    fork: (input) => invoke("threads:fork", input),
-    rewind: (input) => invoke("threads:rewind", input),
-    get: (id) => invoke("threads:get", id),
-    peek: (id) => invoke("threads:peek", id),
-    setPermissionMode: (input) =>
-      invoke("threads:setPermissionMode", input),
-    respondPermission: (input) =>
-      invoke("threads:respondPermission", input),
-    setArchived: (input) => invoke("threads:setArchived", input),
-    setSettled: (input) => invoke("threads:setSettled", input),
-    setPinned: (input) => invoke("threads:setPinned", input),
-    setQueued: (input) => invoke("threads:setQueued", input),
-    setSnoozed: (input) => invoke("threads:setSnoozed", input),
-    setMuted: (input) => invoke("threads:setMuted", input),
-    setQuotaWaitAutoResume: (input) =>
-      invoke("threads:setQuotaWaitAutoResume", input),
-    setNotes: (input) => invoke("threads:setNotes", input),
-    resolveSuggestion: (input) =>
-      invoke("threads:resolveSuggestion", input),
-    setFeltEstimate: (input) => invoke("threads:setFeltEstimate", input),
-    startSpec: (input) => invoke("threads:startSpec", input),
-    stopSpec: (input) => invoke("threads:stopSpec", input),
-    reviewSpec: (input) => invoke("threads:reviewSpec", input),
-    specArtifact: (input) => invoke("threads:specArtifact", input),
-    dispatchSpec: (input) => invoke("threads:dispatchSpec", input),
-    convergeSpec: (input) => invoke("threads:convergeSpec", input),
-    startTeach: (input) => invoke("threads:startTeach", input),
-    stopTeach: (input) => invoke("threads:stopTeach", input),
-    startAsk: (input) => invoke("threads:startAsk", input),
-    stopAsk: (input) => invoke("threads:stopAsk", input),
-    btw: (input) => invoke("threads:btw", input),
-    dismissBtw: (input) => invoke("threads:dismissBtw", input),
-    promoteBtw: (input) => invoke("threads:promoteBtw", input),
-    requestTeachReview: (input) =>
-      invoke("threads:requestTeachReview", input),
-    rename: (input) => invoke("threads:rename", input),
-    setProvider: (input) => invoke("threads:setProvider", input),
-    setReasoningEffort: (input) =>
-      invoke("threads:setReasoningEffort", input),
-    delete: (input) => invoke("threads:delete", input),
-  },
-  activity: {
-    list: () => invoke("activity:list"),
-  },
-  usage: {
-    byDay: () => invoke("usage:byDay"),
-  },
-  insights: {
-    failureModes: () => invoke("insights:failureModes"),
-  },
-  fleet: {
-    evidence: (input) => invoke("fleet:evidence", input),
-  },
-  digest: {
-    list: (input) => invoke("digest:list", input),
-    markSeen: (input) => invoke("digest:markSeen", input),
-  },
-  runs: {
-    start: (input) => invoke("runs:start", input),
-    startWorkflow: (input) => invoke("runs:startWorkflow", input),
-    distill: (input) => invoke("runs:distill", input),
-    stop: (input) => invoke("runs:stop", input),
-    resumeQuotaWait: (input) => invoke("runs:resumeQuotaWait", input),
-  },
-  git: {
-    status: (projectId) => invoke("git:status", projectId),
-    setupWorktree: (input) => invoke("git:setupWorktree", input),
-    diff: (input) => invoke("git:diff", input),
-    reviewContext: (input) => invoke("git:reviewContext", input),
-    setReviewAccepted: (input) => invoke("git:setReviewAccepted", input),
-    commit: (input) => invoke("git:commit", input),
-    revertFile: (input) => invoke("git:revertFile", input),
-    suggestCommitMessage: (input) => invoke("git:suggestCommitMessage", input),
-    mergeWorktree: (input) => invoke("git:mergeWorktree", input),
-    removeWorktree: (input) => invoke("git:removeWorktree", input),
-    push: (input) => invoke("git:push", input),
-    createPr: (input) => invoke("git:createPr", input),
-    prStatus: (input) => invoke("git:prStatus", input),
-    prChecks: (input) => invoke("git:prChecks", input),
-    prMerge: (input) => invoke("git:prMerge", input),
-    listPrs: (projectPath) => invoke("git:listPrs", projectPath),
-    listCheckpoints: (input) => invoke("git:listCheckpoints", input),
-    restoreCheckpoint: (input) => invoke("git:restoreCheckpoint", input),
-    syncInfo: (input) => invoke("git:syncInfo", input),
-    fetch: (input) => invoke("git:fetch", input),
-    repoInfo: (input) => invoke("git:repoInfo", input),
-    pull: (input) => invoke("git:pull", input),
-    runStats: (input) => invoke("git:runStats", input),
-    conflictForecast: (input) => invoke("git:conflictForecast", input),
-    gcScan: () => invoke("git:gcScan"),
-    gcClean: (input) => invoke("git:gcClean", input),
-  },
-  vibeKanban: {
-    preview: (input) => invoke("vibeKanban:preview", input),
-    import: (input) => invoke("vibeKanban:import", input),
-    pickDataDir: () => invoke("vibeKanban:pickDataDir"),
-    export: () => invoke("vibeKanban:export"),
-  },
-  issues: {
-    fetch: (input) => invoke("issues:fetch", input),
-    list: (projectPath) => invoke("issues:list", projectPath),
-    setPlanStatus: (input) => invoke("issues:setPlanStatus", input),
-    create: (input) => invoke("issues:create", input),
-  },
-  files: {
-    list: (input) => invoke("files:list", input),
-    image: (input) => invoke("files:image", input),
-    resolve: (input) => invoke("files:resolve", input),
-  },
-  fs: {
-    browse: (input) => invoke("fs:browse", input),
-  },
-  attachments: {
-    pick: () => invoke("attachments:pick"),
-    fromPaths: (input) => invoke("attachments:fromPaths", input),
-    saveImage: (input) => invoke("attachments:saveImage", input),
-    readImage: (input) => invoke("attachments:readImage", input),
-    // Drag-drop helper: File objects cannot cross IPC, so the path is
-    // resolved in the preload (Electron >= 29) instead of via a channel.
-    droppedFilePath: (file) => webUtils.getPathForFile(file),
-  },
-  servers: {
-    list: (input) => invoke("servers:list", input),
-  },
-  shell: {
-    reveal: (input) => invoke("shell:reveal", input),
-    openPath: (input) => invoke("shell:openPath", input),
-  },
-  devserver: {
-    scripts: (input) => invoke("devserver:scripts", input),
-    start: (input) => invoke("devserver:start", input),
-    stop: (input) => invoke("devserver:stop", input),
-    status: (input) => invoke("devserver:status", input),
-  },
-  contextMenu: {
-    show: (items, position) => invoke("contextMenu:show", items, position),
-  },
-  on,
+const coder = bindChannels(invoke, IPC_CHANNELS);
+coder.attachments.droppedFilePath = (file) => webUtils.getPathForFile(file);
+coder.contextMenu = {
+  show: (items, position) => invoke("contextMenu:show", items, position),
 };
+coder.on = on;
 
 contextBridge.exposeInMainWorld("coder", coder);
