@@ -206,6 +206,123 @@ describe("next-git-action button", () => {
     }
   });
 
+  it("gates Create PR on the origin's forge, not gh (#456)", async () => {
+    const shell = await mount(<div />);
+    const prev = (window as unknown as { coder?: unknown }).coder;
+    const provider = (kind: string, ready: boolean) => ({
+      kind,
+      label: kind,
+      status: ready ? "available" : "missing",
+      installHint: `install ${kind}`,
+      version: null,
+      auth: { status: ready ? "authenticated" : "unauthenticated", detail: null },
+    });
+    let bitbucketReady = true;
+    (window as unknown as { coder: unknown }).coder = {
+      sourceControl: {
+        discover: async () => ({
+          probedAt: 1,
+          sourceControlProviders: [provider("github", false), provider("bitbucket", bitbucketReady)],
+        }),
+      },
+      git: {
+        repoInfo: async () => ({
+          ok: true,
+          owner: "acme",
+          repo: "demo",
+          webUrl: "https://bitbucket.org/acme/demo",
+          forge: "bitbucket",
+        }),
+      },
+    };
+    shell.unmount();
+    try {
+      let m = await mount(view({}));
+      await m.flush();
+      let btn = m.query('[data-next-git-action="create-pr"]') as HTMLButtonElement | null;
+      assert.ok(btn, "create-pr action");
+      assert.equal(btn!.disabled, false, "gh missing must not block a Bitbucket repo");
+      m.unmount();
+
+      bitbucketReady = false;
+      m = await mount(view({}));
+      await m.flush();
+      btn = m.query('[data-next-git-action="create-pr"]') as HTMLButtonElement | null;
+      assert.equal(btn!.disabled, true);
+      assert.equal(btn!.getAttribute("title"), "install bitbucket");
+      m.unmount();
+    } finally {
+      (window as unknown as { coder?: unknown }).coder = prev;
+    }
+  });
+
+  it("offers Publish for a checkout with no origin, with only ready forges (#456)", async () => {
+    const shell = await mount(<div />);
+    const prev = (window as unknown as { coder?: unknown }).coder;
+    const provider = (kind: string, ready: boolean) => ({
+      kind,
+      label: kind,
+      status: ready ? "available" : "missing",
+      installHint: `install ${kind}`,
+      version: null,
+      auth: { status: ready ? "authenticated" : "unauthenticated", detail: null },
+    });
+    const published: unknown[] = [];
+    let hasOrigin = false;
+    (window as unknown as { coder: unknown }).coder = {
+      sourceControl: {
+        discover: async () => ({
+          probedAt: 1,
+          sourceControlProviders: [
+            provider("github", false),
+            provider("gitlab", true),
+            provider("azure-devops", true),
+          ],
+        }),
+      },
+      git: {
+        repoInfo: async () =>
+          hasOrigin
+            ? { ok: true, owner: "acme", repo: "demo", webUrl: "https://dev.azure.com/acme", forge: "azure-devops" }
+            : { ok: false, noOrigin: true, suggestedName: "demo" },
+        publish: async (input: unknown) => {
+          published.push(input);
+          hasOrigin = true;
+          return { forge: "azure-devops", webUrl: "https://dev.azure.com/acme", branch: "main" };
+        },
+      },
+    };
+    shell.unmount();
+    try {
+      const m = await mount(view({}));
+      await m.flush();
+      assert.equal(m.query('[data-next-git-action="create-pr"]'), null, "no Create PR without origin");
+      await m.click(m.query('[data-next-git-action="publish"]'));
+      const forge = q(m, "[data-publish-forge]") as HTMLSelectElement;
+      assert.deepEqual(
+        Array.from(forge.options).map((o) => o.value),
+        ["gitlab", "azure-devops"],
+        "gh is not signed in, so GitHub is not offered",
+      );
+      assert.equal((q(m, "[data-publish-name]") as HTMLInputElement).value, "demo");
+      await m.change(forge, "azure-devops");
+      const submit = q(m, "[data-publish-submit]") as HTMLButtonElement;
+      assert.equal(submit.disabled, true, "Azure needs org + project");
+      await m.type(q(m, "[data-publish-org]"), "acme");
+      await m.type(q(m, "[data-publish-project]"), "Proj");
+      await m.click(submit);
+      await m.flush();
+      assert.deepEqual(published, [
+        { threadId: "t1", forge: "azure-devops", name: "demo", visibility: "private", org: "acme", project: "Proj" },
+      ]);
+      assert.equal(q(m, "[data-publish-dialog]"), null, "dialog closes on success");
+      assert.ok(m.query('[data-next-git-action="create-pr"]'), "origin now set: back to Create PR");
+      m.unmount();
+    } finally {
+      (window as unknown as { coder?: unknown }).coder = prev;
+    }
+  });
+
   it("sums per-file additions and deletions for the commit button", () => {
     assert.deepEqual(
       diffLineTotals([

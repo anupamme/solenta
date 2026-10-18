@@ -435,6 +435,7 @@ async function createIssue(cwd, remote, title, body) {
 }
 
 module.exports = {
+  glabBin,
   gitlabRemote,
   glabApi,
   prListItemFromMr,
@@ -455,4 +456,12 @@ module.exports = {
   reopenIssue,
   completeIssue,
   createIssue,
+  // Forge-neutral PR names worktrees-pr.js prForge dispatches on (#456).
+  kind: "gitlab",
+  parseRemote: gitlabRemote,
+  viewPr: viewMr,
+  viewPrByNumber: viewMrByNumber,
+  createPr: createMr,
+  prChecks: mrChecks,
+  mergePr: mergeMr,
 };

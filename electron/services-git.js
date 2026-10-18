@@ -177,7 +177,7 @@ function repoInfoFromRemote(url) {
  * origin, or an unparseable remote all come back as { ok: false }.
  *
  * @param {string} cwd
- * @returns {{ ok: true, owner: string, repo: string, webUrl: string } | { ok: false }}
+ * @returns {Promise<{ ok: true, owner: string, repo: string, webUrl: string, forge: string | null } | { ok: false, noOrigin?: true }>}
  */
 async function gitRepoInfo(cwd) {
   if (!cwd) return { ok: false };
@@ -192,11 +192,27 @@ async function gitRepoInfo(cwd) {
   try {
     remote = await gitOutAsync(resolved, ["remote", "get-url", "origin"]);
   } catch {
-    return { ok: false };
+    // No origin at all (vs a failed lookup): the header offers Publish (#456).
+    const names = await gitOutAsync(resolved, ["remote"]).catch(() => null);
+    if (names == null || names.split("\n").includes("origin")) return { ok: false };
+    return { ok: false, noOrigin: true };
   }
   const info = repoInfoFromRemote(remote);
   if (!info) return { ok: false };
-  return { ok: true, ...info };
+  return { ok: true, ...info, forge: await forgeKindOf(remote) };
+}
+
+/**
+ * Which forge drives PRs for this origin (#456), so the header gates Create
+ * PR on that provider's readiness instead of always gh's. Null = none.
+ * @param {string} remote
+ * @returns {Promise<"github" | "gitlab" | "bitbucket" | "azure-devops" | null>}
+ */
+async function forgeKindOf(remote) {
+  const { prForge, isGitHubPrRemote } = require("./worktrees-pr.js");
+  const forge = prForge(remote);
+  if (forge) return forge.api.kind;
+  return (await isGitHubPrRemote(remote)) ? "github" : null;
 }
 
 /**
