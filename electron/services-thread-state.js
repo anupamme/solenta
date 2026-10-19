@@ -89,9 +89,13 @@ function clearSettledOnActivity(thread) {
  * clears pinnedAt; setPinned(true) clears a "settled" override. Both directions
  * live here and in setPinned so they cannot drift.
  *
+ * Settling a lead also settles its done-and-merged workers (opts.retire
+ * gets each one's id), and a worktree with nothing left to merge is
+ * cleaned up once onSettle finishes.
+ *
  * @param {import('./store').Store} store
  * @param {{ threadId: string, override: "settled" | "active" | null }} input
- * @param {{ broadcast?: (channel: string, payload: unknown) => void }} [opts]
+ * @param {{ broadcast?: (channel: string, payload: unknown) => void, retire?: (threadId: string) => void }} [opts]
  */
 function setSettled(store, input, opts) {
   const { threadId, override } = input;
@@ -125,15 +129,82 @@ function setSettled(store, input, opts) {
   }
   const updated = store.updateThread(threadId, patch);
   store.save();
+  if (override === "settled") {
+    // A lead settles its finished crew with it; each worker gets the same
+    // onSettle + clean up below.
+    for (const w of store.getThreads()) {
+      if (!w.orchWorker || w.handoffFrom !== threadId) continue;
+      if (w.archived || w.settledOverride === "settled") continue;
+      if (!workerDoneAndMerged(store, w)) continue;
+      setSettled(store, { threadId: w.id, override: "settled" }, opts);
+      if (opts && typeof opts.retire === "function") opts.retire(w.id);
+    }
+  }
   if (override === "settled" && thread.settledOverride !== "settled") {
     // Fire-and-forget: the settle never waits on, or fails with, onSettle.
-    void require("./projectCommands.js").runOnSettle({
-      store,
-      threadId,
-      broadcast: opts && opts.broadcast,
-    });
+    // The clean up waits for it, since it deletes the checkout onSettle runs in.
+    void require("./projectCommands.js")
+      .runOnSettle({
+        store,
+        threadId,
+        broadcast: opts && opts.broadcast,
+      })
+      .then(() => cleanUpLandedOnSettle(store, threadId, opts));
   }
   return updated ? { ...updated } : { ...thread, ...patch };
+}
+
+/**
+ * Idle worker with nothing left to merge: its worktree is gone (merged into
+ * the lead or main, which removes it), its PR merged, or every commit is
+ * already on its base (#1556).
+ * @param {import('./store').Store} store
+ * @param {object} w
+ */
+function workerDoneAndMerged(store, w) {
+  if (w.status === "working" || w.status === "quota-wait") return false;
+  if (w.pendingFork || w.pendingWorktree) return false;
+  if (!w.worktreePath || w.prState === "MERGED") return true;
+  const project = store.getProject(w.projectId);
+  return Boolean(project) && require("./worktrees.js").worktreeLanded(project, w);
+}
+
+/**
+ * Settle does what the header's "Clean up" does (#1556): a worktree whose
+ * work is all on its base is removed with its branch. Skipped when the user
+ * unsettled meanwhile, or while unsettled workers may still merge into it.
+ * Never throws.
+ * @param {import('./store').Store} store
+ * @param {string} threadId
+ * @param {{ broadcast?: (channel: string, payload: unknown) => void }} [opts]
+ */
+function cleanUpLandedOnSettle(store, threadId, opts) {
+  try {
+    const t = store.getThread(threadId);
+    if (!t || !t.worktreePath || t.settledOverride !== "settled") return;
+    const crewOpen = store
+      .getThreads()
+      .some(
+        (w) =>
+          w.orchWorker &&
+          w.handoffFrom === threadId &&
+          !w.archived &&
+          w.settledOverride !== "settled",
+      );
+    if (crewOpen) return;
+    const project = store.getProject(t.projectId);
+    const lifecycle = require("./worktrees-lifecycle.js");
+    if (!project || !lifecycle.worktreeLanded(project, t)) return;
+    lifecycle.cleanupWorktree({
+      store,
+      thread: t,
+      project,
+      broadcast: opts && opts.broadcast,
+      forceRemove: false,
+    });
+  } catch {
+    // the settle already happened; a failed clean up leaves the worktree
+  }
 }
 
 /**

@@ -1327,6 +1327,7 @@ module.exports = {
   removeWorktreeDir,
   branchLanded,
   worktreeLanded,
+  cleanupWorktree,
   mergeWorktree,
   removeWorktree,
   setupWorktree,
