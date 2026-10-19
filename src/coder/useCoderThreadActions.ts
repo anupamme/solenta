@@ -8,6 +8,7 @@ import type {
   ReasoningEffort,
   SpecArtifact,
   ThreadDetail,
+  ThreadBudget,
   ThreadInfo,
   ThreadMessagePin,
   WorkSuggestionStatus,
@@ -758,6 +759,19 @@ export function useCoderThreadActions({
     [api, applyThreads],
   );
 
+  const setThreadBudget = useCallback(
+    async (threadId: string, budget: ThreadBudget | null) => {
+      const thread = await api.threads.setBudget({ threadId, budget });
+      applyThreads(
+        threadsRef.current.map((t) => (t.id === thread.id ? thread : t)),
+      );
+      setDetail((prev) =>
+        prev && prev.thread.id === thread.id ? { ...prev, thread } : prev,
+      );
+    },
+    [api, applyThreads],
+  );
+
   const setFeltEstimate = useCallback(
     async (threadId: string, savedMs: number | null) => {
       try {
@@ -1044,6 +1058,7 @@ export function useCoderThreadActions({
     refreshWorkerSnapshot,
     resolveSuggestion,
     setFeltEstimate,
+    setThreadBudget,
     startSpec,
     stopSpec,
     reviewSpec,

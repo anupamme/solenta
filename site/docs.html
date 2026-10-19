@@ -27,10 +27,13 @@
   <meta name="theme-color" content="#f5f5f2" />
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml" />
   <script>document.documentElement.classList.add("js");</script>
-  <link rel="stylesheet" href="style.css?v=9" />
+  <link rel="stylesheet" href="style.css?v=11" />
   <!-- First-party stats: no cookies, no personal data, so no consent banner.
        stats.js beacons pageviews and data-event clicks to stats.solenta.app. -->
   <script src="stats.js" defer></script>
+  <!-- Meterbird analytics, cookieless until the visitor allows it in the
+       consent.js banner; replay only after "Allow". -->
+  <script src="consent.js" defer></script>
 </head>
 <body>
 
@@ -43,6 +46,7 @@
     <div class="nav-links">
       <a href="docs.html" class="active">Docs</a>
       <a href="changelog.html">Changelog</a>
+      <a href="https://github.com/currentbits/solenta/discussions">Discussions</a>
       <a href="https://github.com/currentbits/solenta">GitHub</a>
       <a class="nav-cta" href="index.html#install">
         Download
@@ -1170,6 +1174,21 @@
         settle clean up the thread's managed dev server.
       </p>
       <p>
+        By default the server's URL is taken from its log. To wait for the
+        server to actually be up, declare a readiness probe in
+        <code>solenta.json</code>:
+        <code>{"devServer": {"ready": {"tcp": "$PORT"}}}</code>. A probe is
+        exactly one of <code>tcp</code> (a port), <code>http</code> (a
+        localhost URL that must answer 2xx or 3xx) or <code>exec</code> (a
+        command that must exit 0, such as <code>test -f /tmp/ready</code>).
+        <code>$PORT</code> and other variables come from the dev server's
+        environment, so each lane probes its own port. The Dev server card
+        shows the probe's state. The URL appears, and the Browser pane loads
+        it, only once the probe passes. If it hasn't passed by
+        <code>timeoutMs</code> (default 120000), the card shows the last
+        error and the server keeps running.
+      </p>
+      <p>
         Setup commands and quick actions keep their output in the
         transcript, so you can read, copy or attach it without running the
         command again. An <code>onSettle</code> entry in
@@ -1594,6 +1613,7 @@ sudo loginctl enable-linger "$USER"   # keep it running after you log out</code>
     <span class="spacer"></span>
     <a href="docs.html">Docs</a>
     <a href="changelog.html">Changelog</a>
+    <a href="https://github.com/currentbits/solenta/discussions">Discussions</a>
     <a href="https://github.com/currentbits/solenta">GitHub</a>
     <a href="https://github.com/currentbits/solenta/releases">Releases</a>
     <a href="https://x.com/currentbitsNET">@currentbitsNET</a>

@@ -14,6 +14,7 @@ const path = require("node:path");
 const { createHash } = require("node:crypto");
 const { normalizeTrigger, parseTriggerInput } = require("./automation-triggers.js");
 const { normalizeRoute } = require("./routing.js");
+const { normalizeBudget } = require("./budgetCaps.js");
 const { isKnownProviderId } = require("./services-notes.js");
 const { readRepoJson, invalidateRepoConfigCache } = require("./repoConfig.js");
 
@@ -76,6 +77,9 @@ function canonical(row) {
     hour: row.hour,
     trigger: row.trigger,
     tier: row.tier,
+    // #286. undefined drops out of JSON.stringify, so rows without a cap
+    // keep the hash every trusted file already has.
+    budget: row.budget || undefined,
   };
 }
 
@@ -188,6 +192,14 @@ function parseRow(raw, index, seen) {
     }
   }
 
+  let budget = null;
+  try {
+    budget = normalizeBudget(r.budget, true);
+  } catch (err) {
+    const msg = err && err.message ? String(err.message) : String(err);
+    return { error: `solenta.json: ${at}.${msg}` };
+  }
+
   return {
     row: {
       id,
@@ -199,6 +211,7 @@ function parseRow(raw, index, seen) {
       hour: hourParsed.hour,
       trigger,
       tier,
+      ...(budget ? { budget } : {}),
     },
   };
 }
@@ -341,6 +354,7 @@ function mergeAutomations(store, nowMs) {
         hour: row.hour,
         trigger: row.trigger,
         tier: row.tier,
+        ...(row.budget ? { budget: row.budget } : {}),
         scope: "project",
       });
     }

@@ -1043,6 +1043,28 @@ html.js .reveal.in {
   transform: none;
 }
 
+/* ---------------- consent banner (consent.js) ---------------- */
+.consent {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 100;
+  max-width: 380px;
+  padding: 16px 18px;
+  background: var(--paper-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+  box-shadow: 0 12px 40px rgba(25, 25, 24, 0.14);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.consent p { margin: 0 0 12px; color: var(--muted); }
+.consent-actions { display: flex; gap: 8px; }
+.consent .btn { padding: 8px 16px; font-size: 13.5px; cursor: pointer; font-family: inherit; }
+@media (max-width: 560px) {
+  .consent { right: 16px; max-width: none; }
+}
+
 /* ---------------- reduced motion ---------------- */
 @media (prefers-reduced-motion: reduce) {
   html.js .reveal { opacity: 1; transform: none; transition: none; }
@@ -1088,6 +1110,8 @@ html.js .reveal.in {
      hero CTA and the footer, and everything else tightens up. */
   .nav-inner { padding: 0 16px; gap: 12px; }
   .nav-links { gap: 12px; }
+  /* Discussions is in the footer too; the nav cannot fit it at this width. */
+  .nav-links a[href$="/discussions"] { display: none; }
   .nav-cta { padding: 6px 12px; }
   .hero h1 { font-size: clamp(34px, 10.4vw, 46px); }
   /* Compare table fits the viewport instead of scrolling sideways. */

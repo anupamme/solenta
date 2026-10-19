@@ -217,6 +217,7 @@ const IPC_CHANNELS = Object.freeze([
   { ns: "threads", method: "setPendingWorktree" },
   { ns: "threads", method: "refreshWorkerSnapshot" },
   { ns: "threads", method: "setFeltEstimate" },
+  { ns: "threads", method: "setBudget" },
   { ns: "threads", method: "startSpec" },
   { ns: "threads", method: "stopSpec" },
   { ns: "threads", method: "reviewSpec" },

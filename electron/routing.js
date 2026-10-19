@@ -146,7 +146,12 @@ function applyRoute(store, threadId, prompt) {
       }
     }
     // The routed profile's matrix gates this thread's tool calls (#262).
-    store.updateThread(threadId, { agentProfileId: profile.id });
+    // Its cap is only a default (#286): an automation's own cap wins.
+    const { budgetPatchFrom } = require("./budgetCaps.js");
+    store.updateThread(threadId, {
+      agentProfileId: profile.id,
+      ...(thread.budget ? {} : budgetPatchFrom(profile)),
+    });
   } catch (err) {
     store.save();
     const msg = err instanceof Error ? err.message : String(err);

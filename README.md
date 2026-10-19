@@ -22,6 +22,7 @@
   <a href="https://solenta.app/docs.html">Docs</a> ·
   <a href="https://github.com/currentbits/solenta/releases/latest">Download</a> ·
   <a href="https://solenta.app/changelog.html">Changelog</a> ·
+  <a href="https://github.com/currentbits/solenta/discussions">Discussions</a> ·
   <a href="https://github.com/currentbits/solenta/issues">Issues</a>
 </p>
 

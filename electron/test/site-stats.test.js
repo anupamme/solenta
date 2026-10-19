@@ -22,6 +22,14 @@ test("every public page dropped Plausible and loads stats.js", () => {
   }
 });
 
+test("Meterbird loads only through the consent.js banner", () => {
+  for (const name of PAGES) {
+    const html = read(name);
+    assert.match(html, /src="consent\.js"/, name);
+    assert.equal(html.includes("app.meterbird.com"), false, name);
+  }
+});
+
 test("homepage CTAs use data-event and data-platform", () => {
   const html = read("index.html");
   assert.match(html, /data-event="Docs"/);

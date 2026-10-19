@@ -266,6 +266,7 @@ export default function App({ rendererSha: rendererShaOverride }: AppProps = {})
     refreshWorkerSnapshot,
     resolveSuggestion,
     setFeltEstimate,
+    setThreadBudget,
     startSpec,
     stopSpec,
     reviewSpec,
@@ -2142,6 +2143,7 @@ export default function App({ rendererSha: rendererShaOverride }: AppProps = {})
         onDistillMemory={handleDistillMemory}
         onSetNotes={handleSetNotes}
         onSetMessagePins={handleSetMessagePins}
+        onSetBudget={setThreadBudget}
         onSetFeltEstimate={
           // Opt-in (#401): no handler, no card. ThreadView already hides it.
           settings?.feltEstimatePrompt ? handleSetFeltEstimate : undefined

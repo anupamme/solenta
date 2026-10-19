@@ -2206,6 +2206,8 @@ async function createPr(opts) {
 }
 
 module.exports = {
+  ghBin,
+  remoteHostOf,
   PR_REFRESH_TIMEOUT_MS,
   GH_TIMEOUT_MS,
   ghApiTryAsync,

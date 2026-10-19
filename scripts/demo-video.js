@@ -2,7 +2,7 @@
 //
 // Usage:
 //   npm run dev:browser                        # devCoder fixtures, no Electron
-//   npx electron scripts/demo-video.js
+//   npx electron scripts/demo-video.js         # DEMO_TOUR=readme for the README loop
 //
 // Why one script owns both halves: AppVideo records the real screen and moves
 // the real pointer, so every click needs a *screen* coordinate, and the only
@@ -158,7 +158,15 @@ async function waitForApp(win) {
         document.querySelector("[data-web-token-gate]")?.remove();
         return Boolean(document.querySelector("[data-thread-card]"));
       })()`);
-    if (ready) return;
+    if (ready) {
+      // A fresh partition has never seen the first-run wizard, and it covers
+      // every view the tour wants to show.
+      await sleep(800);
+      await win.webContents.executeJavaScript(`
+        [...document.querySelectorAll('[role="dialog"] button')]
+          .find((b) => b.textContent.trim() === "Skip")?.click()`);
+      return;
+    }
     await sleep(150);
   }
   throw new Error("the UI never rendered a thread card");
@@ -202,10 +210,22 @@ const TOUR = [
   { escape: true, dwell: 1500 },
 ];
 
+// DEMO_TOUR=readme: the ~25s loop at the top of the README. Issue to agent to
+// diff, opening on a PR whose CI badge is live while its agents still work.
+const README_TOUR = [
+  { dwell: 3000, note: "PR with CI checks, agents working" },
+  { sel: '[data-view-nav="planboard"]', dwell: 2500, note: "planboard" },
+  { text: "Start task", dwell: 2500, note: "dispatch issue #2" },
+  { sel: '[aria-label^="Select thread: Issue #2"]', dwell: 4500, note: "agent on the issue" },
+  { sel: '[aria-label^="Select thread: Modernize"]', dwell: 1200, note: "back to the PR" },
+  { aria: "Views", dwell: 700, note: "views" },
+  { text: "Git", tag: 'button, [role^="menuitem"]', dwell: 5000, note: "diff" },
+];
+
 async function run(win, av) {
   let cursor = null; // last screen point, so paths start where the cursor is
 
-  for (const step of TOUR) {
+  for (const step of process.env.DEMO_TOUR === "readme" ? README_TOUR : TOUR) {
     if (step.escape) {
       win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
       win.webContents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });

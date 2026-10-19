@@ -691,6 +691,16 @@ export function DevServerCard({
           <p className={styles.gitHint} data-dev-server-state="">
             {statusText}
           </p>
+          {state.running && state.probe && (
+            <p className={styles.gitHint} data-dev-server-probe={state.probe.status}>
+              {state.probe.status === "failed"
+                ? `Not ready: ${state.probe.lastError ?? "probe failed"}`
+                : `${state.probe.status === "ready" ? "Ready" : "Waiting for"} ${state.probe.kind} ${state.probe.target}`}
+              {state.probe.status === "waiting" && state.probe.lastError
+                ? ` (${state.probe.lastError})`
+                : ""}
+            </p>
+          )}
           {state.url && (
             <a
               className={styles.devServerUrl}
