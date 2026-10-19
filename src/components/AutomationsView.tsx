@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  AUTOMATION_TEMPLATES,
+  type AutomationTemplate,
   automationRunStatusLabel,
   createFormError,
   formatNextRun,
   isTriggerEvent,
   scheduleLabel,
-  TRIAGE_TEMPLATE,
+  stageLabel,
   TRIGGER_EVENT_LABELS,
   triggerLabel,
 } from "../automations";
@@ -16,6 +18,7 @@ import type {
   AutomationPreset,
   AutomationRunsResult,
   AutomationScope,
+  AutomationStage,
   AutomationTrigger,
   AutomationTriggerEvent,
   AutomationWrite,
@@ -297,6 +300,9 @@ export function AutomationsView({
   const [environment, setEnvironment] = useState("");
   const [memory, setMemory] = useState("");
   const [scope, setScope] = useState<AutomationScope>("private");
+  // #388: new automations calibrate report-only first.
+  const [stage, setStage] = useState<AutomationStage>("observe");
+  const [graduate, setGraduate] = useState(true);
   const [wroteFile, setWroteFile] = useState(false);
   const [dismissedApprove, setDismissedApprove] = useState<Set<string>>(
     () => new Set(),
@@ -343,6 +349,8 @@ export function AutomationsView({
     setEnvironment(auto.trigger?.environment ?? "");
     setMemory(auto.memory ?? "");
     setScope(auto.scope ?? "private");
+    setStage(auto.stage ?? "act");
+    setGraduate(auto.graduate !== false);
     setFormError(null);
   };
 
@@ -374,6 +382,22 @@ export function AutomationsView({
     setEnvironment("");
     setMemory("");
     setScope("private");
+    setStage("observe");
+    setGraduate(true);
+    setFormError(null);
+  };
+
+  const applyTemplate = (t: AutomationTemplate) => {
+    setName(t.name);
+    setPrompt(t.prompt);
+    setEvent(t.event ?? "");
+    setPreset(t.preset ?? "hourly");
+    setHour(String(t.hour ?? 9));
+    setConclusion(t.conclusion ?? "");
+    setBranch("");
+    setLabel("");
+    setStage("observe");
+    setGraduate(true);
     setFormError(null);
   };
 
@@ -495,6 +519,8 @@ export function AutomationsView({
           hour: nextDef.hour,
           trigger: nextDef.trigger,
           memory,
+          stage,
+          graduate,
           ...(tier || hadTier ? { tier: nextDef.tier } : {}),
         });
         setWroteFile(
@@ -519,6 +545,8 @@ export function AutomationsView({
           trigger,
           enabled: true,
           scope: writeScope,
+          stage,
+          graduate,
           ...(tier ? { tier } : {}),
         });
         setWroteFile(writeScope === "project");
@@ -527,6 +555,8 @@ export function AutomationsView({
         setModel("");
         setTier("");
         setScope("private");
+        setStage("observe");
+        setGraduate(true);
       }
     } catch (err) {
       setFormError(
@@ -552,6 +582,23 @@ export function AutomationsView({
           void submit();
         }}
       >
+        {editingId ? null : (
+          <div className={styles.templates} data-automation-templates="">
+            <span className={styles.label}>Start from a template</span>
+            {AUTOMATION_TEMPLATES.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className={styles.action}
+                data-automation-template={t.id}
+                title={t.blurb}
+                onClick={() => applyTemplate(t)}
+              >
+                {t.name}
+              </button>
+            ))}
+          </div>
+        )}
         <div className={styles.formRow}>
           <label className={`${styles.field} ${styles.grow}`}>
             <span className={styles.label}>Name</span>
@@ -852,6 +899,34 @@ export function AutomationsView({
               />
             </label>
           ) : null}
+          <label className={styles.field}>
+            <span className={styles.label}>Stage</span>
+            <select
+              className={styles.select}
+              value={stage}
+              onChange={(e) => setStage(e.target.value as AutomationStage)}
+              name="stage"
+              aria-label="Stage"
+              title="Observe runs only report what they would do; draft runs leave posting and merging to you"
+              data-automation-stage-select=""
+            >
+              <option value="observe">Observe (report only)</option>
+              <option value="draft">Draft (you post)</option>
+              <option value="act">Act</option>
+            </select>
+          </label>
+          {stage !== "act" ? (
+            <label className={styles.toggle}>
+              <input
+                type="checkbox"
+                checked={graduate}
+                onChange={(e) => setGraduate(e.target.checked)}
+                name="graduate"
+                data-automation-graduate=""
+              />
+              Graduate after 7 days
+            </label>
+          ) : null}
           {needsHour ? (
             <label className={styles.field}>
               <span className={styles.label}>Hour</span>
@@ -911,21 +986,7 @@ export function AutomationsView({
             >
               Cancel
             </button>
-          ) : (
-            <button
-              type="button"
-              className={styles.action}
-              data-automation-triage=""
-              title="Label, dedupe, and question new GitHub issues; only well-formed ones reach plan:todo"
-              onClick={() => {
-                setName(TRIAGE_TEMPLATE.name);
-                setEvent(TRIAGE_TEMPLATE.event);
-                setPrompt(TRIAGE_TEMPLATE.prompt);
-              }}
-            >
-              Use triage template
-            </button>
-          )}
+          ) : null}
           <button
             type="submit"
             className={styles.submit}
@@ -1055,6 +1116,14 @@ export function AutomationsView({
                   </span>
                   {auto.model ? (
                     <span className={styles.schedule}>{auto.model}</span>
+                  ) : null}
+                  {stageLabel(auto, now) ? (
+                    <span
+                      className={styles.schedule}
+                      data-automation-stage={auto.stage}
+                    >
+                      {stageLabel(auto, now)}
+                    </span>
                   ) : null}
                   {auto.trigger ? null : (
                     <span className={styles.next}>
