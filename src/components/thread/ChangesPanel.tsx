@@ -536,6 +536,7 @@ export function ChangesPanel({
   threadBaseBranch,
   planText,
   openNonce,
+  focus = null,
   onFetchDiff,
   onFetchReviewContext,
   onSetReviewAccepted,
@@ -557,6 +558,8 @@ export function ChangesPanel({
   threadBaseBranch?: string | null;
   planText: string;
   openNonce: number;
+  /** File an agent pointed at (show_user, #293); a new object re-selects. */
+  focus?: { path: string } | null;
   onFetchDiff: (opts?: DiffOptions) => Promise<DiffResult>;
   onFetchReviewContext?: () => Promise<{
     annotation: unknown;
@@ -750,10 +753,27 @@ export function ChangesPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- diff is the trigger
   }, [diff]);
 
+  // Held until a diff that has the file lands: the panel may still be loading.
+  const wantPathRef = useRef<string | null>(null);
+  useEffect(() => {
+    wantPathRef.current = focus ? focus.path : null;
+    const want = focus?.path;
+    if (want && diff?.files.some((f) => f.path === want)) {
+      wantPathRef.current = null;
+      setSelectedPath(want);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- focus is the trigger
+  }, [focus]);
 
   useEffect(() => {
     if (!diff || diff.files.length === 0) {
       setSelectedPath(null);
+      return;
+    }
+    const want = wantPathRef.current;
+    if (want && diff.files.some((f) => f.path === want)) {
+      wantPathRef.current = null;
+      setSelectedPath(want);
       return;
     }
     if (selectedPath && diff.files.some((f) => f.path === selectedPath)) return;

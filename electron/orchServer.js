@@ -37,6 +37,7 @@ const {
   addAutomation,
 } = require("./services.js");
 const { stop: stopDevServer } = require("./devservers.js");
+const { resolveThreadRoot } = require("./ipc-shared.js");
 const {
   decideCrossThreadSend,
   attributedPrompt,
@@ -66,6 +67,11 @@ const INSTRUCTIONS =
   "instead of your CLI's own question tool and instead of guessing when a wrong " +
   "assumption would waste the work. It does not block: call it, then end your turn. " +
   "Their answer starts your next turn. " +
+  "show_user points the user at something on your own thread instead of " +
+  "describing it: target diff (optionally one changed file), file (a path " +
+  "and line, or an artifact you wrote such as a report or screenshot), or " +
+  "terminal. It opens that pane when they are watching, and leaves a Show " +
+  "button in the transcript when they are not. " +
   "When a thread is in spec mode the prompt carries a [Spec mode] note; write only " +
   "that stage's artifact and call spec_submit. " +
   "When a thread is in teach mode the prompt carries a [Teach mode] note; leave " +
@@ -967,6 +973,44 @@ function createToolHandlers(deps) {
     };
   }
 
+  /**
+   * Point the user at a pane on the caller's own thread (issue #293, AG-UI
+   * style frontend tool). The host only validates and normalizes; the
+   * renderer reads this result off the tool card and opens the pane.
+   */
+  async function show_user(args) {
+    requireOwnThread(args);
+    const target = String((args && args.target) || "");
+    if (target !== "diff" && target !== "file" && target !== "terminal") {
+      throw new Error("target must be diff, file, or terminal.");
+    }
+    const raw = target === "terminal" ? "" : String((args && args.path) || "");
+    if (target === "file" && !raw) throw new Error("target file needs a path.");
+    let rel = null;
+    if (raw) {
+      const { root } = resolveThreadRoot(store, args.threadId);
+      const abs = path.resolve(root, raw);
+      rel = path.relative(root, abs);
+      if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) {
+        throw new Error(`Path is outside this thread's workspace: ${raw}`);
+      }
+      // A deleted file still has a diff; only a file preview needs it on disk.
+      if (target === "file" && !fs.existsSync(abs)) {
+        throw new Error(`No such file in this thread's workspace: ${rel}`);
+      }
+      rel = rel.split(path.sep).join("/");
+    }
+    const line = Number(args && args.line);
+    const reason = String((args && args.reason) || "").trim().slice(0, 200);
+    return {
+      shown: true,
+      target,
+      path: rel,
+      line: target === "file" && Number.isInteger(line) && line > 0 ? line : null,
+      reason: reason || null,
+    };
+  }
+
   async function hypothesis_record(args) {
     const thread = store.getThread(args.threadId);
     if (!thread) {
@@ -1374,6 +1418,7 @@ function createToolHandlers(deps) {
     thread_rename,
     ask_user,
     secret_request,
+    show_user,
     hypothesis_record,
     work_suggest,
     automation_create,
@@ -1680,6 +1725,32 @@ function buildMcpServer(sdk, handlers, opts = {}) {
       },
     },
     async (args) => json(await handlers.ask_user(args)),
+  );
+
+  server.registerTool(
+    "show_user",
+    {
+      description:
+        "Point the user at something on YOUR OWN thread instead of " +
+        "describing it in text. threadId and projectId are your own. " +
+        "target diff opens the Git pane (path selects one changed file); " +
+        "file opens the Files pane on path, highlighting line when given " +
+        "(use it for artifacts you wrote: reports, screenshots, logs); " +
+        "terminal opens the Terminal pane. path is relative to your " +
+        "working directory. reason is one short line shown on the card. " +
+        "Opens the pane if the user is watching this thread, otherwise " +
+        "leaves a Show button. Use it sparingly, at the moment the thing " +
+        "matters.",
+      inputSchema: {
+        threadId: z.string().min(1),
+        projectId: z.string().min(1),
+        target: z.enum(["diff", "file", "terminal"]),
+        path: z.string().min(1).optional(),
+        line: z.number().int().min(1).optional(),
+        reason: z.string().optional(),
+      },
+    },
+    async (args) => json(await handlers.show_user(args)),
   );
 
   server.registerTool(
