@@ -3999,6 +3999,8 @@ export interface PairingCreated {
   url: string | null;
   claudeDesktopJson: string | null;
   pairingPrompt: string | null;
+  /** agent_servers entry that runs Solenta as an ACP agent in Zed/JetBrains (#272). */
+  acpJson?: string | null;
 }
 
 /** A browser or phone allowed into Solenta Web (#1512 I2). Token never listed. */

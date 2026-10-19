@@ -103,7 +103,7 @@ function createPermissions(ctx) {
     const e = active.get(threadId);
     if (
       e &&
-      (e.kind === "claude" || e.kind === "codex" || e.kind === "opencode") &&
+      (e.kind === "claude" || e.kind === "codex" || e.kind === "opencode" || e.kind === "generic") &&
       Array.isArray(e.pendingPermissions)
     ) {
       const p = e.pendingPermissions[0];
@@ -310,8 +310,9 @@ function createPermissions(ctx) {
   }
 
   /**
-   * opencode serve (#451): POST /permission/:id/reply. The prompt leaves the
-   * card now; a failed reply is logged, and the turn's own error ends the run.
+   * opencode serve (#451): POST /permission/:id/reply; an ACP agent (#272):
+   * session/request_permission's response. The prompt leaves the card now;
+   * a failed reply is logged, and the turn's own error ends the run.
    */
   function respondOpencodePermission(e, threadId, input) {
     const { requestId, decision } = input || {};
@@ -322,7 +323,8 @@ function createPermissions(ctx) {
     const runId = e.runId;
     void e.handle.replyPermission(pending.id, reply).then((ok) => {
       if (ok) return;
-      appendMessage(threadId, "event", `OpenCode did not take the reply: ${pending.summary}`, runId);
+      const who = e.kind === "generic" ? "The agent" : "OpenCode";
+      appendMessage(threadId, "event", `${who} did not take the reply: ${pending.summary}`, runId);
       store.save();
       pushDetail(threadId, e.opencodeState || null);
     });
@@ -395,7 +397,8 @@ function createPermissions(ctx) {
     if (e.kind === "codex") {
       return respondCodexPermission(e, threadId, input);
     }
-    if (e.kind === "opencode" && Array.isArray(e.pendingPermissions)) {
+    // An ACP custom CLI (#272) takes the same once/always/reject reply.
+    if ((e.kind === "opencode" || e.kind === "generic") && Array.isArray(e.pendingPermissions)) {
       return respondOpencodePermission(e, threadId, input);
     }
     if (e.kind !== "claude") {

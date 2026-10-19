@@ -11,6 +11,7 @@ const path = require("node:path");
 const threadSecrets = require("./threadSecrets.js");
 const { findInstance, instanceEnv } = require("./providerInstances.js");
 const { runAcpAgent } = require("./acp.js");
+const { sessionIdForResume } = require("./providers.js");
 
 /**
  * @param {object} ctx - createRunner context (see runner-watchdogs.js header)
@@ -376,13 +377,19 @@ function createGenericRun(ctx) {
 
     /** ACP tool call id -> open work-log step. */
     const toolSteps = new Map();
+    /** The ACP agent keeps its own session (loadSession): no tail replay. */
+    let resumable = false;
 
     // Stop/error/clearRun must land pending text before the terminal push,
-    // and no ACP tool step outlives its run.
+    // and no ACP tool step or permission card outlives its run.
     entry.flushStream = () => {
       cancelPushTimer();
       applyPendingText();
       for (const id of toolSteps.values()) completeWorkLogStep(threadId, id);
+      if (entry.pendingPermissions && entry.pendingPermissions.length) {
+        entry.pendingPermissions = [];
+        store.updateThread(threadId, { awaitingInput: false });
+      }
     };
 
     const crossing = crossesBoundary(project);
@@ -412,7 +419,7 @@ function createGenericRun(ctx) {
         clearRun(threadId);
         // No session to resume: the next turn replays the retained tail
         // (buildHandoffPrefix), or every follow-up would start blind.
-        if (custom) store.updateThread(threadId, { replayContext: true });
+        if (custom && !resumable) store.updateThread(threadId, { replayContext: true });
 
         completeWorkLogStep(threadId, e.startingId);
         completeWorkLogStep(threadId, e.respondingId);
@@ -456,7 +463,12 @@ function createGenericRun(ctx) {
         completeWorkLogStep(threadId, e.respondingId);
         realState.agentStatus = "failed";
         const msg = err && err.message ? err.message : String(err);
-        const errText = `Run error: ${msg}`;
+        let errText = `Run error: ${msg}`;
+        if (err && err.acpResumeFailed) {
+          // Drop the dead session: the next send starts fresh on the tail.
+          store.updateThread(threadId, { sessionId: null, replayContext: true });
+          errText += "\nSend again to continue with the transcript replayed.";
+        }
         const failure = markRunFailed(threadId, errText, runId);
         appendDoneWorkLog(threadId, runId, "Run error");
         store.save();
@@ -479,6 +491,41 @@ function createGenericRun(ctx) {
           env,
           prompt: String(prompt ?? ""),
           fullAccess: thread.permissionMode === "bypassPermissions",
+          resumeSessionId: sessionIdForResume(null, thread, null),
+          onSession: (sessionId, canLoad) => {
+            if (!guard()) return;
+            resumable = canLoad;
+            store.updateThread(threadId, { sessionId: canLoad ? sessionId : null });
+          },
+          // Default mode: the agent's ask is the thread's permission card.
+          onPermission: (req) => {
+            const e = guard();
+            if (!e) return;
+            const raw = req.rawInput && typeof req.rawInput === "object" ? req.rawInput : {};
+            let input;
+            try {
+              input = JSON.stringify(raw, null, 2);
+            } catch {
+              input = "";
+            }
+            if (!Array.isArray(e.pendingPermissions)) e.pendingPermissions = [];
+            e.pendingPermissions.push({
+              id: req.id,
+              toolName: req.toolKind,
+              summary: req.title,
+              input,
+              rawInput: raw,
+              command: typeof raw.command === "string" ? raw.command : null,
+              commandEditable: false,
+              acceptAlways: req.acceptAlways,
+            });
+            if (e.pendingPermissions.length === 1) {
+              store.updateThread(threadId, { awaitingInput: true }, { touch: true });
+              pushThreadsChanged();
+            }
+            store.save();
+            pushDetail(threadId, realState);
+          },
           // Tool calls are work-log steps: one per id, done when it settles.
           onTool: (update) => {
             if (!guard() || !update.toolCallId) return;
@@ -490,11 +537,6 @@ function createGenericRun(ctx) {
             if (update.status === "completed" || update.status === "failed") {
               completeWorkLogStep(threadId, stepId);
             }
-            throttledPush();
-          },
-          onNote: (label) => {
-            if (!guard()) return;
-            appendDoneWorkLog(threadId, runId, label);
             throttledPush();
           },
         })

@@ -260,7 +260,28 @@ function buildConfigs({ token, port, pairing }) {
         `Do not put this token on a command line or in a world-readable file.`,
       ].join("\n")
     : null;
-  return { url, claudeDesktopJson, pairingPrompt };
+  // Zed / JetBrains agent_servers entry: Solenta as an ACP agent (#272).
+  // The packaged app runs the script as Node, as the guardrail hooks do.
+  const acpJson = url
+    ? JSON.stringify(
+        {
+          agent_servers: {
+            Solenta: {
+              command: process.execPath,
+              args: [path.join(__dirname, "acp-server.js")],
+              env: {
+                ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
+                SOLENTA_MCP_URL: url,
+                SOLENTA_TOKEN: token,
+              },
+            },
+          },
+        },
+        null,
+        2,
+      )
+    : null;
+  return { url, claudeDesktopJson, pairingPrompt, acpJson };
 }
 
 function listPairings(userDataPath, opts = {}) {
@@ -501,6 +522,21 @@ function lastAssistantLine(store, threadId) {
   return null;
 }
 
+/**
+ * Latest assistant message, whole: an ACP editor (#272, acp-server.js)
+ * streams it by watching the text grow under one id.
+ */
+function lastReply(store, threadId) {
+  const msgs = typeof store.getMessages === "function" ? store.getMessages(threadId) || [] : [];
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const m = msgs[i];
+    if (m && m.role === "assistant" && m.text != null && String(m.text)) {
+      return { id: m.id == null ? String(i) : String(m.id), text: String(m.text) };
+    }
+  }
+  return null;
+}
+
 function publicTask(store, thread) {
   if (!thread) return null;
   const awaitingApproval = thread.pendingExternalApproval === true;
@@ -514,6 +550,7 @@ function publicTask(store, thread) {
     status: awaitingApproval ? "awaiting_approval" : thread.status ?? null,
     lastError: thread.lastError ? String(thread.lastError) : null,
     lastAssistant: lastAssistantLine(store, thread.id),
+    reply: lastReply(store, thread.id),
     awaitingApproval,
     pairingId: thread.pairingId ?? null,
   };

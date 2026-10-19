@@ -345,6 +345,21 @@ export function IntegrationsSection({
                 {copied === "prompt" ? "Copied" : "Copy pairing prompt"}
               </button>
             ) : null}
+            {created.acpJson ? (
+              <button
+                type="button"
+                className={styles.btn}
+                data-copy-acp-json=""
+                title="Run Solenta as an Agent Client Protocol agent in Zed or JetBrains (agent_servers)"
+                onClick={() => {
+                  void copyText(created.acpJson || "").then((ok) => {
+                    if (ok) flashCopied("acp");
+                  });
+                }}
+              >
+                {copied === "acp" ? "Copied" : "Copy editor (ACP) config"}
+              </button>
+            ) : null}
           </div>
           {created.claudeDesktopJson ? (
             <pre className={styles.pairingPre} data-pairing-json="">

@@ -959,7 +959,8 @@ function InstanceForm({
               one. Colours and spinner redraws are stripped, and errors
               appear in the reply. ACP is for agents that speak the Agent
               Client Protocol over stdio, like goose acp: tool calls show as
-              steps, and Full access approves them.
+              steps, Default asks before each one, and an agent that can
+              reload its session resumes it.
             </p>
           </div>
         </>
