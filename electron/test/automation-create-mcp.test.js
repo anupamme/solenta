@@ -178,6 +178,38 @@ describe("automation_create MCP tool", () => {
     );
     assert.equal(store.getAutomations().length, 0);
   });
+
+  it("stamps an optional budget cap onto the automation (#286)", async () => {
+    const h = createToolHandlers(makeDeps(store));
+    const out = await h.automation_create({
+      threadId: "t1",
+      projectId: "p1",
+      name: "Capped",
+      prompt: "go",
+      preset: "hourly",
+      budget: { usd: 2.5, turns: 10 },
+    });
+    assert.deepEqual(out.budget, { usd: 2.5, turns: 10 });
+    assert.equal(out.enabled, true);
+    assert.deepEqual(store.getAutomation(out.id).budget, { usd: 2.5, turns: 10 });
+  });
+
+  it("rejects a non-positive budget value", async () => {
+    const h = createToolHandlers(makeDeps(store));
+    await assert.rejects(
+      () =>
+        h.automation_create({
+          threadId: "t1",
+          projectId: "p1",
+          name: "Nope",
+          prompt: "go",
+          preset: "hourly",
+          budget: { usd: 0 },
+        }),
+      /budget\.usd must be a positive number/,
+    );
+    assert.equal(store.getAutomations().length, 0);
+  });
 });
 
 describe("automation authoring note + instructions", () => {

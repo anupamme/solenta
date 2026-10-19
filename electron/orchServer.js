@@ -1079,6 +1079,7 @@ function createToolHandlers(deps) {
       trigger: hasTrigger ? { type: "github", ...triggerRaw } : null,
       ...(args && args.memory != null ? { memory: args.memory } : {}),
       ...(args && args.tier != null ? { tier: args.tier } : {}),
+      ...(args && args.budget != null ? { budget: args.budget } : {}),
       ...(args && args.stage != null ? { stage: args.stage } : {}),
     });
     return {
@@ -1094,6 +1095,7 @@ function createToolHandlers(deps) {
       enabled: created.enabled,
       stage: created.stage,
       nextRunAt: created.nextRunAt,
+      budget: created.budget || null,
     };
   }
 
@@ -1828,7 +1830,10 @@ function buildMcpServer(sdk, handlers, opts = {}) {
         "conclusion filters). Validation rejects bad presets and triggers. " +
         "The result appears as a card with an Open in Automations link. " +
         "threadId and projectId are YOUR OWN (stated at the end of your " +
-        "prompt). Provider defaults to this thread's provider. New " +
+        "prompt). Provider defaults to this thread's provider. Optional " +
+        "budget { usd, tokens, turns, minutes } (positive numbers) is a hard " +
+        "cap stamped on every thread the automation starts; omit it to " +
+        "leave runs uncapped. New " +
         "automations start in stage observe (report-only dry runs), then " +
         "graduate to draft and act after 7 days each; pass stage only when " +
         "the user asks to skip calibration.",
@@ -1843,6 +1848,14 @@ function buildMcpServer(sdk, handlers, opts = {}) {
         hour: z.number().int().min(0).max(23).optional(),
         enabled: z.boolean().optional(),
         tier: z.enum(["auto", "fast", "balanced", "strong"]).optional(),
+        budget: z
+          .object({
+            usd: z.number().positive().optional(),
+            tokens: z.number().positive().optional(),
+            turns: z.number().positive().optional(),
+            minutes: z.number().positive().optional(),
+          })
+          .optional(),
         stage: z.enum(["observe", "draft", "act"]).optional(),
         trigger: z
           .object({
