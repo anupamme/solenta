@@ -370,6 +370,9 @@ export function createThreads(ctx: DevCtx): Pick<CoderApi, "threads"> {
         }
         return { path: "docs/plans/dev-plan.md" };
       },
+      async pendingApprovals() {
+        return [];
+      },
       async respondPermission() {
         // Dev threads never spawn a real CLI, so nothing is ever pending.
         throw new Error("No active agent run for this thread");

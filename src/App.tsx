@@ -123,6 +123,9 @@ const FleetView = lazyNamed(() =>
 const DigestView = lazyNamed(() =>
   import("./components/DigestView").then((m) => m.DigestView),
 );
+const ApprovalsView = lazyNamed(() =>
+  import("./components/ApprovalsView").then((m) => m.ApprovalsView),
+);
 const SettingsModal = lazyNamed(() =>
   import("./components/SettingsModal").then((m) => m.SettingsModal),
 );
@@ -154,7 +157,8 @@ export type AppView =
   | "usage"
   | "fleet"
   | "insights"
-  | "digest";
+  | "digest"
+  | "approvals";
 
 /**
  * Collapsed sidebar rail (window controls + Show sidebar). The macOS desktop
@@ -719,6 +723,7 @@ export default function App({ rendererSha: rendererShaOverride }: AppProps = {})
     loadFailureModes,
     loadFleetEvidence,
     openDigest,
+    openApprovals,
     handleReturnToView,
   } = useViewNavigation({
     api,
@@ -1535,6 +1540,7 @@ export default function App({ rendererSha: rendererShaOverride }: AppProps = {})
       else if (id === "fleet") openFleet();
       else if (id === "insights") openInsights();
       else if (id === "digest") openDigest();
+      else if (id === "approvals") openApprovals();
       else if (id === "add-project") handleAddProject();
       else if (id === "toggle-agents") toggleAgents();
       else if (id === "reopen-pane") {
@@ -1552,6 +1558,7 @@ export default function App({ rendererSha: rendererShaOverride }: AppProps = {})
       openFleet,
       openInsights,
       openDigest,
+      openApprovals,
       handleAddProject,
       toggleAgents,
     ],
@@ -1820,6 +1827,7 @@ export default function App({ rendererSha: rendererShaOverride }: AppProps = {})
         onOpenFleet={openFleet}
         onOpenInsights={openInsights}
         onOpenDigest={openDigest}
+        onOpenApprovals={openApprovals}
         onCreateThread={handleCreateThread}
         listBaseBranches={listBaseBranches}
         defaultWorktree={settings?.defaultWorktree ?? false}
@@ -1931,6 +1939,14 @@ export default function App({ rendererSha: rendererShaOverride }: AppProps = {})
               existingThreadIds={liveThreadIds}
               restore={viewRestore?.view === "insights" ? viewRestore : null}
               onRestoreApplied={clearViewRestore}
+            />
+          ) : view === "approvals" ? (
+            <ApprovalsView
+              projects={projects}
+              threads={threads}
+              loadApprovals={api.threads.pendingApprovals}
+              respond={api.threads.respondPermission}
+              onSelectThread={handleSelectThread}
             />
           ) : view === "digest" ? (
             <DigestView

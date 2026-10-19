@@ -520,8 +520,9 @@ function createGenericRun(ctx) {
             });
             if (e.pendingPermissions.length === 1) {
               store.updateThread(threadId, { awaitingInput: true }, { touch: true });
-              pushThreadsChanged();
             }
+            // Every prompt: the approval inbox (#291) only hears threads:changed.
+            pushThreadsChanged();
             store.save();
             pushDetail(threadId, realState);
           },

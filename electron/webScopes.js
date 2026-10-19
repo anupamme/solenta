@@ -69,6 +69,7 @@ const BY_SCOPE = {
     "threads:listCliSessions",
     "threads:get",
     "threads:peek",
+    "threads:pendingApprovals",
     "threads:specArtifact",
     "threads:listTrashed",
     "activity:list",

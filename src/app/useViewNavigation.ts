@@ -140,6 +140,12 @@ export function useViewNavigation({
     setView("digest");
     setDrawer(null);
   }, [consumeReturn]);
+  const openApprovals = useCallback(() => {
+    setReturnTo(null);
+    setViewRestore(null);
+    setView("approvals");
+    setDrawer(null);
+  }, []);
   const handleReturnToView = useCallback(() => {
     const dest = returnToRef.current;
     if (!dest) return;
@@ -171,6 +177,7 @@ export function useViewNavigation({
     loadFailureModes,
     loadFleetEvidence,
     openDigest,
+    openApprovals,
     handleReturnToView,
   };
 }

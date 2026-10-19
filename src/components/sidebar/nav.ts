@@ -9,7 +9,8 @@ export type SidebarNavView =
   | "usage"
   | "fleet"
   | "insights"
-  | "digest";
+  | "digest"
+  | "approvals";
 
 export const MORE_DESTINATIONS: readonly {
   id:
@@ -19,10 +20,12 @@ export const MORE_DESTINATIONS: readonly {
     | "usage"
     | "fleet"
     | "insights"
-    | "digest";
+    | "digest"
+    | "approvals";
   label: string;
   view: SidebarNavView;
 }[] = [
+  { id: "approvals", label: "Approvals", view: "approvals" },
   { id: "activity", label: "Activity", view: "activity" },
   { id: "kanban", label: "Kanban", view: "kanban" },
   { id: "automations", label: "Automations", view: "automations" },

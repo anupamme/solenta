@@ -59,6 +59,7 @@ describe("Codex ServerRequest reply path (#1171)", () => {
   let store;
   let runner;
   let replies;
+  let pushes;
   let emitCodexEvent;
   let prevSimulate;
   let prevCodexBin;
@@ -89,11 +90,12 @@ describe("Codex ServerRequest reply path (#1171)", () => {
 
     store = new Store(path.join(tmpDir, "store.json"));
     replies = [];
+    pushes = [];
     const core = await loadCore();
     runner = createRunner({
       store,
       core,
-      pushFn: () => {},
+      pushFn: (channel) => pushes.push(channel),
       tickMs: 15,
       runCodexFn: ({ onEvent, onExit }) => {
         emitCodexEvent = onEvent;
@@ -260,6 +262,36 @@ describe("Codex ServerRequest reply path (#1171)", () => {
     emitCodexEvent({ type: "server_request.resolved", requestId: "next" });
     assert.equal(runner.getPendingPermission(thread.id), null);
     assert.equal(store.getThread(thread.id).awaitingInput, false);
+  });
+
+  it("lists every pending prompt across threads; answering one leaves the rest (#291)", async () => {
+    const a = await startAsk();
+    const b = services.createThread(store, { projectId: a.projectId, title: "Codex Two" });
+    services.setProvider(store, { threadId: b.id, provider: "codex" });
+    await runner.startRun({ threadId: b.id, prompt: "do work" });
+    await waitFor(() => runner.isRunning(b.id));
+    const ask = (threadId, id, command) =>
+      runner.handleCodexServerRequest(threadId, { id, method: METHOD_COMMAND, params: { command, kind: "command" } });
+    ask(a.id, "a1", "ls");
+    const before = pushes.filter((c) => c === "threads:changed").length;
+    ask(a.id, "a2", "pwd");
+    // A second prompt on an already-waiting thread must still reach the inbox.
+    assert.equal(pushes.filter((c) => c === "threads:changed").length, before + 1);
+    ask(b.id, "b1", "whoami");
+    const rows = runner.listPendingApprovals();
+    assert.deepEqual(
+      rows.map((r) => [r.threadTitle, r.requestId]).sort(),
+      [["Codex Ask", "a1"], ["Codex Ask", "a2"], ["Codex Two", "b1"]],
+    );
+    assert.equal(rows.find((r) => r.requestId === "b1").threadId, b.id);
+    // Answer A's second prompt, not its head: nothing else moves.
+    runner.respondPermission({ threadId: a.id, requestId: "a2", decision: "deny" });
+    assert.deepEqual(
+      runner.listPendingApprovals().map((r) => r.requestId).sort(),
+      ["a1", "b1"],
+    );
+    assert.equal(runner.getPendingPermission(a.id).requestId, "a1");
+    assert.equal(store.getThread(a.id).awaitingInput, true);
   });
 
   it("checks unconstrained numeric wire values and rejects unsupported schemas and unsafe URLs", async () => {

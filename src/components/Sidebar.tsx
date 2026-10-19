@@ -271,6 +271,8 @@ export interface SidebarProps {
   onOpenFleet?: () => void;
   onOpenInsights?: () => void;
   onOpenDigest?: () => void;
+  /** Approval inbox (#291). */
+  onOpenApprovals?: () => void;
   /**
    * Paste a GitHub issue into this project. Omitted by existing tests so
    * the icon button stays hidden.
@@ -367,6 +369,7 @@ export const Sidebar = memo(function Sidebar({
   onOpenFleet,
   onOpenInsights,
   onOpenDigest,
+  onOpenApprovals,
   onCreateThreadFromIssue,
   listCliSessions,
   importCliSession,
@@ -1383,6 +1386,7 @@ export const Sidebar = memo(function Sidebar({
   if (onOpenFleet) moreRunners.fleet = onOpenFleet;
   if (onOpenInsights) moreRunners.insights = onOpenInsights;
   if (onOpenDigest) moreRunners.digest = onOpenDigest;
+  if (onOpenApprovals) moreRunners.approvals = onOpenApprovals;
   const moreDestinations = MORE_DESTINATIONS.flatMap((dest) => {
     const run = moreRunners[dest.id];
     return run ? [{ ...dest, run }] : [];

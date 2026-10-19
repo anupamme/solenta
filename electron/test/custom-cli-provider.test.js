@@ -341,6 +341,10 @@ process.stdin.on("data", (d) => {
       assert.equal(card.command, "npm test");
       assert.equal(card.acceptAlways, true);
       assert.equal(store.getThread(t.id).awaitingInput, true);
+      assert.ok(
+        runner.listPendingApprovals().some((p) => p.threadId === t.id && p.requestId === card.requestId),
+        "the Approvals inbox (#291) lists the ACP ask",
+      );
       runner.respondPermission({ threadId: t.id, requestId: card.requestId, decision });
       await waitFor(() => store.getThread(t.id).status === "done");
       assert.equal(store.getThread(t.id).awaitingInput, false);

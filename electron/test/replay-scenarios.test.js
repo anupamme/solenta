@@ -110,6 +110,8 @@ describe("replay: recorded claude transcripts through the real runner (#1428)", 
       assert.equal(store.getThread(lead.id).awaitingInput, false);
       assert.equal(rows(store, lead.id, "assistant").at(-1).text, "listed");
       assert.ok(rows(store, lead.id, "event").some((m) => m.text === "Allowed: Bash: ls > listing.txt"));
+      // The result line can land before the CLI logs `done` (seen on macOS CI).
+      await waitFor(() => replay.finished(`${V}-permission.ndjson`));
       replay.assertClean();
     });
   });
