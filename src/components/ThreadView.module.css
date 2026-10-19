@@ -4138,7 +4138,7 @@ a.menuItem {
   }
 }
 
-/* T3-style header toggles (terminal pane, right panel): ghost squares. */
+/* Header toggles (terminal pane, right panel): ghost squares. */
 .toggleBtn {
   display: inline-flex;
   align-items: center;

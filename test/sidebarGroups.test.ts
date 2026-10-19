@@ -82,7 +82,7 @@ describe("buildSidebarGroups", () => {
     );
   });
 
-  it("orders threads newest-first by createdAt inside a group (t3 static order)", () => {
+  it("orders threads newest-first by createdAt inside a group (static order)", () => {
     // updatedAt deliberately disagrees with createdAt: activity must not win.
     const threads = [
       thread({ id: "old", projectId: "a", createdAt: 10, updatedAt: 900 }),
@@ -98,7 +98,7 @@ describe("buildSidebarGroups", () => {
   });
 
   it("an updatedAt bump never reorders threads within a group or the groups", () => {
-    // Regression pin for the t3 rule: streamed activity bumps updatedAt on
+    // Regression pin for the static-order rule: streamed activity bumps updatedAt on
     // every message; the sidebar must not move rows for it.
     const before = [
       thread({ id: "t1", projectId: "a", createdAt: 100, updatedAt: 100 }),
@@ -261,7 +261,7 @@ describe("GROUP_ATTENTION_CAP + visibleAttentionCount (issue #70)", () => {
   });
 });
 
-describe("buildFlatSidebar (T3 flat sidebar)", () => {
+describe("buildFlatSidebar (flat sidebar)", () => {
   it("partitions with archived > snoozed > pinned > settled > active", () => {
     const flat = buildFlatSidebar(
       [

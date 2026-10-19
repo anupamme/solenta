@@ -1,6 +1,5 @@
 /**
- * Item list for the per-thread action menu. Same contract as T3's
- * buildThreadActionMenuItems: Snooze is a parent with children, not a
+ * Item list for the per-thread action menu. Snooze is a parent with children, not a
  * first-level dump of presets, and not an in-card drill-in panel.
  */
 

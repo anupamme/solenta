@@ -1,8 +1,8 @@
 /**
- * T3-style context menu: native Electron Menu.popup when the bridge is
+ * Context menu: native Electron Menu.popup when the bridge is
  * present, otherwise a position:fixed portal on document.body.
  *
- * T3 Code (pingdotgg/t3code) never renders the thread-actions list as
+ * Never render the thread-actions list as
  * position:absolute inside the sidebar scroll container — sibling group
  * stacking contexts always paint through that overlay.
  */

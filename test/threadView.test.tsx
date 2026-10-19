@@ -571,7 +571,7 @@ describe("ThreadView message roles", () => {
         ],
       }),
     });
-    assert.ok(html.includes("Read 2 files"), "T3 summary sentence");
+    assert.ok(html.includes("Read 2 files"), "summary sentence");
     assert.ok(html.includes("data-tool-group"), "group landmark");
     assert.ok(!html.includes("toolCard"), "collapsed group is not a tool tile");
     assert.ok(!html.includes("a.ts"), "paths stay inside the collapsed group");

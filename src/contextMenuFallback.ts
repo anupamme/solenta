@@ -3,8 +3,7 @@
  * is not available (jsdom tests, vite browser, web mode).
  *
  * Portals onto document.body with position:fixed so sidebar overflow and
- * sibling stacking contexts cannot clip or paint through it — the T3 web
- * fallback's contract, without vendoring their source.
+ * sibling stacking contexts cannot clip or paint through it.
  */
 
 import type { ContextMenuItem, ContextMenuPosition } from "./contextMenu";

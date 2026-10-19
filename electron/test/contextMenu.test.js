@@ -2,7 +2,7 @@ const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
 const { toTemplate, showNativeContextMenu } = require("../contextMenu.js");
 
-describe("native context menu (T3 Menu.popup)", () => {
+describe("native context menu (Menu.popup)", () => {
   it("turns children into a submenu and click into the leaf id", async () => {
     const clicks = [];
     const template = toTemplate(

@@ -841,13 +841,12 @@ Run 1….
 
 ## Sidebar ordering and settle model
 
-The sidebar follows the t3code (pingdotgg/t3code, MIT) sidebar behavior as a
-model. No t3code code is vendored; the rules are reimplemented in
+The sidebar rules live in
 `src/sidebarGroups.ts` / `src/threadSettle.ts` / `src/threadSnooze.ts` /
 `src/components/Sidebar.tsx`. The one third-party package this uses is
 `@formkit/auto-animate` (MIT).
 
-The live list is T3-flat: `Sidebar.tsx` calls `buildFlatSidebar`, not
+The live list is flat: `Sidebar.tsx` calls `buildFlatSidebar`, not
 `partitionSidebar`. Every card carries its own project slug
 (`data-card-slug`); there are no project group headers.
 `scopeProjectId` (localStorage `sidebar:projectScope`) filters every

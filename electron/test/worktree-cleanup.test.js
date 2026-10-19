@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * Worktree junk collection (t3-comparison round):
+ * Worktree junk collection:
  * - maybeCleanupMergedWorktree: reclaim worktree+branch once the PR merged
  *   (only when the tree is clean and everything local was pushed).
  * - refreshPrStates: an OPEN→MERGED flip triggers that cleanup.

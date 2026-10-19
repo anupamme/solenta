@@ -40,10 +40,10 @@ describe("add-project browse path", () => {
   });
 
   it("derives the browse target and navigation state", () => {
-    assert.deepEqual(getFilesystemBrowsePath("~/projects/t3"), {
+    assert.deepEqual(getFilesystemBrowsePath("~/projects/rocket"), {
       isBrowsing: true,
       directoryPath: "~/projects/",
-      filterQuery: "t3",
+      filterQuery: "rocket",
       parentPath: "~/",
       canBrowseUp: true,
     });

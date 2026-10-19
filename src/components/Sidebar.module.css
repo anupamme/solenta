@@ -1715,7 +1715,7 @@
   }
 }
 
-/* T3 inbox: Working / Snoozed / Settled sit at the foot of a short list. */
+/* Inbox: Working / Snoozed / Settled sit at the foot of a short list. */
 .shelves {
   display: flex;
   flex-direction: column;

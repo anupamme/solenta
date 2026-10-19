@@ -26,11 +26,11 @@ describe("sidebarPrBadge", () => {
   it("labels the number and links when prUrl is set", () => {
     const badge = sidebarPrBadge({
       prNumber: 842,
-      prUrl: "https://github.com/pingdotgg/t3code/pull/842",
+      prUrl: "https://github.com/acme/rocket/pull/842",
     });
     assert.deepEqual(badge, {
       label: "PR #842",
-      href: "https://github.com/pingdotgg/t3code/pull/842",
+      href: "https://github.com/acme/rocket/pull/842",
     });
   });
 

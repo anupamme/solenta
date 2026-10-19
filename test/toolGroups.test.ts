@@ -1,5 +1,5 @@
 /**
- * Pure T3-style tool grouping (#768).
+ * Pure tool grouping (#768).
  *
  * Run: node --import=./test/support/render.mjs --experimental-strip-types --test test/toolGroups.test.ts
  */
@@ -98,7 +98,7 @@ describe("toolAction", () => {
 });
 
 describe("summarizeToolGroup", () => {
-  it("uses singular and T3 joiners", () => {
+  it("uses singular and list joiners", () => {
     assert.equal(
       summarizeToolGroup([tool({ id: "r", name: "Read" })]),
       "Read 1 file",

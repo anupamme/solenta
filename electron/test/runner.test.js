@@ -249,7 +249,7 @@ describe("runner simulated mode", () => {
   });
 
   it("startRun preserves pinnedAt and snooze fields (round 44)", async () => {
-    // t3: pins survive activity; snooze is visibility-only and wakes derived.
+    // Pins survive activity; snooze is visibility-only and wakes derived.
     const thread = store.getThreads()[0];
     const until = Date.now() + 86_400_000;
     services.setPinned(store, { threadId: thread.id, pinned: true });

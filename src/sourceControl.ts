@@ -2,7 +2,7 @@
  * Pure forge-readiness helpers (issue #608).
  *
  * The Electron probe lives in electron/sourceControl.js; this file is the
- * T3-shaped layer the renderer and add-project (#459) share: ready vs a
+ * layer the renderer and add-project (#459) share: ready vs a
  * copy-pasteable hint, ready sources floated first.
  */
 import type {

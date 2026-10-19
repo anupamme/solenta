@@ -1,7 +1,7 @@
 /**
  * Sidebar thread-card structure, rendered from real components.
  *
- * T3 three-line card: slug + status label, title, branch/PR/provider.
+ * Three-line card: slug + status label, title, branch/PR/provider.
  * Interaction contract is unchanged: stretch-select overlay under a
  * pointer-events:none body, hover actions as real sibling buttons (never
  * nested interactives), shell attribute hooks.

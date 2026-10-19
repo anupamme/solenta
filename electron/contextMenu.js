@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * Native OS context menu (T3 `api.contextMenu.show` / Menu.popup).
+ * Native OS context menu (Menu.popup).
  * Children become submenus. Resolves the clicked leaf id, or null on dismiss.
  */
 

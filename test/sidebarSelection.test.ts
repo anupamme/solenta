@@ -327,7 +327,7 @@ describe("buildVisibleThreadIds group overflow cap (issue #70)", () => {
   });
 });
 
-describe("flatVisibleThreadIds (T3 flat sidebar)", () => {
+describe("flatVisibleThreadIds (flat sidebar)", () => {
   const flat = {
     pinned: [t("pin1")],
     active: [t("a1"), t("a2")],

@@ -555,8 +555,8 @@ function removeSpace(_store, _input) {
 }
 
 /**
- * Remove the project ENTRY and delete its threads' conversation history
- * (t3-style). The repository on disk is never touched — no fs calls on the
+ * Remove the project ENTRY and delete its threads' conversation history.
+ * The repository on disk is never touched — no fs calls on the
  * project path. Active-run copy is project-scoped. The guard runs before any
  * deletion so a reject cannot leave a half-removed project.
  *

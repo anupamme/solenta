@@ -1181,7 +1181,7 @@ function retargetWorktreeBase(opts) {
 
 /**
  * Rename the auto-generated placeholder branch to match the real title once
- * the first prompt has promoted it (T3-style: worktree branches start as a
+ * the first prompt has promoted it (worktree branches start as a
  * temp name and become human-readable after the first turn). Only touches
  * branches that still carry the exact placeholder name — user-renamed or
  * manually created branches are left alone. Best-effort: any git failure
@@ -1233,7 +1233,7 @@ function maybeRenameWorktreeBranch(opts) {
 }
 
 /**
- * Materialize the worktree for a pendingWorktree thread (lazy, t3-style:
+ * Materialize the worktree for a pendingWorktree thread (lazy:
  * a thread that never runs leaves nothing on disk). No-op for plain threads
  * and threads that already have one; a stale flag is cleared either way.
  * Creation failures propagate AND keep the flag so the next run retries.

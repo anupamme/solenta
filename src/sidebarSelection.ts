@@ -83,7 +83,7 @@ export function buildVisibleThreadIds(input: VisibleListInput): string[] {
 }
 
 /**
- * Ordered visible ids for the flat T3 sidebar — mirrors render order:
+ * Ordered visible ids for the flat sidebar — mirrors render order:
  * pinned → active → working shelf → snoozed shelf → settled shelf (settled then archived,
  * paged by settledVisibleCount). A collapsed shelf contributes only the
  * selected thread (carve-out: the open thread never vanishes); the same

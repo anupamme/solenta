@@ -55,7 +55,7 @@ describe("threads:create with worktree", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("marks the thread pendingWorktree without touching git (lazy, t3-style)", async () => {
+  it("marks the thread pendingWorktree without touching git (lazy)", async () => {
     const thread = await IPC_HANDLERS["threads:create"](ctx, {
       projectId: project.id,
       title: "New Thread",

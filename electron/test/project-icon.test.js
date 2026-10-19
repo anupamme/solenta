@@ -492,7 +492,7 @@ describe("projects:pickIcon / resolveIcon IPC", () => {
 });
 
 describe("ICON_EXTENSIONS", () => {
-  it("covers the T3 picker set", () => {
+  it("covers the picker set", () => {
     for (const ext of ["svg", "png", "ico", "jpg", "jpeg", "gif", "avif", "webp"]) {
       assert.ok(ICON_EXTENSIONS.includes(ext), ext);
     }

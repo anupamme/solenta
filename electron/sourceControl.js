@@ -511,7 +511,7 @@ async function probeAzure(opts) {
 }
 
 /**
- * Bitbucket has no CLI here — T3 uses env tokens, and #456 will too.
+ * Bitbucket has no CLI here — #456 will use env tokens.
  * @param {object} opts
  * @returns {import('../src/shared/ipc').SourceControlProvider}
  */

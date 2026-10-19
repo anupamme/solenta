@@ -2766,7 +2766,7 @@ export const ThreadView = memo(function ThreadView({
     Boolean(thread.sandbox) ||
     Boolean(ring && !ring.view.warn) ||
     hasVersionControl);
-  // Worktree lifecycle as one transcript line (t3-style) instead of header
+  // Worktree lifecycle as one transcript line instead of header
   // churn. Derived from thread state, so no message is stored.
   const worktreeBase =
     thread.orchWorker && thread.leadSnapshotBranch

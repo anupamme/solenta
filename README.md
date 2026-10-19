@@ -317,7 +317,7 @@ The root `package.json` already allows scripts for the pinned Electron version.
   install id, version, OS, arch, which agent CLIs you used) so we can count
   users. No prompts, paths or repo names; IP is not stored. Opt out with
   `DO_NOT_TRACK=1` or `SOLENTA_TELEMETRY=0`.
-- **Sidebar** — T3-flat: no project group headers. A row is status + title +
+- **Sidebar** — flat: no project group headers. A row is status + title +
   age; pinned threads sit in a block at the top; snoozed and settled
   (archived at the tail) live in shelves. Scope to one project from the
   header. Right-click opens a native thread-actions menu. Project icons

@@ -176,7 +176,7 @@ export interface SidebarProps {
   defaultWorktree?: boolean;
   onAddProject: () => void;
   /**
-   * t3-style remove project entry (after the sidebar confirm). Caller owns
+   * Remove project entry (after the sidebar confirm). Caller owns
    * the IPC call, selection handoff, and failure toast. Resolves on success;
    * rejects on failure so the confirm can close either way.
    */
@@ -295,7 +295,7 @@ export interface SidebarProps {
   }) => Promise<ThreadInfo>;
   onOpenActivity?: (scopedProjectId?: string | null) => void;
   /**
-   * Freshly created thread to reveal (t3: new work must be visible): the
+   * Freshly created thread to reveal (new work must be visible): the
    * sidebar expands its project group, scrolls the card into view and flashes
    * a highlight, then calls onRevealHandled.
    */
@@ -1862,7 +1862,7 @@ export const Sidebar = memo(function Sidebar({
                 </p>
               )}
 
-              {/* T3 inbox: the shelves sit at the foot of the list. */}
+              {/* Inbox: the shelves sit at the foot of the list. */}
               <div className={styles.shelves}>
               {groupBy === "none" && flat.working.length > 0 && (
                 <div className={styles.shelf} ref={bindListAnimation}>

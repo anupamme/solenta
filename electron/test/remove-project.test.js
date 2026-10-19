@@ -1,5 +1,5 @@
 /**
- * Round 41: projects.remove (t3-style) — electron/services.js.
+ * Round 41: projects.remove — electron/services.js.
  * Happy path, guard table (partial-delete impossible), store durability.
  */
 const { describe, it, beforeEach, afterEach } = require("node:test");

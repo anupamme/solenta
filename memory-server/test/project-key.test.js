@@ -32,7 +32,7 @@ describe('canonical project keys', () => {
 
   it('keeps a plain slug and strips an owner prefix', () => {
     assert.equal(canonicalProject('coder'), 'coder')
-    assert.equal(canonicalProject('pingdotgg/t3code'), 't3code')
+    assert.equal(canonicalProject('acme/rocket'), 'rocket')
   })
 
   it('resolves a repo path to its basename', () => {
@@ -59,7 +59,7 @@ describe('canonical project keys', () => {
     assert.equal(canonicalProject('C:\\Users\\me\\myrepo'), 'myrepo')
     assert.equal(canonicalProject('C:/Users/me/myrepo'), 'myrepo')
     assert.equal(canonicalProject('\\\\server\\share\\mainrepo'), 'mainrepo')
-    assert.equal(canonicalProject('pingdotgg/t3code'), 't3code')
+    assert.equal(canonicalProject('acme/rocket'), 'rocket')
   })
 
   it('falls back to the basename for a non-repo path', () => {

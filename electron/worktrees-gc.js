@@ -22,7 +22,7 @@ const RETENTION_SWEEP_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const RETENTION_SWEEP_STARTUP_MS = 15_000;
 
 // ---------------------------------------------------------------------------
-// Worktree junk collection (t3 deep-dive round): merged-PR reclaim, lazy
+// Worktree junk collection: merged-PR reclaim, lazy
 // creation, boot-time orphan sweep. All async git (never block the main
 // process) and all failure-silent where they run unattended.
 // ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * Project icon discovery (#610). Mirrors T3's ProjectFaviconResolver:
+ * Project icon discovery (#610):
  * user override, then a checked-in solenta.json / t3.json iconPath, then
  * well-known favicon/app-icon files, then <link rel="icon"> in a short
  * list of HTML/root files.
@@ -86,7 +86,7 @@ const ICON_SOURCE_FILES = [
   "src/index.html",
 ];
 
-// Anchored on `<link` so it only starts at real candidates (T3 #5530).
+// Anchored on `<link` so it only starts at real candidates.
 const LINK_ICON_HTML_RE =
   /<link\b(?=[^>]*\brel=["'](?:icon|shortcut icon)["'])(?=[^>]*\bhref=["']([^"'?]+))[^>]*>/i;
 const ICON_REL_RE = /\brel\s*:\s*["'](?:icon|shortcut icon)["']/i;
@@ -365,9 +365,9 @@ function resolveInRoot(root, override) {
     const found = existingFile(root, solenta);
     if (found) return found;
   }
-  const t3 = readJsonIconPath(root, "t3.json");
-  if (t3) {
-    const found = existingFile(root, t3);
+  const legacy = readJsonIconPath(root, "t3.json");
+  if (legacy) {
+    const found = existingFile(root, legacy);
     if (found) return found;
   }
 

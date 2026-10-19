@@ -181,7 +181,7 @@ module.exports = {
             "Worktree threads are not available for remote projects",
           );
         }
-        // Lazy (t3-style): only mark intent here. The worktree + branch are
+        // Lazy: only mark intent here. The worktree + branch are
         // created by ensureWorktree at first run start, so a thread that
         // never runs leaves nothing on disk.
         ctx.store.updateThread(thread.id, { pendingWorktree: true });

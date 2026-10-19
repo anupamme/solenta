@@ -10,7 +10,7 @@ export function accountLine(p: Pick<ProviderInfo, "auth" | "account">): string |
 }
 
 /**
- * "Connect another ChatGPT account" (#1659, after T3 Code): a Codex
+ * "Connect another ChatGPT account" (#1659): a Codex
  * instance with its own CODEX_HOME, so `codex login` there signs in a
  * separate ChatGPT account. Solenta never holds the tokens; codex does.
  * Returns the instance list to save and the ref to sign in to.

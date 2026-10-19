@@ -73,7 +73,7 @@ describe("fsBrowse", () => {
     assert.ok(names.includes("Code"));
     assert.ok(names.includes("Projects"));
     // Hidden dirs are listed; the client filter hides them until the
-    // typed leaf starts with `.` (T3: filterFilesystemBrowseEntries).
+    // typed leaf starts with `.`.
     assert.ok(names.includes(".config"));
     assert.ok(!names.includes("readme.txt"));
     assert.equal(listed.existed, true);
