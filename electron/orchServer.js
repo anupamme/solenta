@@ -37,6 +37,7 @@ const {
   addAutomation,
 } = require("./services.js");
 const { stop: stopDevServer } = require("./devservers.js");
+const { createAcpHub, attachAcpUpgrade } = require("./acpServer.js");
 const { resolveThreadRoot } = require("./ipc-shared.js");
 const {
   decideCrossThreadSend,
@@ -2273,6 +2274,8 @@ function createOrchServer(opts) {
   let server = null;
   /** @type {{ running: boolean, port: number | null }} */
   let status = { running: false, port: null };
+  // ACP agent sessions (#272) ride the runner's thread:updated pushes.
+  const acpHub = createAcpHub({ store, runner, broadcast, log });
 
   async function start() {
     /** @type {{ port: number, token: string }} */
@@ -2424,6 +2427,13 @@ function createOrchServer(opts) {
 
       res.writeHead(404).end();
     });
+    attachAcpUpgrade(server, {
+      hub: acpHub,
+      // Session token only: pairing tokens never drive an ACP session.
+      isAuthorized: (req) =>
+        oauth.isLoopbackHost(req.headers.host) &&
+        authorized(req, config.token, new URL(req.url ?? "/", "http://127.0.0.1")),
+    });
 
     try {
       await new Promise((resolve, reject) => {
@@ -2480,7 +2490,7 @@ function createOrchServer(opts) {
     return { running: status.running, port: status.port };
   }
 
-  return { start, stop, getStatus };
+  return { start, stop, getStatus, onPush: acpHub.onPush };
 }
 
 module.exports = {

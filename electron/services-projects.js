@@ -876,6 +876,7 @@ async function writeAgentConfig(store, input, deps) {
 
 module.exports = {
   slugFromRemoteUrl,
+  findExistingProject,
   normalizePathKey,
   addProject,
   ensureScratchProject,

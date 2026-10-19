@@ -924,6 +924,7 @@ app.whenReady().then(async () => {
         }
       }
       broadcast(channel, payload);
+      if (orchServer) orchServer.onPush(channel, payload);
     },
     tickMs: 700,
     userDataPath: userData,
