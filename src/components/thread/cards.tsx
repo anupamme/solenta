@@ -360,6 +360,11 @@ export function PermissionPrompt({
           {guardrailSource ? ` (${guardrailSource})` : ""}
         </div>
       ) : null}
+      {pending.restored ? (
+        <div data-permission-restored="">
+          Asked before Solenta restarted. Allow resumes the agent to run it.
+        </div>
+      ) : null}
       {pending.folderGrant ? (
         <div className={styles.permissionGuardrail} data-permission-folder="">
           Writes to {pending.folderGrant}, a read-only project folder

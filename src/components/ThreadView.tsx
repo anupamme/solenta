@@ -179,7 +179,7 @@ import {
   FocusTurnRow,
   RunHeaderRow,
 } from "./thread/messages";
-import { NextGitActionButton } from "./thread/NextGitActionButton";
+import { NextGitActionButton, coderGit } from "./thread/NextGitActionButton";
 import {
   PlanPrompt,
   PermissionPrompt,
@@ -3961,6 +3961,23 @@ export const ThreadView = memo(function ThreadView({
                 onRevert={onRevertFile}
                 onRevertHunk={onRevertHunk}
                 onSuggest={onSuggestCommitMessage}
+                onCommitAndPr={
+                  onCreatePr &&
+                  detail?.thread.worktreePath &&
+                  !project?.remoteHost &&
+                  !isArchived
+                    ? async () => {
+                        // Same title fallback as autoPr when drafting fails.
+                        const text = await coderGit()
+                          ?.suggestPrText({ threadId: detail.thread.id })
+                          .catch(() => null);
+                        return onCreatePr({
+                          title: text?.title || detail.thread.title,
+                          body: text?.body,
+                        });
+                      }
+                    : undefined
+                }
                 onComment={
                   isArchived || !detail
                     ? undefined

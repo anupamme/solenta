@@ -99,6 +99,19 @@
   width: 72px;
 }
 
+/* Sits beside the Stage select, level with the controls, not the labels. */
+.formRow .toggle {
+  align-self: flex-end;
+  min-height: 32px;
+}
+
+.templates {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
 .formActions {
   display: flex;
   align-items: center;

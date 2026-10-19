@@ -421,6 +421,8 @@ export function createSchema(db) {
   addColumnIfMissing(db, 'entries', 'inclusion', 'TEXT')
   // JSON array of repo-relative globs for inclusion 'glob'.
   addColumnIfMissing(db, 'entries', 'globs', 'TEXT')
+  // Optional freshness horizon (#311): days after updated_at the entry ranks as stale.
+  addColumnIfMissing(db, 'entries', 'stale_after_days', 'INTEGER')
 
   try {
     normalizeEntities(db)

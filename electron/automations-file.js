@@ -324,6 +324,9 @@ function mergeAutomations(store, nowMs) {
             consecutiveFailures: overlay.consecutiveFailures,
             pendingRunThreadId: overlay.pendingRunThreadId,
             nextRunAt: overlay.nextRunAt,
+            stage: overlay.stage,
+            graduate: overlay.graduate,
+            stageSince: overlay.stageSince,
           }
         : {
             enabled: false,
@@ -334,6 +337,10 @@ function mergeAutomations(store, nowMs) {
             consecutiveFailures: 0,
             pendingRunThreadId: null,
             nextRunAt: nextFire(row.preset, row.hour, nowMs),
+            // #388: each machine calibrates a shared row from scratch.
+            stage: "observe",
+            graduate: true,
+            stageSince: null,
           };
       shared.push({
         ...runtime,
@@ -464,6 +471,9 @@ function ensureOverlay(store, auto) {
     lastError: auto.lastError ?? null,
     consecutiveFailures: auto.consecutiveFailures || 0,
     pendingRunThreadId: auto.pendingRunThreadId ?? null,
+    stage: auto.stage || "observe",
+    graduate: auto.graduate !== false,
+    stageSince: auto.stageSince ?? null,
     nextRunAt:
       typeof auto.nextRunAt === "number" && Number.isFinite(auto.nextRunAt)
         ? auto.nextRunAt

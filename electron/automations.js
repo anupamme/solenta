@@ -21,6 +21,50 @@ const MAX_CONSECUTIVE_FAILURES = 3;
 const MEMORY_TAG = "automation-memory";
 const MAX_MEMORY_CHARS = 4000;
 
+// Issue #388: calibration lifecycle. A new automation only reports
+// (observe), then drafts, then acts. With graduate on, each stage moves up
+// once STAGE_MS has passed, it has run in that stage, and its last run
+// settled without failing. Rows from before #388 migrate straight to act.
+// ponytail: fixed 7 days per stage, add a per-automation knob if anyone asks.
+const STAGES = ["observe", "draft", "act"];
+const STAGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+const STAGE_NOTES = {
+  observe:
+    "[Automation stage: observe] This automation is calibrating in report-only mode (a dry run). " +
+    "Change nothing: no file edits, commits, branches, pushes, pull requests, comments, labels, issue or plan updates, and no other write tools. " +
+    "Investigate as you normally would, then end with a report of exactly what you would have done and why, so a human can judge whether it is ready to draft.",
+  draft:
+    "[Automation stage: draft] This automation is in its drafting stage. " +
+    "Prepare the work, but leave every outward action to a human: commit only to a new branch, open pull requests only as drafts (gh pr create --draft), " +
+    "and write the comments, labels, or issue updates you would make into your final reply instead of posting them. Do not merge, push to the default branch, or close anything.",
+};
+
+/**
+ * The stage this fire runs in, promoting one step when the current stage
+ * has earned it. A missing stageSince starts the clock now.
+ * @param {{ stage?: string, graduate?: boolean, stageSince?: number | null, lastRunAt?: number | null, consecutiveFailures?: number, pendingRunThreadId?: string | null }} auto
+ * @param {number} now
+ * @returns {{ stage: string, stageSince: number }}
+ */
+function graduatedStage(auto, now) {
+  const stage = STAGES.includes(auto.stage) ? auto.stage : "act";
+  const stageSince =
+    typeof auto.stageSince === "number" && Number.isFinite(auto.stageSince)
+      ? auto.stageSince
+      : now;
+  const ready =
+    stage !== "act" &&
+    auto.graduate !== false &&
+    now - stageSince >= STAGE_MS &&
+    typeof auto.lastRunAt === "number" &&
+    auto.lastRunAt >= stageSince &&
+    !auto.consecutiveFailures &&
+    !auto.pendingRunThreadId;
+  if (!ready) return { stage, stageSince };
+  return { stage: STAGES[STAGES.indexOf(stage) + 1], stageSince: now };
+}
+
 /**
  * Next fire time after `fromMs`.
  *
@@ -114,13 +158,15 @@ function extractMemory(text) {
 }
 
 /**
- * The prompt one fire sends: the automation's prompt, what triggered it, and
- * its memory plus how to update it.
- * @param {{ prompt: string, memory?: string | null }} auto
+ * The prompt one fire sends: the automation's prompt, its lifecycle stage
+ * guardrail, what triggered it, and its memory plus how to update it.
+ * @param {{ prompt: string, memory?: string | null, stage?: string }} auto
  * @param {string} [triggerNote]
  */
 function buildRunPrompt(auto, triggerNote) {
   const parts = [String(auto.prompt || "")];
+  const stageNote = STAGE_NOTES[/** @type {"observe" | "draft"} */ (auto.stage)];
+  if (stageNote) parts.push(stageNote);
   if (triggerNote) parts.push(triggerNote);
   const memory = typeof auto.memory === "string" ? auto.memory.trim() : "";
   if (memory) {
@@ -276,10 +322,13 @@ function pruneAutomationThreads(store, automationId) {
 async function runAutomation(ctx, auto, now, opts) {
   const services = require("./services.js");
   const nextRunAt = nextFire(auto.preset, auto.hour, now, auto.nextRunAt);
+  // #388: settle ran first in the tick, so the breaker count is current.
+  const life = graduatedStage(auto, now);
   patchAutomation(ctx.store, auto.id, {
     lastRunAt: now,
     nextRunAt,
     lastError: null,
+    ...life,
   });
   ctx.store.save();
 
@@ -307,7 +356,7 @@ async function runAutomation(ctx, auto, now, opts) {
     }
     await ctx.runner.startRun({
       threadId: thread.id,
-      prompt: buildRunPrompt(auto, opts && opts.triggerNote),
+      prompt: buildRunPrompt({ ...auto, ...life }, opts && opts.triggerNote),
     });
     patchAutomation(ctx.store, auto.id, {
       lastError: null,
@@ -401,6 +450,8 @@ async function runNow(ctx, input) {
     presentAutomationsFile,
     ensureOverlay,
   } = require("./automations-file.js");
+  // #388: graduation reads the breaker, so count the last run first.
+  settleAutomationRuns(ctx);
   const auto = mergeAutomations(ctx.store, Date.now()).find((a) => a.id === id);
   if (!auto) throw new Error(`Unknown automation: ${id}`);
   if (auto.scope === "project") {
@@ -489,6 +540,9 @@ module.exports = {
   MAX_THREADS_PER_AUTOMATION,
   MAX_CONSECUTIVE_FAILURES,
   MAX_MEMORY_CHARS,
+  STAGES,
+  STAGE_MS,
+  graduatedStage,
   nextFire,
   extractMemory,
   buildRunPrompt,

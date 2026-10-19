@@ -2025,6 +2025,11 @@ export interface PendingPermissionInfo {
    * rest of the thread.
    */
   folderGrant?: string | null;
+  /**
+   * The CLI that asked died with the app (issue #349): the card was restored
+   * from the thread. Allow resumes the session and the agent re-runs the call.
+   */
+  restored?: boolean;
 }
 
 /**
@@ -3331,6 +3336,12 @@ export interface ThreadBudget {
 /** Where an automation lives: this machine only, or the project's solenta.json. */
 export type AutomationScope = "private" | "project";
 
+/**
+ * Calibration lifecycle (#388): observe runs are report-only, draft runs
+ * leave outward actions to a human, act runs do the job.
+ */
+export type AutomationStage = "observe" | "draft" | "act";
+
 /** A scheduled agent run (Synara-style automation). */
 export interface AutomationInfo {
   id: string;
@@ -3362,6 +3373,12 @@ export interface AutomationInfo {
   tier?: ModelRoute | null;
   /** Hard cap stamped on every thread this automation fires (#286). */
   budget?: ThreadBudget | null;
+  /** Lifecycle stage (#388). Absent reads as act. */
+  stage?: AutomationStage;
+  /** When the current stage began; graduation counts from here. */
+  stageSince?: number | null;
+  /** Move up a stage on its own after 7 days in one. */
+  graduate?: boolean;
 }
 
 export interface AutomationWrite {
@@ -3378,6 +3395,9 @@ export interface AutomationWrite {
   tier?: ModelRoute | null;
   /** Hard cap per fired thread (#286); null clears. */
   budget?: ThreadBudget | null;
+  /** Defaults to observe on create. */
+  stage?: AutomationStage;
+  graduate?: boolean;
   /** Defaults to private. */
   scope?: AutomationScope;
   /** Slug, project-scope create only. */
