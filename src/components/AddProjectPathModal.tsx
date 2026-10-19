@@ -9,7 +9,11 @@ import type {
   ProjectInfo,
   WindowsDoctorCheck,
 } from "../shared/ipc";
-import { getAddProjectInitialQuery, resolveAddProjectPath } from "../browsePath";
+import {
+  getAddProjectInitialQuery,
+  getBrowseParentPath,
+  resolveAddProjectPath,
+} from "../browsePath";
 import { PathBrowser } from "./PathBrowser";
 import styles from "./SettingsModal.module.css";
 
@@ -20,15 +24,16 @@ function failedDoctorChecks(result: unknown): WindowsDoctorCheck[] {
 }
 
 /**
- * Client copy of the main-process rule (projectClone.js): https:// or ssh
- * only. Main re-checks; this just keeps the button honest.
+ * Client copy of the main-process rule (projectClone.js): https://, ssh,
+ * or GitHub owner/repo. Main re-checks; this just keeps the button honest.
  */
 export function isCloneUrl(raw: string): boolean {
   const u = raw.trim();
   return (
     /^https:\/\/[^/\s]+\/\S+$/i.test(u) ||
     /^ssh:\/\/[^/\s]+\/\S+$/i.test(u) ||
-    /^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[^/\s]\S*$/.test(u)
+    /^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[^/\s]\S*$/.test(u) ||
+    /^[A-Za-z0-9][A-Za-z0-9-]*\/(?!\.\.?$)[A-Za-z0-9._-]+$/.test(u)
   );
 }
 
@@ -114,8 +119,11 @@ export function AddProjectPathModal({
     getAddProjectInitialQuery(null),
   );
   const [name, setName] = useState("");
+  // New projects default next to the current one (#459).
   const [location, setLocation] = useState(() =>
-    getAddProjectInitialQuery(null),
+    getAddProjectInitialQuery(
+      currentProjectCwd ? getBrowseParentPath(currentProjectCwd) : null,
+    ),
   );
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -378,7 +386,7 @@ export function AddProjectPathModal({
                   className={styles.fieldLabel}
                   htmlFor="add-project-clone-url"
                 >
-                  Repository URL
+                  Repository
                 </label>
                 <input
                   id="add-project-clone-url"
@@ -386,7 +394,7 @@ export function AddProjectPathModal({
                   data-add-project-clone-url=""
                   value={cloneUrl}
                   onChange={(e) => setCloneUrl(e.target.value)}
-                  placeholder="https://github.com/owner/repo.git"
+                  placeholder="owner/repo or https://github.com/owner/repo.git"
                   autoComplete="off"
                   spellCheck={false}
                   disabled={pending}
@@ -394,7 +402,7 @@ export function AddProjectPathModal({
                 />
                 {cloneUrl.trim() && !isCloneUrl(cloneUrl) ? (
                   <p className={styles.fieldNote} data-add-project-clone-url-hint="">
-                    Use an https:// or ssh URL, for example
+                    Use owner/repo, an https:// URL, or an ssh URL such as
                     git@github.com:owner/repo.git
                   </p>
                 ) : null}
@@ -440,7 +448,8 @@ export function AddProjectPathModal({
                   onKeyDown={onEnter}
                 />
                 <p className={styles.fieldNote}>
-                  The folder must not exist yet, or be empty.
+                  The folder must not exist yet, be empty, or already be a
+                  clone of this repository.
                 </p>
               </div>
               {cloneProgress ? (
