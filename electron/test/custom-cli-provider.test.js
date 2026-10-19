@@ -257,6 +257,67 @@ process.stderr.write("warn: from stderr\\n");
     assert.equal(text, "tty=true\nworking 100%\nwarn: from stderr\n");
   });
 
+  it("an ACP row (#272) streams chunks, steps tool calls and answers permission from the mode", async () => {
+    writeFakeBin(
+      bin,
+      `"use strict";
+const send = (m) => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", ...m }) + "\\n");
+const update = (u) => send({ method: "session/update", params: { sessionId: "s1", update: u } });
+let promptId = null;
+let buf = "";
+process.stdin.on("data", (d) => {
+  buf += d;
+  let nl;
+  while ((nl = buf.indexOf("\\n")) >= 0) {
+    const msg = JSON.parse(buf.slice(0, nl));
+    buf = buf.slice(nl + 1);
+    if (msg.method === "initialize") send({ id: msg.id, result: { protocolVersion: 1, agentCapabilities: {} } });
+    else if (msg.method === "session/new") send({ id: msg.id, result: { sessionId: "s1", cwd: msg.params.cwd } });
+    else if (msg.method === "session/prompt") {
+      promptId = msg.id;
+      const text = msg.params.prompt[0].text;
+      update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "got " + (/hello acp/.test(text) ? "prompt" : "?") + "; " } });
+      update({ sessionUpdate: "tool_call", toolCallId: "t1", title: "Edit app.js", kind: "edit", status: "pending" });
+      send({ id: 99, method: "session/request_permission", params: { sessionId: "s1", toolCall: { toolCallId: "t1", title: "Edit app.js" }, options: [
+        { optionId: "yes", name: "Allow", kind: "allow_once" },
+        { optionId: "no", name: "Reject", kind: "reject_once" },
+      ] } });
+    } else if (msg.id === 99) {
+      update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "perm=" + msg.result.outcome.optionId } });
+      update({ sessionUpdate: "tool_call_update", toolCallId: "t1", status: "completed" });
+      send({ id: promptId, result: { stopReason: "end_turn" } });
+    }
+  }
+});
+`,
+    );
+    patchRow({ transcript: "acp", fullAccessArgs: [] });
+    const row = (await services.listProvidersForApi(store, { which: () => "/bin/true", env: {}, includeSimulate: false }))
+      .find((p) => p.id === "generic:fake");
+    assert.deepEqual(row.permissionModes, ["default", "bypassPermissions"], "ACP asks per call: both modes apply");
+
+    const t = services.createThread(store, { projectId: project.id, title: "t", provider: "generic:fake" });
+    const reply = async (prompt) => {
+      await runner.startRun({ threadId: t.id, prompt });
+      await waitFor(() => store.getThread(t.id).status === "done");
+      return store.getMessages(t.id).filter((m) => m.role === "assistant").at(-1).text;
+    };
+    assert.equal(await reply("hello acp"), "got prompt; perm=no");
+    const labels = store.getWorkLog(t.id).map((w) => `${w.label}:${w.done}`);
+    assert.ok(labels.includes("Edit app.js:true"), labels.join(", "));
+    assert.ok(labels.some((l) => l.startsWith("Denied: Edit app.js")), labels.join(", "));
+
+    services.setPermissionMode(store, { threadId: t.id, mode: "bypassPermissions" });
+    assert.equal(await reply("again"), "got prompt; perm=yes", "full access allows; the tail is replayed");
+  });
+
+  it("an ACP row whose CLI exits without speaking ACP fails the run", async () => {
+    patchRow({ transcript: "acp" });
+    const t = services.createThread(store, { projectId: project.id, title: "t", provider: "generic:fake" });
+    await runner.startRun({ threadId: t.id, prompt: "hi" });
+    await waitFor(() => store.getThread(t.id).status === "failed");
+  });
+
   it("fails the send clearly when the row or binary is gone", async () => {
     const t = services.createThread(store, { projectId: project.id, title: "t", provider: "generic:fake" });
     const [only] = store.getSettings().providerInstances;

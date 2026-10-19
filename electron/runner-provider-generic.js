@@ -10,6 +10,7 @@ const os = require("node:os");
 const path = require("node:path");
 const threadSecrets = require("./threadSecrets.js");
 const { findInstance, instanceEnv } = require("./providerInstances.js");
+const { runAcpAgent } = require("./acp.js");
 
 /**
  * @param {object} ctx - createRunner context (see runner-watchdogs.js header)
@@ -223,6 +224,7 @@ function createGenericRun(ctx) {
         custom: false,
         cwd: worktree,
         pty: false,
+        acp: false,
       };
     }
     const [command, ...args] = inst.command;
@@ -246,15 +248,17 @@ function createGenericRun(ctx) {
       custom: true,
       cwd,
       pty: inst.transcript === "pty",
+      acp: inst.transcript === "acp",
     };
   }
 
   /**
    * Start a real generic agent child-process run (CODER_AGENT_CMD or a
    * custom CLI row). Raw stdout, or cleaned PTY output, is the
-   * transcript: no work-log cards, usage or resume. No MCP config is
-   * passed, so the CLI cannot write to shared memory; it still gets the
-   * scanned bootstrap note in the prompt.
+   * transcript: no work-log cards, usage or resume. An ACP row (#272)
+   * streams its message chunks instead and its tool calls become steps.
+   * No MCP config is passed, so the CLI cannot write to shared memory; it
+   * still gets the scanned bootstrap note in the prompt.
    */
   function startGenericRun(threadId, prompt, runId, name) {
     if (abortIfCancelled(threadId, runId)) return { runId };
@@ -271,6 +275,7 @@ function createGenericRun(ctx) {
       custom,
       cwd: localCwd,
       pty,
+      acp,
     } = genericCommand(thread, thread.worktreePath || project.path);
     const model = path.basename(command);
 
@@ -369,10 +374,15 @@ function createGenericRun(ctx) {
       }
     }
 
-    // Stop/error/clearRun must land pending text before the terminal push.
+    /** ACP tool call id -> open work-log step. */
+    const toolSteps = new Map();
+
+    // Stop/error/clearRun must land pending text before the terminal push,
+    // and no ACP tool step outlives its run.
     entry.flushStream = () => {
       cancelPushTimer();
       applyPendingText();
+      for (const id of toolSteps.values()) completeWorkLogStep(threadId, id);
     };
 
     const crossing = crossesBoundary(project);
@@ -381,18 +391,7 @@ function createGenericRun(ctx) {
       : // Local: same seam so a Seatbelt-governed thread is wrapped (#803).
         resolveSpawn(project, command, args, localCwd, undefined, threadId);
     if (abortIfCancelled(threadId, runId)) return { runId };
-    const handle = runAgentFn({
-      command: spawn.binary,
-      args: spawn.args,
-      prompt,
-      appendPrompt: !crossing,
-      cwd: spawn.cwd,
-      pty,
-      env: threadSecrets.withEnv(threadId, {
-        ...process.env,
-        ...normalizeProjectEnv(project && project.env),
-        ...overlay,
-      }),
+    const callbacks = {
       onChunk: (text) => {
         if (!guard()) return;
         realState.charCount = text.length;
@@ -465,7 +464,50 @@ function createGenericRun(ctx) {
         pushThreadsChanged();
         notifyRunTerminal(threadId, "failed", failure.text);
       },
+    };
+    const env = threadSecrets.withEnv(threadId, {
+      ...process.env,
+      ...normalizeProjectEnv(project && project.env),
+      ...overlay,
     });
+    const handle = acp
+      ? runAcpAgent({
+          ...callbacks,
+          command: spawn.binary,
+          args: spawn.args,
+          cwd: spawn.cwd,
+          env,
+          prompt: String(prompt ?? ""),
+          fullAccess: thread.permissionMode === "bypassPermissions",
+          // Tool calls are work-log steps: one per id, done when it settles.
+          onTool: (update) => {
+            if (!guard() || !update.toolCallId) return;
+            let stepId = toolSteps.get(update.toolCallId);
+            if (!stepId) {
+              stepId = beginWorkLogStep(threadId, runId, update.title || "Tool call");
+              toolSteps.set(update.toolCallId, stepId);
+            }
+            if (update.status === "completed" || update.status === "failed") {
+              completeWorkLogStep(threadId, stepId);
+            }
+            throttledPush();
+          },
+          onNote: (label) => {
+            if (!guard()) return;
+            appendDoneWorkLog(threadId, runId, label);
+            throttledPush();
+          },
+        })
+      : runAgentFn({
+          ...callbacks,
+          command: spawn.binary,
+          args: spawn.args,
+          prompt,
+          appendPrompt: !crossing,
+          cwd: spawn.cwd,
+          pty,
+          env,
+        });
 
     entry.handle = handle;
     completeWorkLogStep(threadId, startingId);

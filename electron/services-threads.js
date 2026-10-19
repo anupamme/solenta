@@ -1231,7 +1231,7 @@ async function listProvidersForApi(store, opts) {
 /**
  * Picker row for a custom CLI (#458). Capabilities are the honest floor:
  * no resume, models, efforts, search, steer or agents, and permission
- * modes only when the row maps full access to flags.
+ * modes only when the row maps full access to flags or speaks ACP.
  * @param {import('./providerInstances').ProviderInstance} inst
  * @returns {import('../src/shared/ipc').ProviderInfo}
  */
@@ -1248,8 +1248,9 @@ function genericProviderInfo(inst) {
     supportsSearch: false,
     supportsSteer: false,
     supportsAgents: false,
+    // ACP agents ask per tool call, so both modes mean something (#272).
     permissionModes:
-      inst.fullAccessArgs && inst.fullAccessArgs.length > 0
+      inst.transcript === "acp" || (inst.fullAccessArgs && inst.fullAccessArgs.length > 0)
         ? honouredPermissionModes(getProvider("generic"))
         : [],
     baseProvider: "generic",
