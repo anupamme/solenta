@@ -275,6 +275,33 @@ describe("AutomationsView", () => {
     m.unmount();
   });
 
+  it("passes a budget cap to onCreate (#286)", async () => {
+    const created: unknown[] = [];
+    const m = await mount(
+      <AutomationsView
+        automations={[]}
+        projects={[p1]}
+        providers={providers}
+        onCreate={(input) => {
+          created.push(input);
+        }}
+        onUpdate={() => {}}
+        onRemove={() => {}}
+        onRunNow={() => {}}
+      />,
+    );
+    await m.type(m.query('[data-automation-create] [name="name"]'), "Nightly");
+    await m.type(m.query('[data-automation-create] [name="prompt"]'), "review");
+    await m.type(m.query('[data-automation-budget] [data-budget-field="usd"]'), "0.75");
+    await m.type(m.query('[data-automation-budget] [data-budget-field="minutes"]'), "20");
+    await m.click(m.query("[data-automation-create] button[type=submit]"));
+    assert.deepEqual((created[0] as { budget?: unknown }).budget, {
+      usd: 0.75,
+      minutes: 20,
+    });
+    m.unmount();
+  });
+
   it("offers a model dropdown when the provider lists models", async () => {
     const withModels: ProviderInfo[] = [
       { ...providers[0], models: ["claude-opus-4-6", "claude-sonnet-4-6"] },
@@ -1026,12 +1053,81 @@ describe("AutomationsView", () => {
         onRunNow={() => {}}
       />,
     );
-    await m.click(m.query("[data-automation-triage]"));
+    await m.click(m.query('[data-automation-template="triage"]'));
     await m.click(m.query("[data-automation-create] button[type=submit]"));
     assert.equal(created.length, 1);
     assert.equal(created[0].name, "Issue triage");
     assert.match(String(created[0].prompt), /issue_set_plan status todo/);
     assert.equal((created[0].trigger as { event: string }).event, "issue_opened");
+    // #388: every new automation calibrates report-only first.
+    assert.equal(created[0].stage, "observe");
+    assert.equal(created[0].graduate, true);
+    m.unmount();
+  });
+
+  it("template gallery fills schedule and event templates (#388)", async () => {
+    const created: Array<Record<string, unknown>> = [];
+    const m = await mount(
+      <AutomationsView
+        automations={[]}
+        projects={[p1]}
+        providers={providers}
+        onCreate={(input) => {
+          created.push(input as unknown as Record<string, unknown>);
+        }}
+        onUpdate={() => {}}
+        onRemove={() => {}}
+        onRunNow={() => {}}
+      />,
+    );
+    assert.equal(m.queryAll("[data-automation-template]").length, 5);
+    await m.click(m.query('[data-automation-template="test-fixer"]'));
+    await m.click(m.query("[data-automation-create] button[type=submit]"));
+    await m.click(m.query('[data-automation-template="dep-bump"]'));
+    await m.change(m.query('[data-automation-create] [name="stage"]'), "act");
+    await m.click(m.query("[data-automation-create] button[type=submit]"));
+    assert.equal(created.length, 2);
+    assert.deepEqual(
+      [created[0].name, (created[0].trigger as { conclusion: string }).conclusion],
+      ["Test-failure fixer", "failure"],
+    );
+    assert.deepEqual(
+      [created[1].name, created[1].trigger, created[1].preset, created[1].hour, created[1].stage],
+      ["Dependency bump + repair", null, "weekly", 9, "act"],
+    );
+    m.unmount();
+  });
+
+  it("rows show a calibrating stage and edits keep it (#388)", async () => {
+    const updates: Array<Record<string, unknown>> = [];
+    const now = Date.now();
+    const m = await mount(
+      <AutomationsView
+        automations={[
+          auto({ id: "obs", stage: "observe", graduate: true, stageSince: now - 4.5 * 86_400_000 }),
+          auto({ id: "pinned", stage: "draft", graduate: false }),
+          auto({ id: "old" }),
+        ]}
+        projects={[p1]}
+        providers={providers}
+        onCreate={() => {}}
+        onUpdate={(input) => {
+          updates.push(input as unknown as Record<string, unknown>);
+        }}
+        onRemove={() => {}}
+        onRunNow={() => {}}
+      />,
+    );
+    const badge = (id: string) =>
+      m.container.querySelector(`[data-automation-row="${id}"] [data-automation-stage]`)?.textContent ?? null;
+    assert.equal(badge("obs"), "Observing · drafts in 2d");
+    assert.equal(badge("pinned"), "Drafting");
+    assert.equal(badge("old"), null);
+    await m.click(m.query('[data-automation-row="pinned"] [data-automation-edit]'));
+    assert.equal(m.queryAll("[data-automation-template]").length, 0);
+    await m.click(m.query("[data-automation-create] button[type=submit]"));
+    assert.equal(updates[0].stage, "draft");
+    assert.equal(updates[0].graduate, false);
     m.unmount();
   });
 

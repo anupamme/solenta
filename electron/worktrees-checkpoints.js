@@ -3,6 +3,7 @@
 // Turn checkpoints (create/list/restore), turn diffs and run stats.
 
 const fs = require("node:fs");
+const path = require("node:path");
 const { PATCH_TRUNCATE, invalidateGitReads, tailErr, gitTryAsync } = require("./worktrees-git.js");
 const { diff, commit } = require("./worktrees-changes.js");
 
@@ -330,6 +331,42 @@ async function maybeCreateCheckpoint(store, threadId) {
   }
 }
 
+// Per-worktree git state of a half-done merge/rebase/cherry-pick/revert.
+const MID_OPERATION_MARKERS = [
+  "MERGE_HEAD",
+  "CHERRY_PICK_HEAD",
+  "REVERT_HEAD",
+  "rebase-merge",
+  "rebase-apply",
+];
+
+/**
+ * Before an agent turn (#321): commit uncommitted work (manual edits, a
+ * stopped or failed turn's leftovers) so an agent `git reset --hard`,
+ * `checkout --` or `clean -fd` cannot destroy it. Skipped mid-merge/rebase:
+ * `add -A` + commit would seal conflict markers into a merge commit and
+ * break the resolve flow. Best-effort, never throws.
+ *
+ * @param {import('./store').Store} store
+ * @param {string} threadId
+ */
+async function snapshotBeforeTurn(store, threadId) {
+  try {
+    const thread = store.getThread(threadId);
+    if (!thread || !thread.worktreePath) return null;
+    const cwd = thread.worktreePath;
+    const gitDir = await gitTryAsync(cwd, ["rev-parse", "--git-dir"]);
+    if (!gitDir.ok) return null;
+    const dir = path.resolve(cwd, String(gitDir.stdout).trim());
+    if (MID_OPERATION_MARKERS.some((m) => fs.existsSync(path.join(dir, m)))) {
+      return null;
+    }
+    return await maybeCreateCheckpoint(store, threadId);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * List checkpoints in the thread worktree, newest-first.
  * @param {object} opts
@@ -549,6 +586,7 @@ module.exports = {
   turnDiff,
   latestTurnRange,
   maybeCreateCheckpoint,
+  snapshotBeforeTurn,
   listCheckpoints,
   checkpointForkPoint,
   restoreCheckpoint,

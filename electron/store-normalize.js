@@ -7,7 +7,9 @@ const { getProvider, honouredEfforts } = require("./providers.js");
 const { normalizeMcpServers } = require("./mcp.js");
 const { normalizeProviderInstances } = require("./providerInstances.js");
 const { normalizeModelPrices } = require("./modelPrices.js");
+const { normalizePrivacyGateway } = require("./privacyGateway.js");
 const { parsePolicy } = require("./governance.js");
+const { normalizeBudget } = require("./budgetCaps.js");
 
 /**
  * @param {unknown} u
@@ -101,6 +103,9 @@ function parseAgentProfile(item, strict) {
   // stays); settings:set throws. Absent stays absent so fixtures deepEqual.
   const policy =
     rec.policy === undefined ? null : parsePolicy(rec.policy, strict);
+  // Default hard cap for threads this profile is applied to (#286). Same
+  // heal-on-read / throw-on-set split; absent stays absent.
+  const budget = normalizeBudget(rec.budget, strict);
   return {
     id,
     name,
@@ -109,6 +114,7 @@ function parseAgentProfile(item, strict) {
     reasoningEffort: /** @type {string | null} */ (effort),
     permissionMode: /** @type {string} */ (permissionMode),
     ...(policy ? { policy } : {}),
+    ...(budget ? { budget } : {}),
   };
 }
 
@@ -433,6 +439,7 @@ function normalizeSettings(raw) {
     webhook: { url: null, onDone: true, onFailed: true, onWaiting: true },
     modelPrices: {},
     worktreeRoot: null,
+    privacyGateway: normalizePrivacyGateway(null),
   };
   if (!raw || typeof raw !== "object") return settings;
   const obj = /** @type {{ dailyBudgetUsd?: unknown, orchestrationBudgetUsd?: unknown, autoSettleAfterDays?: unknown, mcpServers?: unknown }} */ (
@@ -620,6 +627,9 @@ function normalizeSettings(raw) {
   const root = /** @type {{ worktreeRoot?: unknown }} */ (obj).worktreeRoot;
   settings.worktreeRoot =
     typeof root === "string" && path.isAbsolute(root.trim()) ? root.trim() : null;
+  settings.privacyGateway = normalizePrivacyGateway(
+    /** @type {{ privacyGateway?: unknown }} */ (obj).privacyGateway,
+  );
   return settings;
 }
 

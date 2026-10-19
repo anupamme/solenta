@@ -154,6 +154,9 @@ describe("mergeAutomations", () => {
     assert.equal(shared.prompt, ROW.prompt);
     assert.equal(shared.memory, "");
     assert.equal(shared.triggerCursor, null);
+    // #388: each machine calibrates a shared row from report-only.
+    assert.equal(shared.stage, "observe");
+    assert.equal(shared.graduate, true);
     assert.equal(canAutoFire(store, shared), false);
   });
 

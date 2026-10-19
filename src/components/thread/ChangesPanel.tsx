@@ -536,6 +536,7 @@ export function ChangesPanel({
   threadBaseBranch,
   planText,
   openNonce,
+  focus = null,
   onFetchDiff,
   onFetchReviewContext,
   onSetReviewAccepted,
@@ -545,6 +546,7 @@ export function ChangesPanel({
   onRevert,
   onRevertHunk,
   onSuggest,
+  onCommitAndPr,
   onComment,
 }: {
   open: boolean;
@@ -557,6 +559,8 @@ export function ChangesPanel({
   threadBaseBranch?: string | null;
   planText: string;
   openNonce: number;
+  /** File an agent pointed at (show_user, #293); a new object re-selects. */
+  focus?: { path: string } | null;
   onFetchDiff: (opts?: DiffOptions) => Promise<DiffResult>;
   onFetchReviewContext?: () => Promise<{
     annotation: unknown;
@@ -576,6 +580,11 @@ export function ChangesPanel({
   onRevertHunk?: (path: string, patch: string) => Promise<{ path: string }>;
   onSuggest: () => Promise<{ message: string }>;
   /**
+   * Push and open (or update) the PR after a commit (#363). Shows the
+   * one-click Commit & PR button; absent = no forge PR path here.
+   */
+  onCommitAndPr?: () => Promise<unknown>;
+  /**
    * Hand a line or range comment to the composer draft (issue #162, #1493).
    * Comments batch there and go out with the next send, not one run each.
    */
@@ -593,7 +602,9 @@ export function ChangesPanel({
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   /** Which footer action is running; null = idle. */
-  const [busy, setBusy] = useState<"commit" | "generate" | null>(null);
+  const [busy, setBusy] = useState<
+    "commit" | "generate" | "pr" | null
+  >(null);
   const [reverting, setReverting] = useState<string | null>(null);
   /** Untracked-path revert arms a confirm first (it deletes the file). */
   const [confirmRevert, setConfirmRevert] = useState<string | null>(null);
@@ -750,10 +761,27 @@ export function ChangesPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- diff is the trigger
   }, [diff]);
 
+  // Held until a diff that has the file lands: the panel may still be loading.
+  const wantPathRef = useRef<string | null>(null);
+  useEffect(() => {
+    wantPathRef.current = focus ? focus.path : null;
+    const want = focus?.path;
+    if (want && diff?.files.some((f) => f.path === want)) {
+      wantPathRef.current = null;
+      setSelectedPath(want);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- focus is the trigger
+  }, [focus]);
 
   useEffect(() => {
     if (!diff || diff.files.length === 0) {
       setSelectedPath(null);
+      return;
+    }
+    const want = wantPathRef.current;
+    if (want && diff.files.some((f) => f.path === want)) {
+      wantPathRef.current = null;
+      setSelectedPath(want);
       return;
     }
     if (selectedPath && diff.files.some((f) => f.path === selectedPath)) return;
@@ -942,23 +970,42 @@ export function ChangesPanel({
     }
   };
 
-  const doCommit = async () => {
-    const msg = message.trim();
-    if (!msg || busy || !diff) return;
+  /**
+   * Commit the staged files. With `andPr` (#363): draft the message first
+   * when the box is blank, then push and open the PR.
+   */
+  const doCommit = async (andPr = false) => {
+    let msg = message.trim();
+    if ((!msg && !andPr) || busy || !diff) return;
     const paths = diff.files.map((f) => f.path).filter((p) => stagedPaths.has(p));
     if (paths.length === 0) return;
-    setBusy("commit");
     setError(null);
+    let committed = false;
     try {
+      if (!msg) {
+        setBusy("generate");
+        msg = (await onSuggest()).message.trim();
+        setMessage(msg);
+      }
+      setBusy("commit");
       await onCommit(
         msg,
         paths,
         partialPatches.length ? partialPatches : undefined,
       );
+      committed = true;
       setMessage("");
       await load();
+      if (andPr && onCommitAndPr) {
+        setBusy("pr");
+        await onCommitAndPr();
+      }
     } catch (err) {
-      setError(failMessage(err, "Failed to commit"));
+      setError(
+        committed
+          ? `Committed, but the PR failed: ${failMessage(err, "unknown error")}`
+          : failMessage(err, "Failed to commit"),
+      );
     } finally {
       setBusy(null);
     }
@@ -1346,7 +1393,7 @@ export function ChangesPanel({
                 }
                 onClick={() => void doCommit()}
               >
-                {busy === "commit"
+                {busy === "commit" || busy === "pr"
                   ? "Committing…"
                   : stagedPaths.size === 0 ||
                       (stagedPaths.size === (diff?.files.length ?? 0) &&
@@ -1356,6 +1403,18 @@ export function ChangesPanel({
                       ? "Commit 1 file"
                       : `Commit ${stagedPaths.size} files`}
               </button>
+              {onCommitAndPr ? (
+                <button
+                  type="button"
+                  className={`${styles.btn} ${styles.btnPrimary}`}
+                  data-commit-and-pr=""
+                  title="Commit, push and open a pull request. A blank message is generated first."
+                  disabled={busy != null || stagedPaths.size === 0}
+                  onClick={() => void doCommit(true)}
+                >
+                  {busy === "pr" ? "Opening PR…" : "Commit & PR"}
+                </button>
+              ) : null}
             </div>
           </div>
           ) : null}

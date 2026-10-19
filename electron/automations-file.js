@@ -14,6 +14,7 @@ const path = require("node:path");
 const { createHash } = require("node:crypto");
 const { normalizeTrigger, parseTriggerInput } = require("./automation-triggers.js");
 const { normalizeRoute } = require("./routing.js");
+const { normalizeBudget } = require("./budgetCaps.js");
 const { isKnownProviderId } = require("./services-notes.js");
 const { readRepoJson, invalidateRepoConfigCache } = require("./repoConfig.js");
 
@@ -76,6 +77,9 @@ function canonical(row) {
     hour: row.hour,
     trigger: row.trigger,
     tier: row.tier,
+    // #286. undefined drops out of JSON.stringify, so rows without a cap
+    // keep the hash every trusted file already has.
+    budget: row.budget || undefined,
   };
 }
 
@@ -188,6 +192,14 @@ function parseRow(raw, index, seen) {
     }
   }
 
+  let budget = null;
+  try {
+    budget = normalizeBudget(r.budget, true);
+  } catch (err) {
+    const msg = err && err.message ? String(err.message) : String(err);
+    return { error: `solenta.json: ${at}.${msg}` };
+  }
+
   return {
     row: {
       id,
@@ -199,6 +211,7 @@ function parseRow(raw, index, seen) {
       hour: hourParsed.hour,
       trigger,
       tier,
+      ...(budget ? { budget } : {}),
     },
   };
 }
@@ -311,6 +324,9 @@ function mergeAutomations(store, nowMs) {
             consecutiveFailures: overlay.consecutiveFailures,
             pendingRunThreadId: overlay.pendingRunThreadId,
             nextRunAt: overlay.nextRunAt,
+            stage: overlay.stage,
+            graduate: overlay.graduate,
+            stageSince: overlay.stageSince,
           }
         : {
             enabled: false,
@@ -321,6 +337,10 @@ function mergeAutomations(store, nowMs) {
             consecutiveFailures: 0,
             pendingRunThreadId: null,
             nextRunAt: nextFire(row.preset, row.hour, nowMs),
+            // #388: each machine calibrates a shared row from scratch.
+            stage: "observe",
+            graduate: true,
+            stageSince: null,
           };
       shared.push({
         ...runtime,
@@ -334,6 +354,7 @@ function mergeAutomations(store, nowMs) {
         hour: row.hour,
         trigger: row.trigger,
         tier: row.tier,
+        ...(row.budget ? { budget: row.budget } : {}),
         scope: "project",
       });
     }
@@ -450,6 +471,9 @@ function ensureOverlay(store, auto) {
     lastError: auto.lastError ?? null,
     consecutiveFailures: auto.consecutiveFailures || 0,
     pendingRunThreadId: auto.pendingRunThreadId ?? null,
+    stage: auto.stage || "observe",
+    graduate: auto.graduate !== false,
+    stageSince: auto.stageSince ?? null,
     nextRunAt:
       typeof auto.nextRunAt === "number" && Number.isFinite(auto.nextRunAt)
         ? auto.nextRunAt

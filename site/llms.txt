@@ -1,0 +1,22 @@
+# Solenta
+
+> Solenta is a local-first desktop app (macOS, Windows, Linux; MIT) that runs coding-agent CLIs — Claude Code, Codex, Cursor, Kimi, Grok, OpenCode and Muse Code — side by side, each thread in its own git worktree. Every session shares one local memory server (SQLite, full-text and vector search, exposed over MCP), so a later agent starts knowing what an earlier one stored, and the Planboard is the project's GitHub or GitLab issues.
+
+Solenta does not bundle an agent: it finds the CLIs on your PATH. Nothing goes to a Solenta cloud; the memory server is localhost-only and token gated.
+
+## Docs
+
+- [Full docs as Markdown](https://solenta.app/llms-full.txt): every section of the docs page in one file
+- [How Solenta works](https://solenta.app/docs.html): the docs page itself
+- [Architecture](https://github.com/currentbits/solenta/blob/main/docs/ARCHITECTURE.md): Electron main, renderer, provider adapters, memory server
+- [README](https://github.com/currentbits/solenta/blob/main/README.md): install, supported agents, building from source
+
+## Install
+
+- [Latest release](https://github.com/currentbits/solenta/releases/latest): macOS arm64 (signed and notarized), Windows x64, Linux x64 archives
+- [Changelog](https://solenta.app/changelog.html)
+
+## Optional
+
+- [Source](https://github.com/currentbits/solenta)
+- [Issues](https://github.com/currentbits/solenta/issues)

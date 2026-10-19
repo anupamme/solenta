@@ -251,3 +251,45 @@ describe("primeProcessPath / refreshLoginPath (#1475)", () => {
     assert.equal(whenPathReady(), null);
   });
 });
+
+describe("login env (#320)", () => {
+  const { parseLoginEnv, applyLoginEnv, primeProcessPath, refreshLoginPath } = require("../pathEnv.js");
+  const block = (vars) =>
+    `rc noise__CODER_ENV_BEGIN__${Object.entries(vars).map(([k, v]) => `${k}=${v}`).join("\0")}\0__CODER_ENV_END__`;
+
+  it("parses env -0 output between the markers; values may hold = and newlines", () => {
+    assert.deepEqual(parseLoginEnv(block({ A: "1", B: "x=y\nz" })), { A: "1", B: "x=y\nz" });
+    assert.equal(parseLoginEnv("no markers"), null);
+    assert.equal(parseLoginEnv("__CODER_ENV_BEGIN____CODER_ENV_END__"), null);
+  });
+
+  it("applies only what the rc files changed, minus shell bookkeeping and a tty-less GPG_TTY", () => {
+    const sent = { HOME: "/h", KEEP: "app", SSH_AUTH_SOCK: "/launchd" };
+    const env = { ...sent, KEEP: "set-by-app-meanwhile" };
+    const login = {
+      HOME: "/h", KEEP: "app", SSH_AUTH_SOCK: "/1password.sock", ZSHRC_VAR: "v",
+      PATH: "/x", PWD: "/h", SHLVL: "1", _: "/usr/bin/env", GPG_TTY: "not a tty",
+    };
+    assert.equal(applyLoginEnv(env, sent, login), 2);
+    assert.deepEqual(env, {
+      HOME: "/h", KEEP: "set-by-app-meanwhile", SSH_AUTH_SOCK: "/1password.sock", ZSHRC_VAR: "v",
+    });
+    const tty = {};
+    applyLoginEnv(tty, {}, { GPG_TTY: "/dev/ttys003" });
+    assert.equal(tty.GPG_TTY, "/dev/ttys003");
+  });
+
+  it("refreshLoginPath applies the login env alongside PATH and does not cache it", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pathenv-"));
+    const cacheFile = path.join(dir, "login-path.json");
+    const out = `__CODER_PATH_BEGIN__/login/bin__CODER_PATH_END__${block({ TOKEN: "s3cret", PATH: "/login/bin" })}`;
+    const env = { PATH: "/usr/bin" };
+    primeProcessPath({
+      cacheFile, env, execFn: (f, a, o, cb) => cb(null, out), existsFn: () => false, home: "/h", platform: "darwin",
+    });
+    await refreshLoginPath();
+    assert.equal(env.PATH, "/login/bin:/usr/bin");
+    assert.equal(env.TOKEN, "s3cret");
+    assert.ok(!fs.readFileSync(cacheFile, "utf8").includes("s3cret"));
+  });
+});

@@ -5,10 +5,12 @@ import type {
   CoderApi,
   GovernanceAuditEntry,
   OtelSettings,
+  ProviderInfo,
 } from "../../shared/ipc";
 import styles from "../SettingsModal.module.css";
 import type { SettingsDraftKey, SettingsModalProps } from "../SettingsModal";
 import { VibeKanbanSection } from "../VibeKanbanSection";
+import { PrivacyGatewayEditor } from "./PrivacyGatewayEditor";
 
 /** ponytail: one `key: value` per line; a row editor if this grows past a handful of headers. */
 export function formatOtelHeaders(headers: Record<string, string>): string {
@@ -34,6 +36,7 @@ export function parseOtelHeaders(text: string): Record<string, string> {
 
 export function AdvancedPane({
   settings,
+  providers,
   saving,
   error,
   setError,
@@ -48,6 +51,7 @@ export function AdvancedPane({
   onSaveSettings,
 }: {
   settings: AppSettings | null;
+  providers: ProviderInfo[];
   saving: boolean;
   error: string | null;
   setError: (error: string | null) => void;
@@ -115,6 +119,12 @@ export function AdvancedPane({
           </p>
         </div>
       </section>
+
+      <PrivacyGatewayEditor
+        settings={settings}
+        providers={providers}
+        onSaveSettings={onSaveSettings}
+      />
 
       <section className={styles.section} data-otel-settings="">
         <h3 className={styles.sectionLabel}>OpenTelemetry</h3>

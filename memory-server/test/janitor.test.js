@@ -31,26 +31,13 @@ describe('janitor', () => {
     fs.rmSync(dir, { recursive: true, force: true })
   })
 
-  it('decays access_count by 0.98 with integer floor, never below 0', () => {
+  it('leaves access_count alone, so a re-run cannot double-decay (#311)', () => {
     const a = memory.store({ type: 'knowledge', title: 'A', body: 'body a', force: true })
-    const b = memory.store({ type: 'knowledge', title: 'B', body: 'body b', force: true })
-    const c = memory.store({ type: 'knowledge', title: 'C', body: 'body c', force: true })
     memory.db.prepare(`UPDATE entries SET access_count = 100 WHERE id = ?`).run(a.id)
-    memory.db.prepare(`UPDATE entries SET access_count = 1 WHERE id = ?`).run(b.id)
-    memory.db.prepare(`UPDATE entries SET access_count = 0 WHERE id = ?`).run(c.id)
-
-    const snap = runJanitor(memory.db)
-    assert.ok(snap)
-
-    const counts = {
-      a: memory.db.prepare(`SELECT access_count FROM entries WHERE id = ?`).get(a.id).access_count,
-      b: memory.db.prepare(`SELECT access_count FROM entries WHERE id = ?`).get(b.id).access_count,
-      c: memory.db.prepare(`SELECT access_count FROM entries WHERE id = ?`).get(c.id).access_count,
-    }
-    assert.equal(counts.a, 98) // floor(100 * 0.98)
-    assert.equal(counts.b, 0) // floor(1 * 0.98) = 0
-    assert.equal(counts.c, 0)
-    assert.ok(counts.a >= 0 && counts.b >= 0 && counts.c >= 0)
+    runJanitor(memory.db)
+    runJanitor(memory.db)
+    const row = memory.db.prepare(`SELECT access_count FROM entries WHERE id = ?`).get(a.id)
+    assert.equal(row.access_count, 100)
   })
 
   it('sweeps orphan mentions and edges', () => {

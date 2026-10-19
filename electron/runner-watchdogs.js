@@ -20,6 +20,7 @@
 //   runner functions such as resolveProvider through ctx.
 
 const { heartbeatLane } = require("./mergeQueue.js");
+const { budgetBreach } = require("./budgetCaps.js");
 
 /**
  * @param {object} ctx - createRunner context (see header)
@@ -68,6 +69,42 @@ function createWatchdogs(ctx) {
     }
   }
 
+  /** Threads a budget stop is already in flight for. */
+  const budgetStopping = new Set();
+
+  /**
+   * Hard budget caps, live half (#286). The start gate refuses a run that
+   * is already over; this stops one that crosses a cap mid-run, then flags
+   * the thread so the user decides. Usage-based caps move when the provider
+   * reports usage; minutes is the in-turn hard stop.
+   * ponytail: 15 s sweep granularity, a per-run timer if that ever matters.
+   */
+  async function checkBudgets() {
+    const now = nowFn();
+    for (const [threadId, entry] of [...active.entries()]) {
+      if (!entry || entry.stopping || budgetStopping.has(threadId)) continue;
+      const thread = store.getThread(threadId);
+      if (!thread || !thread.budget || thread.memoryConsolidate === true) continue;
+      const why = budgetBreach(thread, store.getUsage(threadId), now);
+      if (!why) continue;
+      budgetStopping.add(threadId);
+      try {
+        appendMessage(
+          threadId,
+          "event",
+          `Budget cap reached: ${why}. Stopping the run. Raise or clear this thread's cap to continue.`,
+          entry.runId || null,
+        );
+        await ctx.stopRun({ threadId });
+        store.updateThread(threadId, { awaitingInput: true });
+        store.save();
+        pushThreadsChanged();
+      } finally {
+        budgetStopping.delete(threadId);
+      }
+    }
+  }
+
   /**
    * Reset lastBeat on every active lane thread so the 30-minute watchdog
    * does not recycle a live run. Idle / wedged lanes are left alone.
@@ -98,11 +135,15 @@ function createWatchdogs(ctx) {
     } catch {
       // never break the runner
     }
+    checkBudgets().catch(() => {
+      // never break the runner
+    });
   }, 15_000);
   if (typeof stallTimer.unref === "function") stallTimer.unref();
 
   return {
     checkStalls,
+    checkBudgets,
     heartbeatActiveLanes,
     dispose() {
       clearInterval(stallTimer);

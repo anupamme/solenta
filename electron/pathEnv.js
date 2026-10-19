@@ -16,11 +16,17 @@ const { execFile, execFileSync } = require("node:child_process");
  *   3. well-known bin dirs that exist on disk (homebrew, ~/.local/bin, ...).
  * Everything is best-effort: a slow or noisy shell costs one 3s timeout, not
  * a startup failure.
+ *
+ * The same shell run also captures the rest of the login environment (#320):
+ * whatever the rc files export (~/.zshrc vars, SSH_AUTH_SOCK, GNUPGHOME, ...)
+ * lands in process.env, so every spawn sees what a terminal would.
  */
 
 const SHELL_TIMEOUT_MS = 3000;
 const MARK_BEGIN = "__CODER_PATH_BEGIN__";
 const MARK_END = "__CODER_PATH_END__";
+const ENV_BEGIN = "__CODER_ENV_BEGIN__";
+const ENV_END = "__CODER_ENV_END__";
 
 /**
  * Parse PATH entries out of login-shell output between the markers. rc files
@@ -37,6 +43,53 @@ function parseLoginPath(out) {
   const raw = text.slice(begin + MARK_BEGIN.length, end);
   const entries = raw.split(":").filter(Boolean);
   return entries.length > 0 ? entries : null;
+}
+
+/**
+ * Parse `env -0` output between the env markers into a map, or null.
+ *
+ * @param {string} out
+ * @returns {Record<string, string> | null}
+ */
+function parseLoginEnv(out) {
+  const text = String(out || "");
+  const begin = text.indexOf(ENV_BEGIN);
+  const end = text.indexOf(ENV_END, begin + ENV_BEGIN.length);
+  if (begin === -1 || end === -1) return null;
+  /** @type {Record<string, string>} */
+  const vars = {};
+  for (const pair of text.slice(begin + ENV_BEGIN.length, end).split("\0")) {
+    const eq = pair.indexOf("=");
+    if (eq > 0) vars[pair.slice(0, eq)] = pair.slice(eq + 1);
+  }
+  return Object.keys(vars).length > 0 ? vars : null;
+}
+
+/** Shell-session bookkeeping, not user config. PATH has its own merge. */
+const SESSION_KEYS = new Set(["PATH", "PWD", "OLDPWD", "SHLVL", "_"]);
+
+/**
+ * Copy into `env` every login-shell var the rc files added or changed, i.e.
+ * whose value differs from `sent` (what the shell was started with). Diffing
+ * against `sent` rather than `env` keeps a var the app set while the shell
+ * ran. Returns how many vars were applied.
+ *
+ * @param {NodeJS.ProcessEnv} env
+ * @param {NodeJS.ProcessEnv} sent
+ * @param {Record<string, string> | null} login
+ * @returns {number}
+ */
+function applyLoginEnv(env, sent, login) {
+  let n = 0;
+  for (const [k, v] of Object.entries(login || {})) {
+    if (SESSION_KEYS.has(k) || sent[k] === v) continue;
+    // `export GPG_TTY=$(tty)` in a pipe-fed shell yields "not a tty", which
+    // would break pinentry for every git commit -S.
+    if (k === "GPG_TTY" && !v.startsWith("/dev/")) continue;
+    env[k] = v;
+    n++;
+  }
+  return n;
 }
 
 /** Well-known bin dirs, filtered to those that exist. */
@@ -121,7 +174,10 @@ function captureLoginPath(env, execFn = execFileSync, platform = process.platfor
 function loginShellCall(env) {
   return /** @type {const} */ ([
     env.SHELL || "/bin/zsh",
-    ["-lic", `printf '%s' '${MARK_BEGIN}'"$PATH"'${MARK_END}'`],
+    [
+      "-lic",
+      `printf '%s' '${MARK_BEGIN}'"$PATH"'${MARK_END}${ENV_BEGIN}'; env -0; printf '%s' '${ENV_END}'`,
+    ],
     {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
@@ -141,12 +197,24 @@ function loginShellCall(env) {
  * @returns {Promise<string[] | null>}
  */
 function captureLoginPathAsync(env, execFn = execFile, platform = process.platform) {
+  return loginShellOutputAsync(env, execFn, platform).then(parseLoginPath);
+}
+
+/**
+ * Raw login-shell output, or null on failure / win32. Never rejects.
+ *
+ * @param {NodeJS.ProcessEnv} env
+ * @param {typeof execFile} [execFn]
+ * @param {NodeJS.Platform} [platform]
+ * @returns {Promise<string | null>}
+ */
+function loginShellOutputAsync(env, execFn = execFile, platform = process.platform) {
   if (platform === "win32") return Promise.resolve(null);
   return new Promise((resolve) => {
     try {
       const [file, args, opts] = loginShellCall(env);
       execFn(file, args, opts, (err, stdout) => {
-        resolve(err ? null : parseLoginPath(stdout));
+        resolve(err ? null : String(stdout));
       });
     } catch {
       resolve(null);
@@ -279,7 +347,9 @@ function primeProcessPath(opts) {
 /**
  * Start (once) the background login-shell capture. On success PATH becomes
  * login + launch PATH + fallback dirs, exactly what enrichProcessPath built,
- * and the cache is rewritten. On failure the primed PATH stays. Never rejects.
+ * the cache is rewritten, and the rest of the login env is applied (not
+ * cached: rc files often export tokens, and spawns await this anyway). On
+ * failure the primed PATH stays. Never rejects.
  *
  * @returns {Promise<string[] | null>}
  */
@@ -287,8 +357,11 @@ function refreshLoginPath() {
   if (!primed) return Promise.resolve(null);
   if (!refreshing) {
     const p = primed;
-    refreshing = captureLoginPathAsync(p.env, p.execFn, p.platform)
-      .then((login) => {
+    const sent = { ...p.env };
+    refreshing = loginShellOutputAsync(p.env, p.execFn, p.platform)
+      .then((out) => {
+        applyLoginEnv(p.env, sent, parseLoginEnv(out || ""));
+        const login = parseLoginPath(out || "");
         if (login) {
           p.env.PATH = mergePathEntries(
             login,
@@ -335,6 +408,8 @@ module.exports = {
   captureLoginPath,
   captureLoginPathAsync,
   parseLoginPath,
+  parseLoginEnv,
+  applyLoginEnv,
   fallbackBinDirs,
   newestNvmBin,
   mergePathEntries,
