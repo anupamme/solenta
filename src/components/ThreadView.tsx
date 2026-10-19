@@ -90,6 +90,7 @@ import {
 } from "../contextRing";
 import { buildTimeline, type TimelineEntry } from "../timeline";
 import { collapseTimeline, type DisplayEntry } from "../toolGroups";
+import type { ShowUserAction } from "../showUser";
 import { RunArtifacts } from "./RunArtifacts";
 import { QuestionPrompt } from "./QuestionPrompt";
 import { InputPrompt } from "./InputPrompt";
@@ -2234,6 +2235,25 @@ export const ThreadView = memo(function ThreadView({
     onViewChanges,
   });
 
+  // show_user (#293): fresh objects so the same target twice re-applies.
+  const [diffFocus, setDiffFocus] = useState<{ path: string } | null>(null);
+  const [filesReveal, setFilesReveal] = useState<{
+    path: string;
+    line: number | null;
+  } | null>(null);
+  const handleShowUser = useCallback(
+    (action: ShowUserAction) => {
+      if (action.target === "diff" && action.path) {
+        setDiffFocus({ path: action.path });
+      }
+      if (action.target === "file" && action.path) {
+        setFilesReveal({ path: action.path, line: action.line });
+      }
+      handleOpenPane(action.target === "file" ? "files" : action.target);
+    },
+    [handleOpenPane],
+  );
+
   const refreshRunStats = useCallback(async () => {
     const threadId = detail?.thread.id;
     const wt = detail?.thread.worktreePath;
@@ -3952,6 +3972,7 @@ export const ThreadView = memo(function ThreadView({
                 threadBaseBranch={detail?.thread.baseBranch ?? null}
                 planText={planTextOf(detail)}
                 openNonce={changesNonce}
+                focus={diffFocus}
                 onFetchDiff={onFetchDiff}
                 onFetchReviewContext={onFetchReviewContext}
                 onFetchImageDiff={onFetchImageDiff}
@@ -3997,6 +4018,7 @@ export const ThreadView = memo(function ThreadView({
                 threadId={detail.thread.id}
                 api={filesApi}
                 remote={Boolean(project?.remoteHost)}
+                reveal={filesReveal}
                 onAddToPrompt={
                   isArchived
                     ? undefined
@@ -4394,6 +4416,7 @@ export const ThreadView = memo(function ThreadView({
                       onLoadAttachmentImage={onLoadAttachmentImage}
                       onSelectThread={onSelectThread}
                       onOpenAutomations={onOpenAutomations}
+                      onShowUser={isArchived ? undefined : handleShowUser}
                       onIntegrateWorker={onIntegrateWorker}
                       pinned={pinnedIds.has(entry.message.id)}
                       onTogglePin={
