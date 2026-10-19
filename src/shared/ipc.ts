@@ -2019,6 +2019,11 @@ export interface PendingPermissionInfo {
    * rest of the thread.
    */
   folderGrant?: string | null;
+  /**
+   * The CLI that asked died with the app (issue #349): the card was restored
+   * from the thread. Allow resumes the session and the agent re-runs the call.
+   */
+  restored?: boolean;
 }
 
 /**

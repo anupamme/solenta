@@ -1278,6 +1278,7 @@ function createRunner(opts) {
         view = mapWorkflowView(workflow, core);
       }
     }
+    syncPersistedApproval(threadId);
     // Background refresh must never stamp lastVisitedAt — only IPC threads:get
     // (user selection) marks a thread visited. See services.getThreadDetail.
     const detail = services.getThreadDetail(store, threadId, view, {
@@ -2115,6 +2116,8 @@ function createRunner(opts) {
     const machineTurn = input.fromNotice === true || input.fromInbound === true;
     const keepQuestion = machineTurn ? thread.pendingQuestion || null : null;
     const keepPlan = machineTurn ? thread.pendingPlan || null : null;
+    // A card restored after a restart (#349) waits for the user like these.
+    const keepApproval = machineTurn ? thread.pendingApproval || null : null;
 
     // Real activity clears a stale "settled" pin. An explicit
     // "active" pin survives so the user can keep a thread out of auto-settle.
@@ -2124,13 +2127,14 @@ function createRunner(opts) {
       {
         status: "working",
         title,
-        awaitingInput: keepQuestion != null || keepPlan != null ||
+        awaitingInput: keepQuestion != null || keepPlan != null || keepApproval != null ||
           ciWorkflowSignOffs.get(threadId)?.approved === false,
         runStartedAt: Date.now(),
         // Any user turn supersedes an open question card (issue #647):
         // answering it IS this message, and so is changing the subject.
         pendingQuestion: keepQuestion,
         pendingPlan: keepPlan,
+        pendingApproval: keepApproval,
         lastEventAt: null,
         stalledAt: null,
         stoppedAt: null,
@@ -2685,7 +2689,7 @@ function createRunner(opts) {
         runStartedAt: null,
         stoppedAt: Date.now(),
         // A killed run's permission prompts can never be answered.
-        ...(hadPending ? { awaitingInput: false } : {}),
+        ...(hadPending ? { awaitingInput: false, pendingApproval: null } : {}),
       },
       { touch: true },
     );
@@ -2960,6 +2964,8 @@ function createRunner(opts) {
 
   const {
     ciWorkflowSignOffs,
+    syncPersistedApproval,
+    takeRestartGrant,
     getPendingPermission,
     handleCodexServerRequest,
     respondPermission,
@@ -3054,6 +3060,7 @@ function createRunner(opts) {
     CLAUDE_ACK_MS,
     addSubagentRow,
     askUser,
+    takeRestartGrant,
     claudeSessions,
     disposeClaudeSession,
     scheduleClaudeIdleReap,
