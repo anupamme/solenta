@@ -1202,7 +1202,7 @@ function createToolHandlers(deps) {
     const updated = setSettled(
       store,
       { threadId: args.threadId, override: args.override },
-      { broadcast },
+      { broadcast, retire: retireAgent },
     );
     if (updated && updated.settledOverride === "settled") {
       retireAgent(updated.id);

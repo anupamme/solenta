@@ -34,6 +34,12 @@ function events(store, threadId) {
     .map((m) => String(m.text));
 }
 
+/** @param {() => boolean} fn */
+async function waitFor(fn) {
+  for (let i = 0; i < 200 && !fn(); i++) await new Promise((r) => setTimeout(r, 10));
+  assert.ok(fn(), "condition never held");
+}
+
 const OK = { ok: true, exitCode: 0, timedOut: false, log: "", durationMs: 1 };
 
 describe("solenta.json onSettle schema", () => {
@@ -185,6 +191,47 @@ describe("onSettle runs", () => {
     });
     assert.equal(result.ok, true);
     assert.deepEqual(ran.map((r) => r.command), ["make down"]);
+  });
+
+  it("an explicit settle cleans up a worktree with nothing to merge, after onSettle", async () => {
+    approve();
+    const wt = thread.worktreePath;
+    services.setSettled(store, { threadId: thread.id, override: "settled" });
+    await waitFor(() => !store.getThread(thread.id).worktreePath);
+    assert.deepEqual(ran, [{ command: "make down", cwd: wt, exists: true }]);
+    assert.equal(fs.existsSync(wt), false);
+  });
+
+  it("keeps a worktree with unmerged work", async () => {
+    fs.writeFileSync(path.join(thread.worktreePath, "wip.txt"), "x\n");
+    services.setSettled(store, { threadId: thread.id, override: "settled" });
+    await new Promise((r) => setTimeout(r, 50));
+    assert.ok(store.getThread(thread.id).worktreePath);
+  });
+
+  it("settling a lead settles its done-and-merged workers only", async () => {
+    const worker = (title, patch) => {
+      const w = services.createThread(store, { projectId: project.id, title });
+      store.updateThread(w.id, { orchWorker: true, handoffFrom: thread.id, ...patch });
+      return w.id;
+    };
+    const merged = worker("merged", { worktreePath: null });
+    const busy = worker("busy", { worktreePath: null, status: "working" });
+    const unmerged = worker("unmerged", { worktreePath: "/nope", branch: "x" });
+    const retired = [];
+    services.setSettled(
+      store,
+      { threadId: thread.id, override: "settled" },
+      { retire: (id) => retired.push(id) },
+    );
+    const settled = (id) => store.getThread(id).settledOverride === "settled";
+    assert.equal(settled(merged), true);
+    assert.equal(settled(busy), false);
+    assert.equal(settled(unmerged), false);
+    assert.deepEqual(retired, [merged]);
+    // Unsettled workers may still merge into the lead: its checkout stays.
+    await new Promise((r) => setTimeout(r, 50));
+    assert.ok(store.getThread(thread.id).worktreePath);
   });
 
   describe("on a PR flip", () => {
