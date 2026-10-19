@@ -7,6 +7,7 @@ const { clampUiScale } = require("./zoom.js");
 const { validateMcpServers, mergeMcpSettingsPatch } = require("./mcp.js");
 const { validateProviderInstances } = require("./providerInstances.js");
 const { validateModelPrices } = require("./modelPrices.js");
+const { normalizePrivacyGateway } = require("./privacyGateway.js");
 const {
   isHttpUrl,
   validateAgentProfiles,
@@ -106,6 +107,7 @@ class StoreSettingsMethods {
       webhook: n.webhook,
       modelPrices: n.modelPrices,
       worktreeRoot: n.worktreeRoot,
+      privacyGateway: n.privacyGateway,
     };
   }
 
@@ -485,6 +487,16 @@ class StoreSettingsMethods {
     if (Object.prototype.hasOwnProperty.call(patch, "modelPrices")) {
       // Whole-map replace: the editor sends every row, so a dropped row clears.
       this.data.settings.modelPrices = validateModelPrices(patch.modelPrices);
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "privacyGateway")) {
+      const v = patch.privacyGateway;
+      if (!v || typeof v !== "object" || Array.isArray(v)) {
+        throw new Error("privacyGateway must be an object");
+      }
+      this.data.settings.privacyGateway = normalizePrivacyGateway(
+        { ...this.data.settings.privacyGateway, ...patch.privacyGateway },
+        true,
+      );
     }
     return this.getSettings();
   }
