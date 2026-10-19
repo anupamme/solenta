@@ -617,6 +617,19 @@ export function createPairing(ctx: DevCtx): Pick<CoderApi, "pairing"> {
           url,
           claudeDesktopJson,
           pairingPrompt: `Connect to Solenta at ${url}`,
+          acpJson: JSON.stringify(
+            {
+              agent_servers: {
+                Solenta: {
+                  command: "/Applications/Solenta.app/Contents/MacOS/Solenta",
+                  args: ["electron/acp-server.js"],
+                  env: { ELECTRON_RUN_AS_NODE: "1", SOLENTA_MCP_URL: url, SOLENTA_TOKEN: token },
+                },
+              },
+            },
+            null,
+            2,
+          ),
         };
       },
       async revoke(input: { id: string }): Promise<PairingInfo> {

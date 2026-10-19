@@ -3249,8 +3249,11 @@ export interface ProviderInstance {
   fullAccessArgs?: string[];
   /** generic only: working folder; relative is inside the thread's worktree. */
   cwd?: string | null;
-  /** generic only: plain pipes, or a pseudo-terminal for CLIs that need a TTY. */
-  transcript?: "stdout" | "pty";
+  /**
+   * generic only: plain pipes, a pseudo-terminal for CLIs that need a TTY,
+   * or an Agent Client Protocol agent over stdio (#272).
+   */
+  transcript?: "stdout" | "pty" | "acp";
 }
 
 /** A checkout found by first-run discovery (#1501). */
@@ -4086,6 +4089,8 @@ export interface PairingCreated {
   url: string | null;
   claudeDesktopJson: string | null;
   pairingPrompt: string | null;
+  /** agent_servers entry that runs Solenta as an ACP agent in Zed/JetBrains (#272). */
+  acpJson?: string | null;
 }
 
 /** A browser or phone allowed into Solenta Web (#1512 I2). Token never listed. */

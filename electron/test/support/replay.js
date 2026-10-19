@@ -35,7 +35,15 @@ function useReplay(fixtures) {
   function log() {
     const file = path.join(dir, "replay.log");
     if (!fs.existsSync(file)) return [];
-    return fs.readFileSync(file, "utf8").trim().split("\n").map((l) => JSON.parse(l));
+    // Polled while replayCli.js appends: an empty file or a half-written last
+    // line is "not yet", not a crash (macOS CI, PR #1699).
+    return fs.readFileSync(file, "utf8").split("\n").flatMap((l) => {
+      try {
+        return l.trim() ? [JSON.parse(l)] : [];
+      } catch {
+        return [];
+      }
+    });
   }
 
   return {

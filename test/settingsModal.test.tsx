@@ -2477,6 +2477,7 @@ describe("SettingsModal integrations", () => {
             url: "http://127.0.0.1:7422/mcp",
             claudeDesktopJson: '{"mcpServers":{"solenta":{}}}',
             pairingPrompt: "Connect to Solenta",
+            acpJson: '{"agent_servers":{"Solenta":{}}}',
           };
         },
         revoke: async () => ({}),
@@ -2499,6 +2500,7 @@ describe("SettingsModal integrations", () => {
     assert.ok(m.query("[data-copy-mcp-url]"), "copy MCP URL");
     assert.ok(m.query("[data-copy-claude-json]"), "copy JSON");
     assert.ok(m.query("[data-copy-pairing-prompt]"), "copy prompt");
+    assert.ok(m.query("[data-copy-acp-json]"), "copy editor ACP config (#272)");
     assert.ok(m.query("[data-mcp-public-url]"), "public URL");
     assert.ok(m.query("[data-copy-mcp-public-url]"), "copy public URL");
     assert.match(m.text(), /Tailscale Funnel/);

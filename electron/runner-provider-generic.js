@@ -10,6 +10,8 @@ const os = require("node:os");
 const path = require("node:path");
 const threadSecrets = require("./threadSecrets.js");
 const { findInstance, instanceEnv } = require("./providerInstances.js");
+const { runAcpAgent } = require("./acp.js");
+const { sessionIdForResume } = require("./providers.js");
 
 /**
  * @param {object} ctx - createRunner context (see runner-watchdogs.js header)
@@ -223,6 +225,7 @@ function createGenericRun(ctx) {
         custom: false,
         cwd: worktree,
         pty: false,
+        acp: false,
       };
     }
     const [command, ...args] = inst.command;
@@ -246,15 +249,17 @@ function createGenericRun(ctx) {
       custom: true,
       cwd,
       pty: inst.transcript === "pty",
+      acp: inst.transcript === "acp",
     };
   }
 
   /**
    * Start a real generic agent child-process run (CODER_AGENT_CMD or a
    * custom CLI row). Raw stdout, or cleaned PTY output, is the
-   * transcript: no work-log cards, usage or resume. No MCP config is
-   * passed, so the CLI cannot write to shared memory; it still gets the
-   * scanned bootstrap note in the prompt.
+   * transcript: no work-log cards, usage or resume. An ACP row (#272)
+   * streams its message chunks instead and its tool calls become steps.
+   * No MCP config is passed, so the CLI cannot write to shared memory; it
+   * still gets the scanned bootstrap note in the prompt.
    */
   function startGenericRun(threadId, prompt, runId, name) {
     if (abortIfCancelled(threadId, runId)) return { runId };
@@ -271,6 +276,7 @@ function createGenericRun(ctx) {
       custom,
       cwd: localCwd,
       pty,
+      acp,
     } = genericCommand(thread, thread.worktreePath || project.path);
     const model = path.basename(command);
 
@@ -369,10 +375,21 @@ function createGenericRun(ctx) {
       }
     }
 
-    // Stop/error/clearRun must land pending text before the terminal push.
+    /** ACP tool call id -> open work-log step. */
+    const toolSteps = new Map();
+    /** The ACP agent keeps its own session (loadSession): no tail replay. */
+    let resumable = false;
+
+    // Stop/error/clearRun must land pending text before the terminal push,
+    // and no ACP tool step or permission card outlives its run.
     entry.flushStream = () => {
       cancelPushTimer();
       applyPendingText();
+      for (const id of toolSteps.values()) completeWorkLogStep(threadId, id);
+      if (entry.pendingPermissions && entry.pendingPermissions.length) {
+        entry.pendingPermissions = [];
+        store.updateThread(threadId, { awaitingInput: false });
+      }
     };
 
     const crossing = crossesBoundary(project);
@@ -381,17 +398,7 @@ function createGenericRun(ctx) {
       : // Local: same seam so a Seatbelt-governed thread is wrapped (#803).
         resolveSpawn(project, command, args, localCwd, undefined, threadId);
     if (abortIfCancelled(threadId, runId)) return { runId };
-    const handle = runAgentFn({
-      command: spawn.binary,
-      args: spawn.args,
-      prompt,
-      appendPrompt: !crossing,
-      cwd: spawn.cwd,
-      pty,
-      env: threadSecrets.withEnv(threadId, {
-        ...process.env,
-        ...withProjectEnv(project, overlay, thread.worktreePath || project.path),
-      }),
+    const callbacks = {
       onChunk: (text) => {
         if (!guard()) return;
         realState.charCount = text.length;
@@ -412,7 +419,7 @@ function createGenericRun(ctx) {
         clearRun(threadId);
         // No session to resume: the next turn replays the retained tail
         // (buildHandoffPrefix), or every follow-up would start blind.
-        if (custom) store.updateThread(threadId, { replayContext: true });
+        if (custom && !resumable) store.updateThread(threadId, { replayContext: true });
 
         completeWorkLogStep(threadId, e.startingId);
         completeWorkLogStep(threadId, e.respondingId);
@@ -456,7 +463,12 @@ function createGenericRun(ctx) {
         completeWorkLogStep(threadId, e.respondingId);
         realState.agentStatus = "failed";
         const msg = err && err.message ? err.message : String(err);
-        const errText = `Run error: ${msg}`;
+        let errText = `Run error: ${msg}`;
+        if (err && err.acpResumeFailed) {
+          // Drop the dead session: the next send starts fresh on the tail.
+          store.updateThread(threadId, { sessionId: null, replayContext: true });
+          errText += "\nSend again to continue with the transcript replayed.";
+        }
         const failure = markRunFailed(threadId, errText, runId);
         appendDoneWorkLog(threadId, runId, "Run error");
         store.save();
@@ -464,7 +476,80 @@ function createGenericRun(ctx) {
         pushThreadsChanged();
         notifyRunTerminal(threadId, "failed", failure.text);
       },
+    };
+    const env = threadSecrets.withEnv(threadId, {
+      ...process.env,
+      ...withProjectEnv(project, overlay, thread.worktreePath || project.path),
     });
+    const handle = acp
+      ? runAcpAgent({
+          ...callbacks,
+          command: spawn.binary,
+          args: spawn.args,
+          cwd: spawn.cwd,
+          env,
+          prompt: String(prompt ?? ""),
+          fullAccess: thread.permissionMode === "bypassPermissions",
+          resumeSessionId: sessionIdForResume(null, thread, null),
+          onSession: (sessionId, canLoad) => {
+            if (!guard()) return;
+            resumable = canLoad;
+            store.updateThread(threadId, { sessionId: canLoad ? sessionId : null });
+          },
+          // Default mode: the agent's ask is the thread's permission card.
+          onPermission: (req) => {
+            const e = guard();
+            if (!e) return;
+            const raw = req.rawInput && typeof req.rawInput === "object" ? req.rawInput : {};
+            let input;
+            try {
+              input = JSON.stringify(raw, null, 2);
+            } catch {
+              input = "";
+            }
+            if (!Array.isArray(e.pendingPermissions)) e.pendingPermissions = [];
+            e.pendingPermissions.push({
+              id: req.id,
+              toolName: req.toolKind,
+              summary: req.title,
+              input,
+              rawInput: raw,
+              command: typeof raw.command === "string" ? raw.command : null,
+              commandEditable: false,
+              acceptAlways: req.acceptAlways,
+            });
+            if (e.pendingPermissions.length === 1) {
+              store.updateThread(threadId, { awaitingInput: true }, { touch: true });
+            }
+            // Every prompt: the approval inbox (#291) only hears threads:changed.
+            pushThreadsChanged();
+            store.save();
+            pushDetail(threadId, realState);
+          },
+          // Tool calls are work-log steps: one per id, done when it settles.
+          onTool: (update) => {
+            if (!guard() || !update.toolCallId) return;
+            let stepId = toolSteps.get(update.toolCallId);
+            if (!stepId) {
+              stepId = beginWorkLogStep(threadId, runId, update.title || "Tool call");
+              toolSteps.set(update.toolCallId, stepId);
+            }
+            if (update.status === "completed" || update.status === "failed") {
+              completeWorkLogStep(threadId, stepId);
+            }
+            throttledPush();
+          },
+        })
+      : runAgentFn({
+          ...callbacks,
+          command: spawn.binary,
+          args: spawn.args,
+          prompt,
+          appendPrompt: !crossing,
+          cwd: spawn.cwd,
+          pty,
+          env,
+        });
 
     entry.handle = handle;
     completeWorkLogStep(threadId, startingId);
