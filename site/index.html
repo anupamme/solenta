@@ -27,15 +27,14 @@
   <meta name="theme-color" content="#f5f5f2" />
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml" />
   <script>document.documentElement.classList.add("js");</script>
-  <link rel="stylesheet" href="style.css?v=10" />
+  <link rel="stylesheet" href="style.css?v=11" />
   <script src="https://unpkg.com/@phosphor-icons/web@2.1.1" defer></script>
   <!-- First-party stats: no cookies, no personal data, so no consent banner.
        stats.js beacons pageviews and data-event clicks to stats.solenta.app. -->
   <script src="stats.js" defer></script>
-  <!-- Meterbird: no cookies; a visitor id in localStorage (mb_v). replay.js
-       samples 5% of sessions with all text and inputs masked to bullets. -->
-  <script src="https://app.meterbird.com/js/script.js" data-key="mb_093966d4791f83a7" defer></script>
-  <script src="https://app.meterbird.com/js/replay.js" data-key="mb_093966d4791f83a7" defer></script>
+  <!-- Meterbird analytics, cookieless until the visitor allows it in the
+       consent.js banner; replay only after "Allow". -->
+  <script src="consent.js" defer></script>
 </head>
 <body>
 
