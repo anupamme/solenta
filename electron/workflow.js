@@ -290,6 +290,7 @@ async function startWorkflowRun(deps) {
   // Budget gate is start-time only; never kills an in-flight run.
   const services = require("./services.js");
   services.assertUnderDailyBudget(store);
+  require("./budgetCaps.js").assertUnderThreadBudget(store, thread);
 
   const project = store.getProject(thread.projectId);
   if (!project) {

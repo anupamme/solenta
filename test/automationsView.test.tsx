@@ -275,6 +275,33 @@ describe("AutomationsView", () => {
     m.unmount();
   });
 
+  it("passes a budget cap to onCreate (#286)", async () => {
+    const created: unknown[] = [];
+    const m = await mount(
+      <AutomationsView
+        automations={[]}
+        projects={[p1]}
+        providers={providers}
+        onCreate={(input) => {
+          created.push(input);
+        }}
+        onUpdate={() => {}}
+        onRemove={() => {}}
+        onRunNow={() => {}}
+      />,
+    );
+    await m.type(m.query('[data-automation-create] [name="name"]'), "Nightly");
+    await m.type(m.query('[data-automation-create] [name="prompt"]'), "review");
+    await m.type(m.query('[data-automation-budget] [data-budget-field="usd"]'), "0.75");
+    await m.type(m.query('[data-automation-budget] [data-budget-field="minutes"]'), "20");
+    await m.click(m.query("[data-automation-create] button[type=submit]"));
+    assert.deepEqual((created[0] as { budget?: unknown }).budget, {
+      usd: 0.75,
+      minutes: 20,
+    });
+    m.unmount();
+  });
+
   it("offers a model dropdown when the provider lists models", async () => {
     const withModels: ProviderInfo[] = [
       { ...providers[0], models: ["claude-opus-4-6", "claude-sonnet-4-6"] },

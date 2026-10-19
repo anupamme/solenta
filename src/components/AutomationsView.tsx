@@ -22,9 +22,12 @@ import type {
   ModelRoute,
   ProjectInfo,
   ProviderInfo,
+  ThreadBudget,
   ThreadStatus,
 } from "../shared/ipc";
 import styles from "./AutomationsView.module.css";
+import { BudgetFields } from "./BudgetFields";
+import { budgetToDraft, draftToBudget } from "../budget";
 
 export interface AutomationsViewProps {
   automations: AutomationInfo[];
@@ -63,6 +66,7 @@ function definitionChanged(
     hour: number | null;
     trigger: AutomationTrigger | null;
     tier: ModelRoute | null;
+    budget: ThreadBudget | null;
   },
   existing: AutomationInfo,
 ): boolean {
@@ -75,7 +79,8 @@ function definitionChanged(
     fields.hour !== (existing.hour ?? null) ||
     JSON.stringify(fields.trigger) !==
       JSON.stringify(existing.trigger || null) ||
-    fields.tier !== (existing.tier ?? null)
+    fields.tier !== (existing.tier ?? null) ||
+    JSON.stringify(fields.budget) !== JSON.stringify(existing.budget || null)
   );
 }
 
@@ -296,6 +301,7 @@ export function AutomationsView({
   const [project, setProject] = useState("");
   const [environment, setEnvironment] = useState("");
   const [memory, setMemory] = useState("");
+  const [budget, setBudget] = useState(() => budgetToDraft(null));
   const [scope, setScope] = useState<AutomationScope>("private");
   const [wroteFile, setWroteFile] = useState(false);
   const [dismissedApprove, setDismissedApprove] = useState<Set<string>>(
@@ -342,6 +348,7 @@ export function AutomationsView({
     setProject(auto.trigger?.project ?? "");
     setEnvironment(auto.trigger?.environment ?? "");
     setMemory(auto.memory ?? "");
+    setBudget(budgetToDraft(auto.budget));
     setScope(auto.scope ?? "private");
     setFormError(null);
   };
@@ -373,6 +380,7 @@ export function AutomationsView({
     setProject("");
     setEnvironment("");
     setMemory("");
+    setBudget(budgetToDraft(null));
     setScope("private");
     setFormError(null);
   };
@@ -467,6 +475,13 @@ export function AutomationsView({
       setFormError(error);
       return;
     }
+    let cap: ThreadBudget | null;
+    try {
+      cap = draftToBudget(budget);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : String(err));
+      return;
+    }
     savingRef.current = true;
     setSaving(true);
     setFormError(null);
@@ -483,6 +498,7 @@ export function AutomationsView({
           hour: needsHour ? Number(hour) : null,
           trigger,
           tier: (tier || null) as ModelRoute | null,
+          budget: cap,
         };
         await onUpdate({
           id: editingId,
@@ -496,6 +512,7 @@ export function AutomationsView({
           trigger: nextDef.trigger,
           memory,
           ...(tier || hadTier ? { tier: nextDef.tier } : {}),
+          ...(cap || editing?.budget ? { budget: cap } : {}),
         });
         setWroteFile(
           Boolean(
@@ -520,12 +537,14 @@ export function AutomationsView({
           enabled: true,
           scope: writeScope,
           ...(tier ? { tier } : {}),
+          ...(cap ? { budget: cap } : {}),
         });
         setWroteFile(writeScope === "project");
         setName("");
         setPrompt("");
         setModel("");
         setTier("");
+        setBudget(budgetToDraft(null));
         setScope("private");
       }
     } catch (err) {
@@ -892,6 +911,10 @@ export function AutomationsView({
             />
           </label>
         ) : null}
+        <div className={styles.field} data-automation-budget="">
+          <span className={styles.label}>Budget cap per run</span>
+          <BudgetFields draft={budget} onChange={setBudget} disabled={saving} />
+        </div>
         {formError ? (
           <p className={styles.formError} data-form-error="">
             {formError}
