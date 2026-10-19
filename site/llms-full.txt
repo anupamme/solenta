@@ -343,6 +343,8 @@ A project's dev server starts from the app: Solenta reads `package.json` and off
 
 Dev servers launched for a thread receive separate data, configuration, cache and temporary directories. A claimed lane sets its port. Supported local Electron launches also get a distinct thread app name and icon. Apps must respect the supplied environment to use the isolation; it does not rewrite hard-coded paths or ports. Stop and settle clean up the thread's managed dev server.
 
+By default the server's URL is taken from its log. To wait for the server to actually be up, declare a readiness probe in `solenta.json`: `{"devServer": {"ready": {"tcp": "$PORT"}}}`. A probe is exactly one of `tcp` (a port), `http` (a localhost URL that must answer 2xx or 3xx) or `exec` (a command that must exit 0, such as `test -f /tmp/ready`). `$PORT` and other variables come from the dev server's environment, so each lane probes its own port. The Dev server card shows the probe's state. The URL appears, and the Browser pane loads it, only once the probe passes. If it hasn't passed by `timeoutMs` (default 120000), the card shows the last error and the server keeps running.
+
 Setup commands and quick actions keep their output in the transcript, so you can read, copy or attach it without running the command again. An `onSettle` entry in `solenta.json` (a command, or the name of a quick action) runs once in a worktree thread's checkout when the thread settles. It goes through the same repo-command trust prompt as the rest of the file.
 
 ## Terminal and Browser panes
