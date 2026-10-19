@@ -154,6 +154,13 @@ function createClaudeRun(ctx) {
     let heldPhantom = null;
     /** Run-local usage for memory footers (not cumulative store totals). */
     const runUsage = { tokensIn: 0, tokensOut: 0, costUsd: 0 };
+    /**
+     * In-flight turn usage by API message id, from assistant events (#286).
+     * The budget sweep adds it to the ledger so one long turn cannot blow
+     * past a cap; cleared when the turn's result lands in the ledger.
+     * @type {Map<string, { model: string | null, inputTokens: number, cachedInputTokens: number, cacheWriteTokens: number, outputTokens: number }>}
+     */
+    const liveUsage = new Map();
 
     function discardHeldPhantom() {
       heldPhantom = null;
@@ -535,6 +542,7 @@ function createClaudeRun(ctx) {
       workingId,
       claudeState,
       runUsage,
+      liveUsage,
       discardHeldPhantom,
       /**
        * Permission prompts awaiting a user decision, oldest first. Each is
@@ -949,6 +957,19 @@ function createClaudeRun(ctx) {
           }
         }
 
+        if (type === "assistant" && ev.message && ev.message.usage) {
+          // One API message streams as several assistant events sharing an
+          // id and usage: key by id so a repeat replaces, never adds.
+          const u = ev.message.usage;
+          liveUsage.set(String(ev.message.id || ev.uuid || liveUsage.size), {
+            model: typeof ev.message.model === "string" ? ev.message.model : null,
+            inputTokens: Number(u.input_tokens) || 0,
+            cachedInputTokens: Number(u.cache_read_input_tokens) || 0,
+            cacheWriteTokens: Number(u.cache_creation_input_tokens) || 0,
+            outputTokens: Number(u.output_tokens) || 0,
+          });
+        }
+
         if (type === "assistant" && ev.message && Array.isArray(ev.message.content)) {
           // Complete assistant restates streamed partials: replace, don't append.
           if (partialText) {
@@ -1140,6 +1161,9 @@ function createClaudeRun(ctx) {
             reportedModelUsageWindow(ev),
           );
           store.setUsage(threadId, nextUsage);
+          // The result's usage covers the whole turn: drop the live estimate
+          // in the same tick, so the sweep never counts it twice.
+          liveUsage.clear();
           if (costDelta > 0) {
             store.recordSpend(costDelta);
           }

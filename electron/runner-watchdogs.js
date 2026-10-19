@@ -21,6 +21,7 @@
 
 const { heartbeatLane } = require("./mergeQueue.js");
 const { budgetBreach } = require("./budgetCaps.js");
+const { priceCell } = require("./modelPrices.js");
 
 /**
  * @param {object} ctx - createRunner context (see header)
@@ -69,6 +70,27 @@ function createWatchdogs(ctx) {
     }
   }
 
+  /**
+   * Ledger usage plus the live run's in-flight turn (entry.liveUsage, Claude
+   * only for now). The CLI reports no cost mid-turn, so $ is estimated from
+   * the user's modelPrices when the model has one; otherwise only tokens bite.
+   * @param {any} usage
+   * @param {any} entry
+   */
+  function withLiveUsage(usage, entry) {
+    const live = entry && entry.liveUsage;
+    if (!live || live.size === 0) return usage;
+    const prices = store.getSettings().modelPrices || {};
+    const out = { ...(usage || {}) };
+    for (const cell of live.values()) {
+      out.inputTokens = (Number(out.inputTokens) || 0) + cell.inputTokens;
+      out.outputTokens = (Number(out.outputTokens) || 0) + cell.outputTokens;
+      const price = cell.model ? prices[cell.model] : undefined;
+      if (price) out.costUsd = (Number(out.costUsd) || 0) + priceCell(cell, price);
+    }
+    return out;
+  }
+
   /** Threads a budget stop is already in flight for. */
   const budgetStopping = new Set();
 
@@ -85,7 +107,7 @@ function createWatchdogs(ctx) {
       if (!entry || entry.stopping || budgetStopping.has(threadId)) continue;
       const thread = store.getThread(threadId);
       if (!thread || !thread.budget || thread.memoryConsolidate === true) continue;
-      const why = budgetBreach(thread, store.getUsage(threadId), now);
+      const why = budgetBreach(thread, withLiveUsage(store.getUsage(threadId), entry), now);
       if (!why) continue;
       budgetStopping.add(threadId);
       try {

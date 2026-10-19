@@ -35,8 +35,11 @@ function waitFor(predicate, { timeoutMs = 15000, intervalMs = 20 } = {}) {
   });
 }
 
-/** Fake claude: one result at $costUsd, or (hang) streams then sleeps. */
-function writeFakeClaude(dir, { costUsd = 0.01, hang = false } = {}) {
+/**
+ * Fake claude: one result at $costUsd, or (hang) streams then sleeps.
+ * `assistants` are [id, input, output] usage rows streamed before that.
+ */
+function writeFakeClaude(dir, { costUsd = 0.01, hang = false, assistants = [] } = {}) {
   const body = `#!/usr/bin/env node
 "use strict";
 if (process.env.CODER_FAKE_CLAUDE_SPAWNED) {
@@ -45,6 +48,10 @@ if (process.env.CODER_FAKE_CLAUDE_SPAWNED) {
 function emit(o) { process.stdout.write(JSON.stringify(o) + "\\n"); }
 emit({ type: "system", subtype: "init", session_id: "sess-cap", model: "m" });
 emit({ type: "assistant", message: { content: [{ type: "text", text: "working" }] } });
+for (const [id, i, o] of ${JSON.stringify(assistants)}) {
+  emit({ type: "assistant", message: { id, model: "m", content: [{ type: "text", text: id }],
+    usage: { input_tokens: i, output_tokens: o } } });
+}
 if (${hang}) { setTimeout(() => {}, 60000); } else {
   emit({ type: "result", subtype: "success", result: "ok", session_id: "sess-cap",
     usage: { input_tokens: 10, output_tokens: 5 }, total_cost_usd: ${costUsd} });
@@ -284,5 +291,44 @@ describe("budget caps on real runs", () => {
       texts.join("\n"),
     );
     assert.ok(texts.includes("Run stopped"));
+  });
+
+  // m1 streams twice (two content blocks of one API message): counted once.
+  const STREAM = [["m1", 100, 200], ["m1", 100, 200], ["m2", 300, 500]];
+
+  /** Sweep until the budget stop lands; the stream is parsed asynchronously. */
+  async function sweepUntilStopped() {
+    const start = Date.now();
+    while (runner.isRunning(thread.id)) {
+      if (Date.now() - start > 15000) throw new Error("budget never stopped the run");
+      await runner.checkBudgets();
+      await new Promise((r) => setTimeout(r, 20));
+    }
+  }
+
+  it("stops a single long turn on the token cap before its result lands", async () => {
+    await setup({ hang: true, assistants: STREAM });
+    services.setThreadBudget(store, { threadId: thread.id, budget: { tokens: 1000 } });
+    await runner.startRun({ threadId: thread.id, prompt: "many tools" });
+    await sweepUntilStopped();
+    const texts = store.getMessages(thread.id).map((m) => m.text);
+    assert.ok(
+      texts.some((x) => /^Budget cap reached: used 1,100 of a 1,000 token cap\./.test(x)),
+      texts.join("\n"),
+    );
+    assert.equal(store.getThread(thread.id).awaitingInput, true);
+  });
+
+  it("estimates in-flight $ from modelPrices for the usd cap", async () => {
+    await setup({ hang: true, assistants: STREAM });
+    services.setSettings(store, { modelPrices: { m: { input: 1000, output: 1000 } } });
+    services.setThreadBudget(store, { threadId: thread.id, budget: { usd: 1 } });
+    await runner.startRun({ threadId: thread.id, prompt: "many tools" });
+    await sweepUntilStopped();
+    const texts = store.getMessages(thread.id).map((m) => m.text);
+    assert.ok(
+      texts.some((x) => /^Budget cap reached: spent \$1\.10 of a \$1\.00 cap\./.test(x)),
+      texts.join("\n"),
+    );
   });
 });
