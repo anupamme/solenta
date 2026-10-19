@@ -1732,6 +1732,7 @@ describe("Sidebar card anatomy + hover actions", () => {
       branch: "coder/foo-bar",
       prNumber: 12,
       prUrl: "https://github.com/acme/ledger/pull/12",
+      prState: "OPEN",
       provider: "claude",
       createdAt: FRESH + 10,
       updatedAt: FRESH + 10,
@@ -1758,6 +1759,9 @@ describe("Sidebar card anatomy + hover actions", () => {
     assert.ok(pr);
     assert.equal(pr!.tagName, "A");
     assert.match(pr!.textContent || "", /#12/);
+    // #363: the badge carries the PR state so the sidebar can colour it.
+    assert.equal(pr!.getAttribute("data-pr-state"), "open");
+    assert.equal(pr!.getAttribute("title"), "PR #12 open");
     const provider = card!.querySelector("[data-card-provider]");
     assert.ok(provider);
     assert.equal(provider!.getAttribute("data-card-provider"), "claude");

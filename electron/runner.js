@@ -1,7 +1,8 @@
 "use strict";
 
 const path = require("node:path");
-const { withProjectEnv } = require("./worktreeEnv.js");
+const { withProjectEnv, isRemoteProject } = require("./worktreeEnv.js");
+const { loadDirenv } = require("./direnvEnv.js");
 const { randomUUID } = require("node:crypto");
 const services = require("./services.js");
 const { runAgent } = require("./agent.js");
@@ -1279,6 +1280,7 @@ function createRunner(opts) {
         view = mapWorkflowView(workflow, core);
       }
     }
+    syncPersistedApproval(threadId);
     // Background refresh must never stamp lastVisitedAt — only IPC threads:get
     // (user selection) marks a thread visited. See services.getThreadDetail.
     const detail = services.getThreadDetail(store, threadId, view, {
@@ -2116,6 +2118,8 @@ function createRunner(opts) {
     const machineTurn = input.fromNotice === true || input.fromInbound === true;
     const keepQuestion = machineTurn ? thread.pendingQuestion || null : null;
     const keepPlan = machineTurn ? thread.pendingPlan || null : null;
+    // A card restored after a restart (#349) waits for the user like these.
+    const keepApproval = machineTurn ? thread.pendingApproval || null : null;
 
     // Real activity clears a stale "settled" pin. An explicit
     // "active" pin survives so the user can keep a thread out of auto-settle.
@@ -2125,13 +2129,14 @@ function createRunner(opts) {
       {
         status: "working",
         title,
-        awaitingInput: keepQuestion != null || keepPlan != null ||
+        awaitingInput: keepQuestion != null || keepPlan != null || keepApproval != null ||
           ciWorkflowSignOffs.get(threadId)?.approved === false,
         runStartedAt: Date.now(),
         // Any user turn supersedes an open question card (issue #647):
         // answering it IS this message, and so is changing the subject.
         pendingQuestion: keepQuestion,
         pendingPlan: keepPlan,
+        pendingApproval: keepApproval,
         lastEventAt: null,
         stalledAt: null,
         stoppedAt: null,
@@ -2314,6 +2319,24 @@ function createRunner(opts) {
         pushDetail(threadId);
       }
 
+      // #321: commit leftover uncommitted work before the agent can
+      // `git reset --hard` / `clean -fd` it. After the setup wait so a
+      // half-written install is not snapshotted.
+      await require("./worktrees.js").snapshotBeforeTurn(store, threadId);
+      if (abortIfCancelled(threadId, runId)) return { runId };
+
+      // #320: the worktree's direnv env, which withProjectEnv layers into
+      // the spawn. After setup, since setup may be what writes the .envrc.
+      if (projectForGate && !isRemoteProject(projectForGate)) {
+        await Promise.race([
+          loadDirenv(dispatchThread.worktreePath || projectForGate.path, {
+            mainPath: projectForGate.path,
+          }),
+          stopped,
+        ]);
+        if (abortIfCancelled(threadId, runId)) return { runId };
+      }
+
       if (!memorySeen.has(threadId)) memorySeen.set(threadId, new Set());
       const bootNote = await ask.prefetchBootstrapNote({
         userDataPath,
@@ -2443,6 +2466,11 @@ function createRunner(opts) {
       materializePendingWorktree(input.threadId);
     } catch (err) {
       failWorktreeSetup(input.threadId, input.prompt, undefined, err);
+    }
+    const wfThread = store.getThread(input.threadId);
+    const wfProject = wfThread && store.getProject(wfThread.projectId);
+    if (wfProject && !isRemoteProject(wfProject)) {
+      await loadDirenv(wfThread.worktreePath || wfProject.path, { mainPath: wfProject.path });
     }
     return workflowEngine.startWorkflowRun({
       threadId: input.threadId,
@@ -2696,7 +2724,7 @@ function createRunner(opts) {
         runStartedAt: null,
         stoppedAt: Date.now(),
         // A killed run's permission prompts can never be answered.
-        ...(hadPending ? { awaitingInput: false } : {}),
+        ...(hadPending ? { awaitingInput: false, pendingApproval: null } : {}),
       },
       { touch: true },
     );
@@ -2971,6 +2999,8 @@ function createRunner(opts) {
 
   const {
     ciWorkflowSignOffs,
+    syncPersistedApproval,
+    takeRestartGrant,
     getPendingPermission,
     handleCodexServerRequest,
     respondPermission,
@@ -3065,6 +3095,7 @@ function createRunner(opts) {
     CLAUDE_ACK_MS,
     addSubagentRow,
     askUser,
+    takeRestartGrant,
     claudeSessions,
     disposeClaudeSession,
     scheduleClaudeIdleReap,

@@ -83,6 +83,7 @@ const {
   runStats,
   turnDiff,
   maybeCreateCheckpoint,
+  snapshotBeforeTurn,
   listCheckpoints,
   restoreCheckpoint,
 } = require("./worktrees-checkpoints.js");
@@ -233,6 +234,7 @@ module.exports = {
   GIT_READ_TTL_MS,
   resetGitReadCaches,
   maybeCreateCheckpoint,
+  snapshotBeforeTurn,
   listCheckpoints,
   restoreCheckpoint,
   runStats,
