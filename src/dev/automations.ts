@@ -125,6 +125,13 @@ export function normalizeDevAutomation(
   if (existing && input.scope != null && input.scope !== existing.scope) {
     throw new Error("Cannot change automation scope");
   }
+  const stage =
+    (Object.prototype.hasOwnProperty.call(input, "stage")
+      ? input.stage
+      : existing?.stage) ?? "observe";
+  const graduate = Object.prototype.hasOwnProperty.call(input, "graduate")
+    ? input.graduate !== false
+    : existing?.graduate !== false;
   return {
     name,
     projectId,
@@ -137,6 +144,8 @@ export function normalizeDevAutomation(
     enabled,
     trigger,
     memory,
+    stage,
+    graduate,
   };
 }
 
@@ -244,6 +253,7 @@ export function createAutomations(ctx: DevCtx): Pick<CoderApi, "automations"> {
           id: createdId,
           ...fields,
           enabled,
+          stageSince: now(),
           lastRunAt: null,
           nextRunAt: nextAutomationFire(fields.preset, fields.hour, now()),
           lastError: null,
@@ -265,6 +275,7 @@ export function createAutomations(ctx: DevCtx): Pick<CoderApi, "automations"> {
         const updated: AutomationInfo = {
           ...existing,
           ...fields,
+          ...(fields.stage !== existing.stage ? { stageSince: now() } : {}),
           nextRunAt: scheduleChanged
             ? nextAutomationFire(fields.preset, fields.hour, now())
             : existing.nextRunAt,

@@ -135,7 +135,7 @@ function spawnAgentCursor(opts) {
     binary: spawn.binary,
     args: spawn.args,
     cwd: spawn.cwd,
-    env: withProjectEnv(project, undefined),
+    env: withProjectEnv(project, undefined, cwd),
     onEvent: (ev) => {
       gotJson = true;
       if (!ev || typeof ev !== "object") return;

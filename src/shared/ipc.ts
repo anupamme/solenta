@@ -2019,6 +2019,11 @@ export interface PendingPermissionInfo {
    * rest of the thread.
    */
   folderGrant?: string | null;
+  /**
+   * The CLI that asked died with the app (issue #349): the card was restored
+   * from the thread. Allow resumes the session and the agent re-runs the call.
+   */
+  restored?: boolean;
 }
 
 /** One row of the approval inbox (#291): a pending prompt and its thread. */
@@ -3318,6 +3323,12 @@ export interface AutomationTrigger {
 /** Where an automation lives: this machine only, or the project's solenta.json. */
 export type AutomationScope = "private" | "project";
 
+/**
+ * Calibration lifecycle (#388): observe runs are report-only, draft runs
+ * leave outward actions to a human, act runs do the job.
+ */
+export type AutomationStage = "observe" | "draft" | "act";
+
 /** A scheduled agent run (Synara-style automation). */
 export interface AutomationInfo {
   id: string;
@@ -3347,6 +3358,12 @@ export interface AutomationInfo {
   memory?: string;
   /** Routing tier (#246); provider/model is the fallback. null = off. */
   tier?: ModelRoute | null;
+  /** Lifecycle stage (#388). Absent reads as act. */
+  stage?: AutomationStage;
+  /** When the current stage began; graduation counts from here. */
+  stageSince?: number | null;
+  /** Move up a stage on its own after 7 days in one. */
+  graduate?: boolean;
 }
 
 export interface AutomationWrite {
@@ -3361,6 +3378,9 @@ export interface AutomationWrite {
   trigger?: AutomationTrigger | null;
   memory?: string;
   tier?: ModelRoute | null;
+  /** Defaults to observe on create. */
+  stage?: AutomationStage;
+  graduate?: boolean;
   /** Defaults to private. */
   scope?: AutomationScope;
   /** Slug, project-scope create only. */
@@ -3640,6 +3660,22 @@ export interface AppSettings {
    * own cost (Claude's total_cost_usd) always wins. Whole-map replace on set.
    */
   modelPrices?: Record<string, ModelPrice>;
+  /**
+   * Privacy gateway (#295): redaction applied to every prompt Solenta hands a
+   * provider CLI. Per-provider level, falling back to `default`; absent or
+   * junk heals to everything off. Merged on set.
+   */
+  privacyGateway?: PrivacyGatewaySettings;
+}
+
+export type PrivacyLevel = "off" | "secrets" | "strict";
+
+export interface PrivacyGatewaySettings {
+  default: PrivacyLevel;
+  /** Provider id → level. Missing ids use `default`. */
+  providers: Record<string, PrivacyLevel>;
+  /** Extra regexes (JavaScript syntax), redacted at the strict level. */
+  patterns: string[];
 }
 
 /** USD per million tokens. Cache reads/writes fall back to `input`. */

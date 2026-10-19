@@ -21,7 +21,9 @@ describe('memory core', () => {
 
   function backdate(id, days) {
     const then = new Date(Date.now() - days * 86_400_000).toISOString()
-    memory.db.prepare(`UPDATE entries SET created_at = ?, last_accessed_at = NULL WHERE id = ?`).run(then, id)
+    memory.db
+      .prepare(`UPDATE entries SET created_at = ?, updated_at = ?, last_accessed_at = NULL WHERE id = ?`)
+      .run(then, then, id)
   }
 
   function setAccess(id, days, count) {
@@ -262,6 +264,58 @@ describe('memory core', () => {
     setAccess(warm.id, 1, 3)
     const hits = await memory.search({ query: 'redis cache' })
     assert.equal(hits[0].id, warm.id)
+  })
+
+  it('serving an old entry does not reset its decay (#311)', async () => {
+    const old = memory.store({
+      type: 'knowledge',
+      title: 'Flaky deploy fix',
+      body: 'flaky deploy fix detail',
+      force: true,
+    })
+    const fresh = memory.store({
+      type: 'knowledge',
+      title: 'Flaky deploy fix',
+      body: 'flaky deploy fix detail',
+      force: true,
+    })
+    backdate(old.id, 400)
+    // Popular and served yesterday: before #311 this reset its decay to ~1.
+    setAccess(old.id, 1, 50)
+    const hits = await memory.search({ query: 'flaky deploy' })
+    assert.equal(hits[0].id, fresh.id)
+  })
+
+  it('staleAfterDays is a step: full rank inside the horizon, floor after (#311)', async () => {
+    assert.throws(
+      () => memory.store({ type: 'knowledge', title: 'x', body: 'y', staleAfterDays: 0 }),
+      /staleAfterDays/,
+    )
+    const pinned = memory.store({
+      type: 'knowledge',
+      title: 'Node version pin',
+      body: 'node version pin detail',
+      staleAfterDays: 30,
+      force: true,
+    })
+    const plain = memory.store({
+      type: 'knowledge',
+      title: 'Node version pin',
+      body: 'node version pin detail',
+      force: true,
+    })
+    assert.equal(memory.get(pinned.id).stale_after_days, 30)
+    backdate(pinned.id, 29)
+    backdate(plain.id, 29)
+    let hits = await memory.search({ query: 'node version pin' })
+    assert.equal(hits[0].id, pinned.id, 'inside the horizon: no decay at all')
+    backdate(pinned.id, 31)
+    hits = await memory.search({ query: 'node version pin' })
+    assert.equal(hits[0].id, plain.id, 'past the horizon: ranked as stale')
+
+    // A successor inherits the horizon and restarts it.
+    const { id: next } = memory.supersede(pinned.id, { body: 'node version pin detail v2' })
+    assert.equal(memory.get(next).stale_after_days, 30)
   })
 
   it('recent pages older rows with offset and a stable created_at,id order', () => {

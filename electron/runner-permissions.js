@@ -6,7 +6,7 @@
 // pushDetail (runner.js) calls getPendingPermission and startRun reads
 // ciWorkflowSignOffs, both through this factory's return.
 
-const { randomUUID } = require("node:crypto");
+const { randomUUID, createHash } = require("node:crypto");
 const services = require("./services.js");
 const { truncate, INPUT_TRUNCATE } = require("./claude.js");
 const { pendingFromInput } = require("./codexInput.js");
@@ -117,22 +117,19 @@ function createPermissions(ctx) {
       Array.isArray(e.pendingPermissions) &&
       e.pendingPermissions.length > 0
     ) {
-      return e.pendingPermissions.map((p) => ({
-        requestId: p.id,
-        toolName: p.toolName,
-        summary: p.summary,
-        input: p.input,
-        command:
-          p.command !== undefined ? p.command : extractCommand(p.rawInput),
-        commandEditable: p.commandEditable !== false,
-        acceptAlways: p.acceptAlways !== false,
-        questions: questionInfo(p.toolName, p.rawInput),
-        inputRequest: p.inputRequest || null,
-        fileChange: p.fileChange || null,
-        plan: planText(p.toolName, p.rawInput),
-        guardrail: p.guardrail || null,
-        folderGrant: p.folderGrant || null,
-      }));
+      return e.pendingPermissions.map(cardOf);
+    }
+    const saved = store.getThread(threadId)?.pendingApproval;
+    if (saved && saved.card) {
+      // The CLI that asked is gone: Allow resumes the session instead
+      // (respondPersistedApproval), so no command edits or session rules.
+      return [{
+        ...saved.card,
+        commandEditable: false,
+        acceptAlways: false,
+        folderGrant: null,
+        restored: true,
+      }];
     }
     const plan = pendingPlanAsPermission(threadId);
     return plan ? [plan] : [];
@@ -159,6 +156,89 @@ function createPermissions(ctx) {
       }
     }
     return out.sort((a, b) => (a.since ?? 0) - (b.since ?? 0));
+  }
+
+  /** Renderer shape of one live prompt (no rawInput). */
+  function cardOf(p) {
+    return {
+      requestId: p.id,
+      toolName: p.toolName,
+      summary: p.summary,
+      input: p.input,
+      command:
+        p.command !== undefined ? p.command : extractCommand(p.rawInput),
+      commandEditable: p.commandEditable !== false,
+      acceptAlways: p.acceptAlways !== false,
+      questions: questionInfo(p.toolName, p.rawInput),
+      inputRequest: p.inputRequest || null,
+      fileChange: p.fileChange || null,
+      plan: planText(p.toolName, p.rawInput),
+      guardrail: p.guardrail || null,
+      folderGrant: p.folderGrant || null,
+    };
+  }
+
+  /** Identity of one tool call, for the one-shot grant after a restart. */
+  function actionKey(toolName, rawInput) {
+    return createHash("sha256")
+      .update(JSON.stringify([String(toolName), rawInput ?? null]))
+      .digest("hex");
+  }
+
+  /**
+   * Mirror the live head prompt onto the thread so a quit or crash cannot
+   * lose it (issue #349). Runs from pushDetail, which every prompt change
+   * already ends in. A card kept from an earlier run (a machine turn started
+   * over it) is only replaced by a newer live ask, never cleared by this run.
+   * MCP elicitations are skipped: their request dies with the MCP server.
+   * @param {string} threadId
+   */
+  function syncPersistedApproval(threadId) {
+    const e = active.get(threadId);
+    if (!e || !Array.isArray(e.pendingPermissions)) return;
+    const thread = store.getThread(threadId);
+    if (!thread) return;
+    const saved = thread.pendingApproval || null;
+    const p = e.pendingPermissions[0];
+    if (p && !p.inputRequest) {
+      if (saved && saved.id === p.id) return;
+      const card = cardOf(p);
+      if (typeof card.command === "string") card.command = truncate(card.command, INPUT_TRUNCATE);
+      if (card.fileChange) card.fileChange = { ...card.fileChange, diff: truncate(String(card.fileChange.diff || ""), PLAN_TRUNCATE) };
+      delete card.inputRequest;
+      store.updateThread(threadId, {
+        pendingApproval: {
+          id: p.id,
+          runId: e.runId || null,
+          askedAt: Date.now(),
+          // Plans and questions need their answer, not a re-run: no grant.
+          grantKey: card.plan || card.questions ? null : actionKey(p.toolName, p.rawInput),
+          card,
+        },
+      });
+      store.save();
+    } else if (saved && saved.runId === (e.runId || null)) {
+      store.updateThread(threadId, { pendingApproval: null });
+      store.save();
+    }
+  }
+
+  /**
+   * After Allow on a restored card the agent re-issues the call; that exact
+   * call runs without a second card. Spent by the first gated ask, match or
+   * not, so it cannot linger into later work.
+   * ponytail: claude + codex only; opencode re-asks once, add if it matters.
+   * @param {string} threadId
+   * @param {string} toolName
+   * @param {unknown} rawInput
+   * @returns {boolean}
+   */
+  function takeRestartGrant(threadId, toolName, rawInput) {
+    const grant = store.getThread(threadId)?.restartGrant;
+    if (!grant) return false;
+    store.updateThread(threadId, { restartGrant: null });
+    store.save();
+    return grant === actionKey(toolName, rawInput);
   }
 
   /**
@@ -287,6 +367,12 @@ function createPermissions(ctx) {
       );
       store.save();
       pushDetail(threadId, e.codexState || null);
+      return true;
+    }
+
+    if (!pending.inputRequest && takeRestartGrant(threadId, pending.toolName, pending.rawInput)) {
+      replyCodexJsonRpc(e, id, approvalResponse(pending.method,
+        mapSolentaDecision("allow", pending.availableDecisions), pending.grant));
       return true;
     }
 
@@ -422,6 +508,13 @@ function createPermissions(ctx) {
       return;
     }
     const e = active.get(threadId);
+    const saved = store.getThread(threadId)?.pendingApproval;
+    if (
+      saved && saved.id === requestId &&
+      !(e && Array.isArray(e.pendingPermissions) && e.pendingPermissions.some((p) => p.id === requestId))
+    ) {
+      return respondPersistedApproval(threadId, saved, decision, answers, feedback);
+    }
     if (!e || !e.handle) {
       return respondPersistedPlan(threadId, requestId, decision, feedback);
     }
@@ -900,8 +993,65 @@ function createPermissions(ctx) {
     maybeDrainQueued(threadId);
   }
 
+  /**
+   * Answer a card whose CLI died with the app (issue #349). Allow resumes the
+   * session with the decision as the next turn; the agent's re-ask of that
+   * exact call passes once (takeRestartGrant). Deny just closes the card.
+   * @param {string} threadId
+   * @param {{ id: string, grantKey: string | null, card: ReturnType<typeof cardOf> }} saved
+   * @param {string} decision
+   * @param {Record<string, string> | undefined} answers
+   * @param {string} feedback
+   */
+  function respondPersistedApproval(threadId, saved, decision, answers, feedback) {
+    const thread = store.getThread(threadId);
+    const { card } = saved;
+    const approved = decision !== "deny";
+    /** @type {Record<string, unknown>} */
+    const patch = {
+      pendingApproval: null,
+      awaitingInput: Boolean(thread.pendingQuestion || thread.pendingPlan || thread.pendingSecret),
+    };
+    const answerList =
+      answers && typeof answers === "object" && !Array.isArray(answers)
+        ? Object.entries(answers).map(([q, a]) => `${q}: ${a}`)
+        : [];
+    let line = "";
+    if (approved && card.plan) {
+      patch.plan = truncate(card.plan, PLAN_STORE);
+      if (thread.permissionMode === "plan") {
+        patch.permissionMode = snapPermissionMode(getProvider(thread.provider), "default");
+      }
+      line = "[restart] The app restarted while your plan waited for approval. The user approved it: proceed with the plan.";
+    } else if (approved && card.questions) {
+      line = `[restart] The app restarted while your question waited. The user answered:\n${answerList.join("\n")}`;
+    } else if (approved) {
+      patch.restartGrant = saved.grantKey || null;
+      line = `[restart] The app restarted while ${card.summary} waited for approval. The user approved it: make that exact ${card.toolName} call again now; it will run without asking.`;
+    } else if (feedback) {
+      line = feedback;
+    }
+    store.updateThread(threadId, patch);
+    appendMessage(
+      threadId,
+      "event",
+      card.plan
+        ? approved ? "Plan approved" : "Plan rejected"
+        : `${approved ? "Allowed" : "Denied"} after restart: ${card.summary}`,
+    );
+    if (line) {
+      services.restoreQueuedHead(store, { threadId, taken: { prompt: line, items: [line] } });
+    }
+    store.save();
+    pushDetail(threadId);
+    pushThreadsChanged();
+    maybeDrainQueued(threadId);
+  }
+
   return {
     ciWorkflowSignOffs,
+    syncPersistedApproval,
+    takeRestartGrant,
     getPendingPermission,
     listPendingApprovals,
     handleCodexServerRequest,

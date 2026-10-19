@@ -77,6 +77,7 @@ function createClaudeRun(ctx) {
     appendMessage,
     savePlanSteps,
     askUser,
+    takeRestartGrant,
     addSubagentRow,
     userDataPath,
     completeWorkLogStep,
@@ -762,8 +763,12 @@ function createClaudeRun(ctx) {
               return;
             }
 
-            if (ev.decision === "allow") {
-              // Profile allow / session grant: no card.
+            if (
+              ev.decision === "allow" ||
+              takeRestartGrant(threadId, toolName, rawInput)
+            ) {
+              // Profile allow / session grant / approved before a restart
+              // (#349): no card.
               handle.respond(requestId, {
                 behavior: "allow",
                 updatedInput: rawInput,
@@ -1368,6 +1373,7 @@ function createClaudeRun(ctx) {
       withProjectEnv(
         project,
         grokMerged && Object.keys(grokMerged).length > 0 ? grokMerged : undefined,
+        localCwd,
       ),
     );
 

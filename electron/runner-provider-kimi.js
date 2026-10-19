@@ -393,7 +393,7 @@ function createKimiRun(ctx) {
       binary: spawn.binary,
       args: spawn.args,
       cwd: spawn.cwd,
-      env: threadSecrets.withEnv(threadId, withProjectEnv(project, kimiEnv)),
+      env: threadSecrets.withEnv(threadId, withProjectEnv(project, kimiEnv, localCwd)),
       onEvent: (ev) => {
         if (!guard()) return;
 
