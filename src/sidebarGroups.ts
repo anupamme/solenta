@@ -250,12 +250,12 @@ export function withCrewSearchContext(
 }
 
 /**
- * T3-style flat sidebar (no project group headers): one pinned block, one
+ * Flat sidebar (no project group headers): one pinned block, one
  * flat active list, then the Snoozed and Settled shelves. Every card carries
  * its own project identity, so grouping happens per-card, not per-section.
  */
 export interface FlatSidebar {
-  /** Pin order, oldest pin first (T3: reorderable block above the inbox). */
+  /** Pin order, oldest pin first (reorderable block above the inbox). */
   pinned: ThreadInfo[];
   /** The inbox: done / waiting / failed rows. createdAt desc (static —
    *  activity never reorders), forks attached. */
@@ -271,7 +271,7 @@ export interface FlatSidebar {
 }
 
 /**
- * Partition for the flat T3 sidebar. Precedence (first match wins):
+ * Partition for the flat sidebar. Precedence (first match wins):
  *   archived > snoozed > pinned > settled > working > active
  * scopeProjectId filters every section ("All projects" = null).
  */
@@ -419,7 +419,7 @@ function createdKey(t: ThreadInfo): number {
 /**
  * Group threads under every registered project.
  *
- * t3 sidebar rule: activity NEVER reorders the list. A row holds its
+ * Sidebar rule: activity NEVER reorders the list. A row holds its
  * position from creation until a lifecycle transition (create / settle /
  * unsettle / pin / snooze / archive), so both threads-in-a-group and the
  * groups themselves sort by createdAt — never updatedAt, which streaming

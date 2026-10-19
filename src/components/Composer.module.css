@@ -131,7 +131,7 @@
   padding: 0 9px;
   border-radius: 7px;
   background: transparent;
-  /* Ghost pills (T3): the hover tint is the affordance, not a border. */
+  /* Ghost pills: the hover tint is the affordance, not a border. */
   border: 1px solid transparent;
   color: var(--text-muted);
   font-size: 12px;

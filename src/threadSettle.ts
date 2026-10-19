@@ -12,7 +12,7 @@ import {
 export const AUTO_SETTLE_AFTER_DAYS = 3;
 
 /**
- * Global settled tail paging (t3-style).
+ * Global settled tail paging.
  * Initial visible count when the tail is expanded; each "Show more" adds a page.
  */
 export const SETTLED_TAIL_INITIAL_COUNT = 10;
@@ -28,7 +28,7 @@ export interface SettleOpts {
   autoSettleAfterDays: number | null;
   /**
    * When true (the default), a MERGED PR auto-settles. CLOSED always
-   * settles. Matches t3's sidebarAutoSettleOnMerge.
+   * settles.
    */
   autoSettleOnMerge?: boolean;
 }
@@ -44,7 +44,7 @@ export function changeRequestAutoSettles(
 }
 
 /**
- * t3-style computed settle resolution, adapted to our ThreadInfo fields.
+ * Computed settle resolution, adapted to our ThreadInfo fields.
  *
  * Round 38 used status==="done". Round 39: a freshly-done thread is NOT
  * settled — it stays visible until PR resolution, inactivity, or a manual
@@ -58,7 +58,7 @@ export function effectiveSettled(
   // the thing the user is watching; backend refuses settle while working too.
   if (thread.status === "working" || thread.status === "quota-wait") return false;
 
-  // Round 44: a pin NEVER auto-settles (t3). pinnedAt is the pin clock;
+  // Round 44: a pin NEVER auto-settles. pinnedAt is the pin clock;
   // mutual exclusion with settle is enforced by setPinned/setSettled.
   if (thread.pinnedAt != null && Number.isFinite(thread.pinnedAt)) {
     return false;

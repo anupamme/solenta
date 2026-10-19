@@ -1,12 +1,12 @@
 import type { ThreadInfo } from "./shared/ipc";
 
 /**
- * t3-style snooze visibility (round 44) + shared presets / Woke (issue #383).
+ * Snooze visibility (round 44) + shared presets / Woke (issue #383).
  *
  * Contract (ThreadInfo.snoozedUntil): snooze is VISIBILITY ONLY — never
  * touches the agent. It suspends a pin without clearing it and beats settle.
  *
- * Raised hand (t3 exact rule, quoted): a thread wakes early when it "raises
+ * Raised hand: a thread wakes early when it "raises
  * its hand" — a FRESH failure or a run completion newer than snoozedAt, or
  * the agent blocked on the user (awaitingInput). A thread snoozed while
  * already failed stays snoozed ("I saw it, not now").
@@ -147,7 +147,7 @@ export function resolveSnoozeUntil(
 /**
  * Human wake label from the same resolver the shelf sorts on.
  * Examples: "until 6pm", "until tomorrow", "until Mon 9am".
- * Local calendar — t3 uses local boundaries, not UTC day cuts.
+ * Local calendar — local boundaries, not UTC day cuts.
  */
 export function formatSnoozeWakeLabel(
   thread: Pick<ThreadInfo, "snoozedUntil">,
@@ -262,7 +262,7 @@ export function resolveSnoozePresets(now: number): ReadonlyArray<SnoozePreset> {
 /**
  * Snooze preset → epoch ms.
  *
- * Local calendar boundaries (t3):
+ * Local calendar boundaries:
  * - "hour" / "three-hours": elapsed duration from `now`.
  * - "evening": today 18:00 local, or tomorrow 18:00 if that instant is
  *   already past (including exact 18:00:00.000 — `<=` so "now" is not future).

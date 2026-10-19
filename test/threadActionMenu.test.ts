@@ -1,5 +1,5 @@
 /**
- * T3 thread-action item list: Snooze is a parent with children, not a
+ * Thread-action item list: Snooze is a parent with children, not a
  * first-level dump of presets.
  */
 import assert from "node:assert/strict";
@@ -39,7 +39,7 @@ const presets = [
   { id: "hour", label: "In 1 hour", whenLabel: "3:04pm", until: 1 },
 ];
 
-describe("buildThreadActionMenuItems (T3 contract)", () => {
+describe("buildThreadActionMenuItems (contract)", () => {
   it("puts snooze presets on Snooze children, not the first level", () => {
     const items = buildThreadActionMenuItems({
       thread,

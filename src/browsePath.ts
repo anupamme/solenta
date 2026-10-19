@@ -1,6 +1,6 @@
 /**
- * Typed/browsable project-path helpers (#609). Ported from T3's
- * client-runtime path + filesystem browse model so add-project and the
+ * Typed/browsable project-path helpers (#609). A client-runtime
+ * path + filesystem browse model so add-project and the
  * later clone destination step (#459) share one cursor: the query is both
  * the path input and the browse location.
  */

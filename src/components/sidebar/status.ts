@@ -13,7 +13,7 @@ import {
 } from "../../waiting";
 
 /**
- * t3 flatten (#566): the row's whole status vocabulary is one label.
+ * Flatten (#566): the row's whole status vocabulary is one label.
  * Precedence lives in statusDotFor; the card maps that onto colored text.
  */
 export type StatusDotInfo = {

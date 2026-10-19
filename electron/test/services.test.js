@@ -100,11 +100,11 @@ describe("services", () => {
       "remote",
       "add",
       "origin",
-      "https://github.com/pingdotgg/t3code.git",
+      "https://github.com/acme/rocket.git",
     ]);
     const project = await services.addProject(store, repo);
-    assert.equal(project.slug, "pingdotgg/t3code");
-    assert.equal(project.name, "t3code");
+    assert.equal(project.slug, "acme/rocket");
+    assert.equal(project.name, "rocket");
   });
 
   it("addProject stores remotes without a local checkout", async () => {

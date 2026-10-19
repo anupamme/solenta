@@ -1,8 +1,8 @@
-# T3-style transcript grouping and overlay flatten (issue #768)
+# Transcript grouping and overlay flatten (issue #768)
 
 ## Problem
 
-T3 Code's main screen shows a finished turn as user text, one summary line
+The goal: show a finished turn as user text, one summary line
 (`Read 12 files, ran 4 commands, and changed 3 files`), then assistant prose.
 Live work is one `Running rg` line. Tools are one click away.
 
@@ -10,10 +10,10 @@ Solenta paints a `.card` (fill, 1px border, shadow, 12px padding) for every
 tool, every thinking block, every event, plus a Work Log card, then stacks
 Plan / Spec / Ask / Teach / Felt / Divergence under the fold.
 
-A 40-tool turn is one line in T3 and about 40 boxes here. #732 stripped chrome
+A 40-tool turn should be one summary line; today it is about 40 boxes. #732 stripped chrome
 from the same tiles and was reverted: ghost outlines, same count. #748 flattens
 chrome but still lists every tool. #461 is a Claude Focus *toggle*. This spec
-is T3's default: always grouped, expand in place, plus overlay flatten.
+makes it the default: always grouped, expand in place, plus overlay flatten.
 
 Tracking: [#768](https://github.com/currentbits/solenta/issues/768).
 Thread: `e260cda9-b69a-41eb-b254-476003aa6258`.
@@ -83,7 +83,7 @@ Map `tool.name` (case-insensitive, ignore `_` vs camel) to an action:
 tools only expose a one-line `text`, not structured paths). Singular when
 `N === 1`.
 
-Join labels the T3 way:
+Join labels:
 
 - one action: `Read 12 files`
 - two: `Read 12 files and ran 4 commands` (second label lowercased)

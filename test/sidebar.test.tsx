@@ -1,7 +1,7 @@
 /**
- * Sidebar: T3 flat list (no project groups), two shelves, scope filter.
+ * Sidebar: flat list (no project groups), two shelves, scope filter.
  *
- * Contract: .solenta/specs/t3-flat-sidebar.md
+ * Contract: buildFlatSidebar in src/sidebarGroups.ts
  * Pinned block → active cards → Snoozed shelf → Settled shelf (settled then
  * archived). Every card carries data-card-slug. Create + scope live in the
  * header. Runtime green waits on the UI branch; tsc must pass.
@@ -64,10 +64,10 @@ describe("displayWorkerTitle", () => {
   });
 });
 
-describe("t3 paging constants are fixed facts", () => {
+describe("settled-tail paging constants are fixed facts", () => {
   it("INITIAL is 10 and PAGE is 25", () => {
-    assert.equal(SETTLED_TAIL_INITIAL_COUNT, 10, "t3 SETTLED_TAIL_INITIAL_COUNT");
-    assert.equal(SETTLED_TAIL_PAGE_COUNT, 25, "t3 SETTLED_TAIL_PAGE_COUNT");
+    assert.equal(SETTLED_TAIL_INITIAL_COUNT, 10, "SETTLED_TAIL_INITIAL_COUNT");
+    assert.equal(SETTLED_TAIL_PAGE_COUNT, 25, "SETTLED_TAIL_PAGE_COUNT");
   });
 });
 
@@ -890,7 +890,7 @@ describe("Sidebar remove + edit project (scope menu)", () => {
     m.unmount();
   });
 
-  it("confirm shows REAL thread count, path, and both t3 sentences", async () => {
+  it("confirm shows REAL thread count, path, and both confirm sentences", async () => {
     await clearSidebarStorage();
     const m = await mount(
       sidebar(removeThreads, {
@@ -2213,7 +2213,7 @@ describe("Sidebar snooze nested submenu (#583)", () => {
     assert.ok(menu.querySelector("[data-fork-btn]"), "Fork stays first-level");
     await m.click(snooze);
     const sub = document.querySelector("[data-context-submenu]");
-    assert.ok(sub, "Snooze opens a flyout submenu (T3 children), not a drill-in");
+    assert.ok(sub, "Snooze opens a flyout submenu (children), not a drill-in");
     assert.ok(portalMenu(), "parent menu stays mounted");
     assert.ok(sub!.querySelector('[data-snooze-preset="hour"]'));
     m.unmount();
@@ -2332,7 +2332,7 @@ describe("Sidebar snooze nested submenu (#583)", () => {
       );
     });
     await m.flush();
-    assert.ok(portalMenu(), "contextmenu on the row is how T3 opens this menu");
+    assert.ok(portalMenu(), "contextmenu on the row is how this menu opens");
     m.unmount();
   });
 
@@ -2344,8 +2344,8 @@ describe("Sidebar snooze nested submenu (#583)", () => {
         onSetSettled: () => {},
       }),
     );
-    assert.ok(m.query('[data-snooze-btn="menu-src"]'), "T3 hover snooze");
-    assert.ok(m.query('[data-settle-btn="menu-src"]'), "T3 hover settle");
+    assert.ok(m.query('[data-snooze-btn="menu-src"]'), "hover snooze");
+    assert.ok(m.query('[data-settle-btn="menu-src"]'), "hover settle");
     m.unmount();
   });
 });

@@ -1,6 +1,6 @@
 /**
  * Composer paste-cards (issue #381). Large pastes collapse into labeled
- * cards instead of flooding the textarea. T3-shaped: 120k hard cap, huge
+ * cards instead of flooding the textarea. Rules: 120k hard cap, huge
  * pastes compress, collapse is the default but expandable and disable-able.
  */
 

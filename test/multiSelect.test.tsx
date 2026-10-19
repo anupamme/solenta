@@ -163,7 +163,7 @@ function Host({
 }
 
 async function openShelves(m: Awaited<ReturnType<typeof mount>>) {
-  // Flat T3: two shelves, default collapsed. Open both so keyboard order
+  // Flat sidebar: two shelves, default collapsed. Open both so keyboard order
   // includes snoozed then settled.
   for (const sel of [
     "[data-snoozed-shelf-toggle]",

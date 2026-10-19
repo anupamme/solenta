@@ -64,7 +64,7 @@ const SETTLE_OVERRIDES = new Set(["settled", "active", null]);
  * left alone so the user can keep a thread out of auto-settle.
  *
  * Round 44: this patch must NOT clear pinnedAt or snooze fields.
- * - Pin survives activity (t3: pins block auto-settle and are sticky).
+ * - Pin survives activity (pins block auto-settle and are sticky).
  * - Snooze is visibility only; server fields persist; wake is derived
  *   client-side (timer or raised-hand), never by wiping on run start.
  *
@@ -81,7 +81,7 @@ function clearSettledOnActivity(thread) {
 }
 
 /**
- * Set or clear the settle override (t3-style). Does not bump updatedAt:
+ * Set or clear the settle override. Does not bump updatedAt:
  * settling is bookkeeping, and bumping would push the thread to the top of
  * a list it is leaving.
  *
@@ -116,7 +116,7 @@ function setSettled(store, input, opts) {
     settledAt: override != null ? Date.now() : null,
   };
   // Mutual exclusion: settle clears pin (mirror of setPinned clearing settle).
-  // Explicit settle also unsnoozes immediately (t3: companion unsnooze) so
+  // Explicit settle also unsnoozes immediately (companion unsnooze) so
   // the row leaves the snoozed shelf instead of staying hidden until wake.
   if (override === "settled") {
     patch.pinnedAt = null;

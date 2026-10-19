@@ -56,7 +56,7 @@ export type FilePreview =
 
 export interface ProjectInfo {
   id: string;
-  /** e.g. "pingdotgg/t3code", derived from git remote or folder name */
+  /** e.g. "acme/rocket", derived from git remote or folder name */
   slug: string;
   name: string;
   path: string;
@@ -738,7 +738,7 @@ export interface ThreadInfo {
   /** Set when this thread was imported from a Vibe Kanban card (#399). */
   vibeKanbanTaskId?: string | null;
   /**
-   * Explicit settle lifecycle override (t3-style). "settled" pins the thread
+   * Explicit settle lifecycle override. "settled" pins the thread
    * into the settled fold; "active" pins it OUT (suppresses auto-settle);
    * null means no override, resolution falls to PR state and inactivity.
    * The backend clears a "settled" override on real activity (a new run),
@@ -768,7 +768,7 @@ export interface ThreadInfo {
   recap?: ThreadRecap | null;
   /**
    * Epoch ms when the user pinned this thread; null = unpinned. Pinned
-   * threads render first and NEVER auto-settle (t3's rule). Pin and an
+   * threads render first and NEVER auto-settle. Pin and an
    * explicit settle are mutually exclusive: setPinned(true) clears a
    * "settled" override, setSettled("settled") clears the pin — conflicts
    * can then only arise from raced writes, not normal use.
@@ -987,7 +987,7 @@ export interface ThreadInfo {
   integrationReceipts?: CrewIntegrationReceipt[];
   /**
    * Worktree requested but not yet created — it materializes at first run
-   * (lazy, t3-style), so a thread that never runs leaves nothing on disk.
+   * (lazily), so a thread that never runs leaves nothing on disk.
    */
   pendingWorktree?: boolean;
   /**
@@ -2999,7 +2999,7 @@ export interface ModelInfo {
 }
 
 /**
- * Forge provider id (issue #608). Matches T3's SourceControlProviderKind so
+ * Forge provider id (issue #608), so
  * add-project (#459) and later GitLab/Bitbucket/Azure issues share one list.
  */
 export type SourceControlProviderKind =
@@ -3392,7 +3392,7 @@ export interface AppSettings {
    */
   orchestrationBudgetUsd: number | null;
   /**
-   * Days of silence before a quiet thread auto-settles (t3's window).
+   * Days of silence before a quiet thread auto-settles.
    * null disables the inactivity path entirely — threads then settle only
    * via PR state or an explicit settle. Positive integer when set. The
    * renderer's default when this is absent/undefined stays
@@ -4999,7 +4999,7 @@ export interface CoderApi {
     pickDirectory(): Promise<string | null>;
     /**
      * Remove the project ENTRY and delete its threads' conversation history
-     * (t3-style "Remove project"). The repository on disk is never touched.
+     * ("Remove project"). The repository on disk is never touched.
      * Rejects while any of its threads has an active run, or still has a
      * worktree (merge or delete those in the Git tab first) — the same
      * guards as threads.delete, because this is that action fanned out.
@@ -5213,7 +5213,7 @@ export interface CoderApi {
     setArchived(input: { threadId: string; archived: boolean }): Promise<ThreadInfo>;
     /**
      * Set or clear the settle override. Rejects override "settled" while a
-     * run is active: settling live work would hide it (t3's rule — anything
+     * run is active: settling live work would hide it (anything
      * the resolution refuses to classify as settled is refused as a settle
      * target). An explicit "settled" also clears a live snooze so the row
      * leaves the snoozed shelf immediately. Does not bump updatedAt:
@@ -6639,7 +6639,7 @@ export interface CoderApi {
     export(): Promise<string | null>;
   };
   /**
-   * Native OS context menu (T3 `api.contextMenu.show`). Resolves the clicked
+   * Native OS context menu. Resolves the clicked
    * leaf id, or null if the user dismisses. Absent on web/dev — the renderer
    * falls back to a position:fixed portal on document.body.
    */

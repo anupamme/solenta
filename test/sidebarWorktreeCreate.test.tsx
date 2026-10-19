@@ -1,5 +1,5 @@
 /**
- * Sidebar "New worktree thread" creation menu (T3-style worktree threads).
+ * Sidebar "New worktree thread" creation menu (worktree threads).
  *
  * Run: npm run test:renderer
  */

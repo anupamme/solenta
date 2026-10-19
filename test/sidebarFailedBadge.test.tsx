@@ -1,6 +1,6 @@
 /**
  * Failed status label: lastError is the native title tooltip (issue #140,
- * T3 text label instead of a status dot).
+ * text label instead of a status dot).
  *
  * Run: npm run test:renderer
  */

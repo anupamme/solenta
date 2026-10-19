@@ -244,7 +244,7 @@ describe("controls keep --border", () => {
     }
   });
 
-  it("composer pills are ghost (T3 calm pass, #1409): hover tint, no outline", () => {
+  it("composer pills are ghost (calm pass, #1409): hover tint, no outline", () => {
     const composer = loadCss("src/components/Composer.module.css");
     const bodies = allRuleBodies(composer, "pill");
     assert.ok(

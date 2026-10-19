@@ -1778,7 +1778,7 @@ async function refreshPrStates(store, opts) {
       }
 
       if (nextState === "MERGED") {
-        // The PR path used to strand worktree+branch forever (t3 deep-dive).
+        // The PR path used to strand worktree+branch forever.
         // Reclaim now; dirty/unpushed trees are skipped for manual cleanup.
         await maybeCleanupMergedWorktree(store, threadId);
         // Issue #420: arm a delayed re-check. Does not save; this pass does.

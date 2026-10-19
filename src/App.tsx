@@ -458,7 +458,7 @@ export default function App({ rendererSha: rendererShaOverride }: AppProps = {})
   /** Undo toast after moving a thread to Recently deleted (#940). */
   const [deleteToastId, setDeleteToastId] = useState<string | null>(null);
   /**
-   * Error toast after projects.remove rejects. Title is t3-shaped:
+   * Error toast after projects.remove rejects. Title reads:
    * Failed to remove "slug", plus the reason — swallowing it left the user
    * with no idea what to fix. Cleared on dismiss / timeout.
    */

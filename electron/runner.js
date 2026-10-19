@@ -2032,7 +2032,7 @@ function createRunner(opts) {
       return enqueueRun(threadId, input, prompt, attachments);
     }
 
-    // Lazy worktree (t3-style): pendingWorktree threads materialize their
+    // Lazy worktree: pendingWorktree threads materialize their
     // worktree + branch at first run, so never-run threads leave nothing.
     // A missing folder rematerializes. Failure is recorded in-thread and
     // thrown — never a silent fallback to the project checkout (#511).
@@ -2116,7 +2116,7 @@ function createRunner(opts) {
     const keepQuestion = machineTurn ? thread.pendingQuestion || null : null;
     const keepPlan = machineTurn ? thread.pendingPlan || null : null;
 
-    // Real activity clears a stale "settled" pin (t3 rule). An explicit
+    // Real activity clears a stale "settled" pin. An explicit
     // "active" pin survives so the user can keep a thread out of auto-settle.
     // Shared with workflow start via services.clearSettledOnActivity.
     store.updateThread(
@@ -2161,7 +2161,7 @@ function createRunner(opts) {
 
     // A creation-time worktree starts on the placeholder branch
     // coder/new-thread-<id>; once the first prompt promotes the title, the
-    // branch follows (T3-style). Best-effort: never throws, never blocks.
+    // branch follows. Best-effort: never throws, never blocks.
     if (title !== thread.title) {
       const { maybeRenameWorktreeBranch } = require("./worktrees.js");
       maybeRenameWorktreeBranch({ store, threadId, newTitle: title });

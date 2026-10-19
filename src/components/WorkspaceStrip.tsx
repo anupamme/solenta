@@ -3,7 +3,7 @@ import { useEscapeClose } from "../useEscapeClose";
 import styles from "./WorkspaceStrip.module.css";
 
 /**
- * Tab under the composer (t3-style). On a draft it picks where the first send
+ * Tab under the composer. On a draft it picks where the first send
  * runs — the project checkout or a fresh worktree from a base branch; the
  * worktree itself is still created lazily on that first send. After that,
  * `started` turns it into a read-only label of where the thread runs.

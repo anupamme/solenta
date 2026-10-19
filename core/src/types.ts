@@ -2,7 +2,7 @@
 
 export interface Project {
   id: string;
-  /** e.g. "pingdotgg/t3code" */
+  /** e.g. "acme/rocket" */
   slug: string;
   name: string;
 }

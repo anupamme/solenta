@@ -1,14 +1,14 @@
-# T3 Transcript Grouping Implementation Plan
+# Transcript Grouping Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Collapse consecutive tools into one T3 sentence and flatten overlay tiles, per `docs/superpowers/specs/2026-08-29-t3-transcript-grouping-design.md` (#768).
+**Goal:** Collapse consecutive tools into one summary sentence and flatten overlay tiles, per `docs/superpowers/specs/2026-08-29-transcript-grouping-design.md` (#768).
 
 **Architecture:** Pure `src/toolGroups.ts` collapses `TimelineEntry[]` into display rows. `ThreadView` renders a group line (expand in place) and ignores `kind === "worklog"`. Overlay CSS keeps `.planCard` / `.specCard` names and becomes a left-rule. No IPC or store change.
 
 **Tech Stack:** TypeScript, React 19, CSS modules, `node:test` + `test/support/render.mjs`.
 
-**Spec:** `docs/superpowers/specs/2026-08-29-t3-transcript-grouping-design.md`.
+**Spec:** `docs/superpowers/specs/2026-08-29-transcript-grouping-design.md`.
 
 ## Global Constraints
 
@@ -79,7 +79,7 @@ node --import=./test/support/disable-grok-mcp.mjs --import=./test/support/render
 
 - [ ] **Step 4: Re-run the test. Expected: PASS.**
 
-- [ ] **Step 5: Commit** `feat: collapse consecutive tools into a T3 summary`
+- [ ] **Step 5: Commit** `feat: collapse consecutive tools into a summary`
 
 ---
 
