@@ -3,6 +3,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { wslTarget } = require("./wsl.js");
+const { direnvEnv } = require("./direnvEnv.js");
 
 const REMOTE_OVERLAY = "/tmp/solenta-dev-homes";
 
@@ -53,17 +54,21 @@ function normalizeProjectEnv(raw) {
 
 /**
  * Layer project.env (#188) UNDER a spawn's own env overlay, so provider
- * overlays (CODEX_HOME, KIMI_CODE_HOME, ...) still win. Returns `env`
- * untouched when the project sets nothing.
+ * overlays (CODEX_HOME, KIMI_CODE_HOME, ...) still win. With `cwd`, the
+ * worktree's direnv env (#320) goes under both. Returns `env` untouched
+ * when neither adds anything.
  *
  * @param {{ env?: unknown } | null | undefined} project
  * @param {Record<string, string> | null | undefined} env
+ * @param {string} [cwd]
  * @returns {Record<string, string> | null | undefined}
  */
-function withProjectEnv(project, env) {
+function withProjectEnv(project, env, cwd) {
   const projectEnv = normalizeProjectEnv(project && project.env);
-  if (!Object.keys(projectEnv).length) return env;
-  return { ...projectEnv, ...(env || {}) };
+  // Remote/WSL spawns run elsewhere; a local .envrc says nothing about them.
+  const dirEnv = isRemoteProject(project) ? undefined : direnvEnv(cwd);
+  if (!Object.keys(projectEnv).length && !dirEnv) return env;
+  return /** @type {Record<string, string>} */ ({ ...dirEnv, ...projectEnv, ...(env || {}) });
 }
 
 /**
@@ -599,6 +604,7 @@ module.exports = {
   safeId,
   normalizeProjectEnv,
   withProjectEnv,
+  isRemoteProject,
   isolationEnv,
   mergeDevServerEnv,
   ensureIsolationDirs,

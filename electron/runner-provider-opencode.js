@@ -331,7 +331,7 @@ function createOpencodeRun(ctx) {
 
     if (abortIfCancelled(threadId, runId)) return { runId };
     const efforts = honouredEfforts(providerEntry, thread.model || null);
-    const runEnv = threadSecrets.withEnv(threadId, withProjectEnv(project, opencodeEnv));
+    const runEnv = threadSecrets.withEnv(threadId, withProjectEnv(project, opencodeEnv, localCwd));
     const handlers = {
       onEvent: (ev) => {
         if (!guard()) return;

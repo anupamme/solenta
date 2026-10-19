@@ -1,7 +1,8 @@
 "use strict";
 
 const path = require("node:path");
-const { withProjectEnv } = require("./worktreeEnv.js");
+const { withProjectEnv, isRemoteProject } = require("./worktreeEnv.js");
+const { loadDirenv } = require("./direnvEnv.js");
 const { randomUUID } = require("node:crypto");
 const services = require("./services.js");
 const { runAgent } = require("./agent.js");
@@ -2323,6 +2324,18 @@ function createRunner(opts) {
       await require("./worktrees.js").snapshotBeforeTurn(store, threadId);
       if (abortIfCancelled(threadId, runId)) return { runId };
 
+      // #320: the worktree's direnv env, which withProjectEnv layers into
+      // the spawn. After setup, since setup may be what writes the .envrc.
+      if (projectForGate && !isRemoteProject(projectForGate)) {
+        await Promise.race([
+          loadDirenv(dispatchThread.worktreePath || projectForGate.path, {
+            mainPath: projectForGate.path,
+          }),
+          stopped,
+        ]);
+        if (abortIfCancelled(threadId, runId)) return { runId };
+      }
+
       if (!memorySeen.has(threadId)) memorySeen.set(threadId, new Set());
       const bootNote = await ask.prefetchBootstrapNote({
         userDataPath,
@@ -2448,6 +2461,11 @@ function createRunner(opts) {
       materializePendingWorktree(input.threadId);
     } catch (err) {
       failWorktreeSetup(input.threadId, input.prompt, undefined, err);
+    }
+    const wfThread = store.getThread(input.threadId);
+    const wfProject = wfThread && store.getProject(wfThread.projectId);
+    if (wfProject && !isRemoteProject(wfProject)) {
+      await loadDirenv(wfThread.worktreePath || wfProject.path, { mainPath: wfProject.path });
     }
     return workflowEngine.startWorkflowRun({
       threadId: input.threadId,

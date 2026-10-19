@@ -117,6 +117,7 @@ function spawnAgentClaude(opts) {
     envExtra: withProjectEnv(
       opts.project,
       entry && entry.id === "grok" ? mergeGrokSpawnEnv(wrapEnv) : undefined,
+      cwd,
     ),
     onEvent: (ev) => {
       if (!ev || typeof ev !== "object") return;

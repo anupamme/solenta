@@ -1369,6 +1369,7 @@ function createClaudeRun(ctx) {
       withProjectEnv(
         project,
         grokMerged && Object.keys(grokMerged).length > 0 ? grokMerged : undefined,
+        localCwd,
       ),
     );
 
