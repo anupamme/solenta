@@ -787,7 +787,7 @@ interface InstanceDraft {
   command: string;
   fullAccess: string;
   cwd: string;
-  transcript: "stdout" | "pty";
+  transcript: NonNullable<ProviderInstance["transcript"]>;
 }
 
 function emptyInstanceDraft(providers: readonly ProviderInfo[]): InstanceDraft {
@@ -960,16 +960,20 @@ function InstanceForm({
               value={draft.transcript}
               disabled={saving}
               onChange={(e) =>
-                onChange({ ...draft, transcript: e.target.value as "stdout" | "pty" })
+                onChange({ ...draft, transcript: e.target.value as InstanceDraft["transcript"] })
               }
             >
               <option value="stdout">Plain output (pipes)</option>
               <option value="pty">Terminal (PTY)</option>
+              <option value="acp">Agent Client Protocol (ACP)</option>
             </select>
             <p className={styles.note}>
               Terminal is for CLIs that hold output or refuse to run without
               one. Colours and spinner redraws are stripped, and errors
-              appear in the reply.
+              appear in the reply. ACP is for agents that speak the Agent
+              Client Protocol over stdio, like goose acp: tool calls show as
+              steps, Default asks before each one, and an agent that can
+              reload its session resumes it.
             </p>
           </div>
         </>

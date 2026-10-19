@@ -23,6 +23,7 @@ const {
   instanceEnv,
   instanceDisplayName,
 } = require("./providerInstances.js");
+const { resumableRows } = require("./acp.js");
 const { resolveSandbox } = require("./sandbox.js");
 const { normalizeRoute } = require("./routing.js");
 const { dueRecap } = require("./recap.js");
@@ -1240,7 +1241,7 @@ async function listProvidersForApi(store, opts) {
 /**
  * Picker row for a custom CLI (#458). Capabilities are the honest floor:
  * no resume, models, efforts, search, steer or agents, and permission
- * modes only when the row maps full access to flags.
+ * modes only when the row maps full access to flags or speaks ACP.
  * @param {import('./providerInstances').ProviderInstance} inst
  * @returns {import('../src/shared/ipc').ProviderInfo}
  */
@@ -1250,15 +1251,17 @@ function genericProviderInfo(inst) {
     id: providerRef("generic", inst.id),
     name: instanceDisplayName("", inst),
     available: command.length > 0 && isBinAvailable(command[0]),
-    supportsResume: false,
+    // An ACP agent that advertised loadSession resumes its own session.
+    supportsResume: inst.transcript === "acp" && resumableRows.has(inst.id),
     models: [],
     modelInfo: [],
     efforts: [],
     supportsSearch: false,
     supportsSteer: false,
     supportsAgents: false,
+    // ACP agents ask per tool call, so both modes mean something (#272).
     permissionModes:
-      inst.fullAccessArgs && inst.fullAccessArgs.length > 0
+      inst.transcript === "acp" || (inst.fullAccessArgs && inst.fullAccessArgs.length > 0)
         ? honouredPermissionModes(getProvider("generic"))
         : [],
     baseProvider: "generic",

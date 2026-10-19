@@ -45,8 +45,9 @@ const NAME_MAX = 40;
  *   bypassPermissions; empty means the CLI handles permissions itself
  * @property {string | null} [cwd] - generic only: working folder; relative
  *   resolves inside the thread's worktree, null is the worktree itself
- * @property {"stdout" | "pty"} [transcript] - generic only: plain pipes, or
- *   a pseudo-terminal for CLIs that need a TTY
+ * @property {"stdout" | "pty" | "acp"} [transcript] - generic only: plain
+ *   pipes, a pseudo-terminal for CLIs that need a TTY, or an Agent Client
+ *   Protocol agent over stdio (#272)
  */
 
 /** @param {string} id */
@@ -178,8 +179,8 @@ function parseInstance(item, strict) {
     cwd = rec.cwd.trim() || null;
   }
   const transcript = rec.transcript == null ? "stdout" : rec.transcript;
-  if (transcript !== "stdout" && transcript !== "pty") {
-    return fail('Transcript must be "stdout" or "pty"');
+  if (transcript !== "stdout" && transcript !== "pty" && transcript !== "acp") {
+    return fail('Transcript must be "stdout", "pty" or "acp"');
   }
   return {
     id,

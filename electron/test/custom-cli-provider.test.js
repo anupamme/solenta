@@ -257,6 +257,165 @@ process.stderr.write("warn: from stderr\\n");
     assert.equal(text, "tty=true\nworking 100%\nwarn: from stderr\n");
   });
 
+  /** A fake ACP agent: FAKE_ACP_LOAD advertises loadSession; session "dead" fails to load. */
+  function writeFakeAcp() {
+    writeFakeBin(
+      bin,
+      `"use strict";
+const send = (m) => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", ...m }) + "\\n");
+const update = (u) => send({ method: "session/update", params: { sessionId: "s1", update: u } });
+let promptId = null;
+let loaded = "none";
+let head = "";
+let buf = "";
+process.stdin.on("data", (d) => {
+  buf += d;
+  let nl;
+  while ((nl = buf.indexOf("\\n")) >= 0) {
+    const msg = JSON.parse(buf.slice(0, nl));
+    buf = buf.slice(nl + 1);
+    if (msg.method === "initialize") send({ id: msg.id, result: { protocolVersion: 1, agentCapabilities: { loadSession: Boolean(process.env.FAKE_ACP_LOAD) } } });
+    else if (msg.method === "session/new") send({ id: msg.id, result: { sessionId: "s1" } });
+    else if (msg.method === "session/load") {
+      if (msg.params.sessionId === "dead") send({ id: msg.id, error: { code: -32002, message: "Resource not found" } });
+      else {
+        loaded = msg.params.sessionId;
+        // History replay: the client must not count it as this turn's reply.
+        update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "OLD HISTORY " } });
+        send({ id: msg.id, result: {} });
+      }
+    } else if (msg.method === "session/prompt") {
+      promptId = msg.id;
+      const text = msg.params.prompt[0].text;
+      head = "got " + (/hello acp/.test(text) ? "tail" : "turn") + "; loaded=" + loaded + "; ";
+      update({ sessionUpdate: "tool_call", toolCallId: "t1", title: "Run tests", kind: "execute", status: "pending", rawInput: { command: "npm test" } });
+      send({ id: 99, method: "session/request_permission", params: { sessionId: "s1", toolCall: { toolCallId: "t1", title: "Run tests", kind: "execute", rawInput: { command: "npm test" } }, options: [
+        { optionId: "yes", name: "Allow", kind: "allow_once" },
+        { optionId: "always", name: "Always", kind: "allow_always" },
+        { optionId: "no", name: "Reject", kind: "reject_once" },
+      ] } });
+    } else if (msg.id === 99) {
+      const o = msg.result.outcome;
+      if (process.env.FAKE_ACP_LOG) require("fs").appendFileSync(process.env.FAKE_ACP_LOG, JSON.stringify(o) + "\\n");
+      update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: head + "perm=" + (o.optionId || o.outcome) } });
+      update({ sessionUpdate: "tool_call_update", toolCallId: "t1", status: "completed" });
+      send({ id: promptId, result: { stopReason: "end_turn" } });
+    }
+  }
+});
+`,
+    );
+  }
+
+  const lastReply = (threadId) =>
+    store.getMessages(threadId).filter((m) => m.role === "assistant").at(-1).text;
+
+  it("an ACP row (#272) streams chunks, steps tool calls, and asks on the permission card in Default", async () => {
+    writeFakeAcp();
+    patchRow({ transcript: "acp", fullAccessArgs: [] });
+    const row = (await services.listProvidersForApi(store, { which: () => "/bin/true", env: {}, includeSimulate: false }))
+      .find((p) => p.id === "generic:fake");
+    assert.deepEqual(row.permissionModes, ["default", "bypassPermissions"], "ACP asks per call: both modes apply");
+
+    const t = services.createThread(store, { projectId: project.id, title: "t", provider: "generic:fake" });
+    const answered = async (prompt, decision) => {
+      await runner.startRun({ threadId: t.id, prompt });
+      await waitFor(() => runner.getPendingPermission(t.id) != null);
+      const card = runner.getPendingPermission(t.id);
+      assert.equal(card.summary, "Run tests");
+      assert.equal(card.command, "npm test");
+      assert.equal(card.acceptAlways, true);
+      assert.equal(store.getThread(t.id).awaitingInput, true);
+      runner.respondPermission({ threadId: t.id, requestId: card.requestId, decision });
+      await waitFor(() => store.getThread(t.id).status === "done");
+      assert.equal(store.getThread(t.id).awaitingInput, false);
+      return lastReply(t.id);
+    };
+    assert.equal(await answered("hello acp", "allow"), "got tail; loaded=none; perm=yes");
+    const labels = store.getWorkLog(t.id).map((w) => `${w.label}:${w.done}`);
+    assert.ok(labels.includes("Run tests:true"), labels.join(", "));
+    assert.equal(await answered("two", "deny"), "got tail; loaded=none; perm=no", "no loadSession: the tail is replayed");
+    assert.ok(store.getMessages(t.id).some((m) => m.role === "event" && m.text === "Denied: Run tests"));
+
+    services.setPermissionMode(store, { threadId: t.id, mode: "bypassPermissions" });
+    await runner.startRun({ threadId: t.id, prompt: "three" });
+    await waitFor(() => store.getThread(t.id).status === "done");
+    assert.equal(lastReply(t.id), "got tail; loaded=none; perm=yes", "full access answers itself");
+    assert.equal(store.getThread(t.id).sessionId ?? null, null, "nothing to resume");
+  });
+
+  it("Stop answers an open ACP permission request and clears the card", async () => {
+    writeFakeAcp();
+    const log = path.join(tmpDir, "acp-outcomes.log");
+    patchRow({ transcript: "acp", env: { FAKE_ACP_LOG: log } });
+    const t = services.createThread(store, { projectId: project.id, title: "t", provider: "generic:fake" });
+    await runner.startRun({ threadId: t.id, prompt: "hi" });
+    await waitFor(() => runner.getPendingPermission(t.id) != null);
+    await runner.stopRun({ threadId: t.id });
+    await waitFor(() => store.getThread(t.id).status === "idle");
+    assert.equal(runner.getPendingPermission(t.id), null);
+    assert.equal(store.getThread(t.id).awaitingInput, false);
+    await waitFor(() => fs.existsSync(log));
+    assert.deepEqual(JSON.parse(fs.readFileSync(log, "utf8").trim()), { outcome: "cancelled" }, "answered before the kill");
+  });
+
+  it("an ACP agent with loadSession resumes its own session instead of replaying", async () => {
+    writeFakeAcp();
+    patchRow({ transcript: "acp", env: { FAKE_ACP_LOAD: "1" } });
+    const t = services.createThread(store, { projectId: project.id, title: "t", provider: "generic:fake" });
+    services.setPermissionMode(store, { threadId: t.id, mode: "bypassPermissions" });
+    const send = async (prompt, status = "done") => {
+      await runner.startRun({ threadId: t.id, prompt });
+      await waitFor(() => store.getThread(t.id).status === status);
+    };
+    const resumeRow = async () =>
+      (await services.listProvidersForApi(store, { which: () => "/bin/true", env: {}, includeSimulate: false }))
+        .find((p) => p.id === "generic:fake").supportsResume;
+    assert.equal(await resumeRow(), false, "unknown until the agent says so");
+    await send("hello acp");
+    assert.equal(await resumeRow(), true, "loadSession seen: the row resumes");
+    assert.equal(store.getThread(t.id).sessionId, "s1");
+    assert.equal(store.getThread(t.id).replayContext, false);
+    await send("second");
+    assert.equal(lastReply(t.id), "got turn; loaded=s1; perm=yes", "loaded, no tail, no replayed history");
+
+    // A session the agent no longer has fails once, then falls back to replay.
+    store.updateThread(t.id, { sessionId: "dead" });
+    await send("third", "failed");
+    assert.match(store.getThread(t.id).lastError, /could not resume/);
+    assert.equal(store.getThread(t.id).sessionId, null);
+    assert.equal(store.getThread(t.id).replayContext, true);
+    await send("fourth");
+    assert.equal(lastReply(t.id), "got tail; loaded=none; perm=yes");
+  });
+
+  it("an ACP CLI that never answers initialize times out", async () => {
+    writeFakeBin(bin, `process.stdin.resume();\n`);
+    const { runAcpAgent } = require("../acp.js");
+    const err = await new Promise((resolve) => {
+      runAcpAgent({
+        command: bin,
+        args: [],
+        cwd: tmpDir,
+        env: process.env,
+        prompt: "hi",
+        fullAccess: false,
+        handshakeTimeoutMs: 200,
+        onChunk() {},
+        onDone: (code) => resolve(new Error(`done ${code}`)),
+        onError: resolve,
+      });
+    });
+    assert.match(err.message, /No ACP handshake within/);
+  });
+
+  it("an ACP row whose CLI exits without speaking ACP fails the run", async () => {
+    patchRow({ transcript: "acp" });
+    const t = services.createThread(store, { projectId: project.id, title: "t", provider: "generic:fake" });
+    await runner.startRun({ threadId: t.id, prompt: "hi" });
+    await waitFor(() => store.getThread(t.id).status === "failed");
+  });
+
   it("fails the send clearly when the row or binary is gone", async () => {
     const t = services.createThread(store, { projectId: project.id, title: "t", provider: "generic:fake" });
     const [only] = store.getSettings().providerInstances;
