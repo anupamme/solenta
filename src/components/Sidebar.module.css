@@ -1032,6 +1032,24 @@
   text-decoration: underline;
 }
 
+.prLink svg {
+  margin-right: 2px;
+  vertical-align: -1px;
+}
+
+/* GitHub's PR colours: open green, merged violet, closed red. */
+.prLink[data-pr-state="open"] {
+  color: var(--green);
+}
+
+.prLink[data-pr-state="merged"] {
+  color: var(--violet);
+}
+
+.prLink[data-pr-state="closed"] {
+  color: var(--danger);
+}
+
 .forecast {
   pointer-events: auto;
   flex-shrink: 0;

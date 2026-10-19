@@ -7,6 +7,7 @@ const { getProvider, honouredEfforts } = require("./providers.js");
 const { normalizeMcpServers } = require("./mcp.js");
 const { normalizeProviderInstances } = require("./providerInstances.js");
 const { normalizeModelPrices } = require("./modelPrices.js");
+const { normalizePrivacyGateway } = require("./privacyGateway.js");
 const { parsePolicy } = require("./governance.js");
 
 /**
@@ -433,6 +434,7 @@ function normalizeSettings(raw) {
     webhook: { url: null, onDone: true, onFailed: true, onWaiting: true },
     modelPrices: {},
     worktreeRoot: null,
+    privacyGateway: normalizePrivacyGateway(null),
   };
   if (!raw || typeof raw !== "object") return settings;
   const obj = /** @type {{ dailyBudgetUsd?: unknown, orchestrationBudgetUsd?: unknown, autoSettleAfterDays?: unknown, mcpServers?: unknown }} */ (
@@ -620,6 +622,9 @@ function normalizeSettings(raw) {
   const root = /** @type {{ worktreeRoot?: unknown }} */ (obj).worktreeRoot;
   settings.worktreeRoot =
     typeof root === "string" && path.isAbsolute(root.trim()) ? root.trim() : null;
+  settings.privacyGateway = normalizePrivacyGateway(
+    /** @type {{ privacyGateway?: unknown }} */ (obj).privacyGateway,
+  );
   return settings;
 }
 

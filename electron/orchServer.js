@@ -1079,6 +1079,7 @@ function createToolHandlers(deps) {
       trigger: hasTrigger ? { type: "github", ...triggerRaw } : null,
       ...(args && args.memory != null ? { memory: args.memory } : {}),
       ...(args && args.tier != null ? { tier: args.tier } : {}),
+      ...(args && args.stage != null ? { stage: args.stage } : {}),
     });
     return {
       ok: true,
@@ -1091,6 +1092,7 @@ function createToolHandlers(deps) {
       hour: created.hour,
       trigger: created.trigger || null,
       enabled: created.enabled,
+      stage: created.stage,
       nextRunAt: created.nextRunAt,
     };
   }
@@ -1826,7 +1828,10 @@ function buildMcpServer(sdk, handlers, opts = {}) {
         "conclusion filters). Validation rejects bad presets and triggers. " +
         "The result appears as a card with an Open in Automations link. " +
         "threadId and projectId are YOUR OWN (stated at the end of your " +
-        "prompt). Provider defaults to this thread's provider.",
+        "prompt). Provider defaults to this thread's provider. New " +
+        "automations start in stage observe (report-only dry runs), then " +
+        "graduate to draft and act after 7 days each; pass stage only when " +
+        "the user asks to skip calibration.",
       inputSchema: {
         threadId: z.string().min(1),
         projectId: z.string().min(1),
@@ -1838,6 +1843,7 @@ function buildMcpServer(sdk, handlers, opts = {}) {
         hour: z.number().int().min(0).max(23).optional(),
         enabled: z.boolean().optional(),
         tier: z.enum(["auto", "fast", "balanced", "strong"]).optional(),
+        stage: z.enum(["observe", "draft", "act"]).optional(),
         trigger: z
           .object({
             event: z.enum([

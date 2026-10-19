@@ -39,6 +39,10 @@ const RESOLUTIONS = new Set(['update', 'invalidate', 'noop'])
 
 const DECAY_RATE = 0.995
 const DECAY_FLOOR = 0.05
+// Served in the last RECENT_ACCESS_DAYS: a small bonus, not a decay reset (#311).
+const RECENT_ACCESS_DAYS = 30
+const RECENT_ACCESS_BOOST = 1.1
+const MAX_STALE_AFTER_DAYS = 3650
 const USAGE_K = 0.15
 const USAGE_CAP = 1.5
 const MIN_COMPOSITE_RATIO = 0.2
@@ -210,8 +214,11 @@ function liveSql(alias = '') {
 // Base composite without bm25 (graph / final re-score path).
 // usage_boost(access, helpful, harmful) includes the feedback term.
 // agent_trust is 1.0 for NULL/unknown writers so existing rows keep today's score.
+// Decay anchors on updated_at (written, superseded or citation-healed), never
+// on access, so serving an entry cannot keep it young forever (#311).
 const BASE_SCORE_SQL = `(e.importance / 3.0)
-   * rank_decay(COALESCE(e.last_accessed_at, e.created_at))
+   * rank_decay(e.updated_at, e.stale_after_days)
+   * recency_boost(e.last_accessed_at)
    * usage_boost(e.access_count, COALESCE(e.helpful_count, 0), COALESCE(e.harmful_count, 0))
    * agent_trust(e.agent)`
 
@@ -249,6 +256,15 @@ function cleanText(label, value) {
 function cleanOptional(value) {
   const clean = value == null ? '' : String(value).trim()
   return clean || null
+}
+
+/** Optional freshness horizon in days (#311); null clears it. */
+function cleanStaleAfterDays(value) {
+  if (value == null) return null
+  if (!Number.isInteger(value) || value < 1 || value > MAX_STALE_AFTER_DAYS) {
+    throw new Error(`staleAfterDays must be an integer 1-${MAX_STALE_AFTER_DAYS}, got ${value}`)
+  }
+  return value
 }
 
 function clampLimit(value, fallback, max = MAX_LIMIT) {
@@ -322,9 +338,16 @@ export class Memory {
     this.dbPath = dbPath
     this.db = openDb(dbPath)
     createSchema(this.db)
-    this.db.function('rank_decay', (anchor) => {
+    this.db.function('rank_decay', (anchor, staleAfterDays) => {
       const days = Math.max(0, (Date.now() - Date.parse(String(anchor))) / 86_400_000)
+      // Step model for entries with a horizon: full weight until stale, then the floor.
+      if (staleAfterDays != null) return days < Number(staleAfterDays) ? 1 : DECAY_FLOOR
       return Math.max(DECAY_FLOOR, Math.pow(DECAY_RATE, days))
+    })
+    this.db.function('recency_boost', (lastAccessedAt) => {
+      if (lastAccessedAt == null) return 1
+      const days = (Date.now() - Date.parse(String(lastAccessedAt))) / 86_400_000
+      return days <= RECENT_ACCESS_DAYS ? RECENT_ACCESS_BOOST : 1
     })
     // usage_boost(access_count, helpful_count, harmful_count)
     this.db.function('usage_boost', (count, helpful, harmful) => {
@@ -652,7 +675,7 @@ export class Memory {
   }
 
   /**
-   * @param {{ type: string, title: string, body: string, project?: string, agent?: string, source?: string, importance?: number, status?: string, force?: boolean, citations?: unknown }} input
+   * @param {{ type: string, title: string, body: string, project?: string, agent?: string, source?: string, importance?: number, status?: string, force?: boolean, citations?: unknown, staleAfterDays?: number|null }} input
    * @returns {{ id: string, nearDuplicate?: { id: string, title: string, jaccard: number, excerpt: string } }}
    */
   store(input) {
@@ -683,6 +706,7 @@ export class Memory {
     const source = cleanOptional(input.source)
     const citations = serializeCitations(input.citations)
     const scope = cleanInclusion(input.inclusion, input.globs)
+    const staleAfterDays = cleanStaleAfterDays(input.staleAfterDays)
 
     // Agent-written entries (source 'mcp') are the injection-propagation
     // channel. App / import / janitor / rest writes are human-initiated.
@@ -713,8 +737,8 @@ export class Memory {
 
     this.db
       .prepare(
-        `INSERT INTO entries (id, type, title, body, project, agent, source, status, importance, citations, inclusion, globs, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO entries (id, type, title, body, project, agent, source, status, importance, citations, inclusion, globs, stale_after_days, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -729,6 +753,7 @@ export class Memory {
         citations,
         scope.inclusion,
         scope.globs,
+        staleAfterDays,
         now,
         now,
       )
@@ -867,7 +892,7 @@ export class Memory {
       .prepare(
         `SELECT id, type, title, body, project, agent, source, status, created_at, updated_at,
                 importance, access_count, last_accessed_at, superseded_by,
-                helpful_count, harmful_count, citations, inclusion, globs,
+                helpful_count, harmful_count, citations, inclusion, globs, stale_after_days,
                 invalid_at, invalidated_by, invalidation_reason
          FROM entries WHERE id = ?`,
       )
@@ -1376,13 +1401,13 @@ export class Memory {
 
   /**
    * @param {string} id
-   * @param {{ title?: string, body?: string, status?: string, importance?: number, agent?: string, source?: string, project?: string, citations?: unknown }} fields
+   * @param {{ title?: string, body?: string, status?: string, importance?: number, agent?: string, source?: string, project?: string, citations?: unknown, staleAfterDays?: number|null }} fields
    */
   supersede(id, fields = {}) {
     const cleanId = cleanText('id', id)
     const old = this.db
       .prepare(
-        `SELECT id, type, title, body, project, agent, source, status, importance, citations, inclusion, globs, superseded_by
+        `SELECT id, type, title, body, project, agent, source, status, importance, citations, inclusion, globs, stale_after_days, superseded_by
          FROM entries WHERE id = ?`,
       )
       .get(cleanId)
@@ -1424,6 +1449,11 @@ export class Memory {
     }
     const importance =
       fields.importance !== undefined ? fields.importance : old.importance
+    // The successor inherits the horizon, restarted from its own updated_at.
+    const staleAfterDays =
+      fields.staleAfterDays !== undefined
+        ? cleanStaleAfterDays(fields.staleAfterDays)
+        : old.stale_after_days
 
     const newId = crypto.randomUUID()
     const now = new Date().toISOString()
@@ -1432,8 +1462,8 @@ export class Memory {
     try {
       this.db
         .prepare(
-          `INSERT INTO entries (id, type, title, body, project, agent, source, status, importance, citations, inclusion, globs, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO entries (id, type, title, body, project, agent, source, status, importance, citations, inclusion, globs, stale_after_days, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           newId,
@@ -1448,6 +1478,7 @@ export class Memory {
           citations,
           scope.inclusion,
           scope.globs,
+          staleAfterDays,
           now,
           now,
         )

@@ -131,12 +131,15 @@ interface Spies {
   suggests: number;
   diffLoads: number;
   comments: string[];
+  prs: Array<{ title: string; body?: string }>;
 }
 
 function mountPanel(opts?: {
   archived?: boolean;
   working?: boolean;
   diff?: DiffResult;
+  /** Wire onCreatePr (shows Commit & PR); reject with this message when set. */
+  pr?: { fail?: string };
 }): { m: Promise<Mounted>; spies: Spies } {
   const spies: Spies = {
     commits: [],
@@ -145,6 +148,7 @@ function mountPanel(opts?: {
     suggests: 0,
     diffLoads: 0,
     comments: [],
+    prs: [],
   };
   const t = thread();
   if (opts?.archived) t.archived = true;
@@ -193,6 +197,21 @@ function mountPanel(opts?: {
         return { message: "feat: generated" };
       }}
       onPush={async () => ({ remote: "origin", branch: "main" })}
+      onCreatePr={
+        opts?.pr
+          ? async (input) => {
+              spies.prs.push({ title: input.title, body: input.body });
+              if (opts.pr?.fail) throw new Error(opts.pr.fail);
+              return {
+                number: 7,
+                url: "https://github.com/o/r/pull/7",
+                state: "OPEN",
+                branch: "coder/commit-flow",
+                created: true,
+              };
+            }
+          : undefined
+      }
     />,
   );
   return { m, spies };
@@ -237,6 +256,42 @@ describe("ChangesPanel commit flow", () => {
       'textarea[aria-label="Commit message"]',
     );
     assert.equal(input?.value, "", "message box cleared after commit");
+  });
+
+  it("Commit & PR generates a blank message, commits, then opens the PR (#363)", async () => {
+    const { m, spies } = mountPanel({ pr: {} });
+    const view = await m;
+    const ship = view.container.querySelector<HTMLButtonElement>(
+      "[data-commit-and-pr]",
+    );
+    assert.ok(ship);
+    assert.ok(!ship.hasAttribute("disabled"), "blank message is allowed");
+    await view.click(ship);
+    assert.equal(spies.suggests, 1, "drafted the blank message");
+    assert.equal(spies.commits[0]?.message, "feat: generated");
+    assert.deepEqual(spies.prs, [{ title: "commit flow", body: undefined }]);
+  });
+
+  it("Commit & PR keeps a typed message and reports a PR failure after committing", async () => {
+    const { m, spies } = mountPanel({ pr: { fail: "gh is not authenticated" } });
+    const view = await m;
+    const input = view.container.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="Commit message"]',
+    )!;
+    await view.type(input, "fix: typed");
+    await view.click(view.container.querySelector("[data-commit-and-pr]"));
+    assert.equal(spies.suggests, 0);
+    assert.equal(spies.commits[0]?.message, "fix: typed");
+    assert.match(
+      view.container.textContent || "",
+      /Committed, but the PR failed: gh is not authenticated/,
+    );
+  });
+
+  it("no Commit & PR without a PR path", async () => {
+    const { m } = mountPanel();
+    const view = await m;
+    assert.equal(view.container.querySelector("[data-commit-and-pr]"), null);
   });
 
   it("tracked-file revert fires immediately", async () => {
