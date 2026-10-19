@@ -8,51 +8,26 @@
  * Redaction runs on every string that reaches the file: this thread's
  * secret-card values (#289), the guardrail secret shapes, bearer tokens,
  * whole PEM private-key blocks, and the home directory (it names the user).
- * ponytail: the privacy gateway (#295) is not built yet; this reuses the
- * guardrail rules it will share. Point redactor() at it when it lands.
+ * The secret rules are the privacy gateway's (#295) "secrets" level.
  */
 
 const fs = require("node:fs");
 const os = require("node:os");
 const { execFile } = require("node:child_process");
-const { SECRET_RULES, PLACEHOLDER } = require("./guardrails.js");
-const threadSecrets = require("./threadSecrets.js");
-
-/** Global copies: guardrails only needs the first hit, the export needs all. */
-const RULES = [
-  [/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g, "secret.private-key"],
-  [/\bBearer\s+[A-Za-z0-9._~+/-]{16,}=*/gi, "secret.bearer"],
-  ...SECRET_RULES.map(([re, rule]) => [new RegExp(re.source, re.flags + "g"), rule]),
-];
-
-/** threadSecrets.redact's placeholder. */
-const CARD = /\[secret:[A-Z0-9_]+\]/g;
+const privacyGateway = require("./privacyGateway.js");
 
 /**
  * @param {string} threadId
  * @param {string} [home]
  */
 function redactor(threadId, home = os.homedir()) {
-  /** @type {Record<string, number>} */
-  const counts = {};
+  const r = privacyGateway.redactor(threadId);
   /** @param {unknown} value @returns {string} */
   const text = (value) => {
-    const raw = String(value ?? "");
-    let s = threadSecrets.redact(threadId, raw);
-    if (s !== raw) {
-      const n = (s.match(CARD) || []).length - (raw.match(CARD) || []).length;
-      counts["secret.request-card"] = (counts["secret.request-card"] || 0) + n;
-    }
-    for (const [re, rule] of RULES) {
-      s = s.replace(re, (m) => {
-        if (rule === "secret.assignment" && PLACEHOLDER.test(m)) return m;
-        counts[rule] = (counts[rule] || 0) + 1;
-        return `[redacted:${rule.replace(/^secret\./, "")}]`;
-      });
-    }
+    const s = r.text(value);
     return home && home.length > 1 ? s.split(home).join("~") : s;
   };
-  return { text, counts };
+  return { text, counts: r.counts };
 }
 
 /** @param {string} s */
