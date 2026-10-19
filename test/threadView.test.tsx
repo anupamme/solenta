@@ -577,6 +577,37 @@ describe("ThreadView message roles", () => {
     assert.ok(!html.includes("a.ts"), "paths stay inside the collapsed group");
   });
 
+  it("redacts a GitHub token in a tool command on screen, not in the message (#295)", async () => {
+    const token = `ghp_${"a1B2".repeat(9)}`;
+    const command = `curl -H "Authorization: token ${token}" https://api.github.com/user`;
+    const tool = msg({
+      id: "t1",
+      role: "tool",
+      text: `Bash: ${command}`,
+      createdAt: 15,
+      runId: "run-1",
+      tool: {
+        id: "tc1",
+        name: "Bash",
+        input: JSON.stringify({ command }, null, 2),
+        output: `echo ${token}`,
+        done: true,
+        isError: false,
+      },
+    });
+    setTranscriptViewMode("verbose");
+    try {
+      const m = await mount(view({ detail: detail({ messages: [tool] }) }));
+      const html = m.html();
+      m.unmount();
+      assert.ok(html.includes("[redacted:github-token]"), "marker painted");
+      assert.ok(!html.includes(token), "token never painted");
+    } finally {
+      setTranscriptViewMode("normal");
+    }
+    assert.ok(tool.tool?.input.includes(token), "stored message untouched");
+  });
+
   it("renders automation_create as a card with Open in Automations (#1589)", () => {
     const html = render({
       detail: detail({
