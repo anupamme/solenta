@@ -9,6 +9,7 @@ const { normalizeProviderInstances } = require("./providerInstances.js");
 const { normalizeModelPrices } = require("./modelPrices.js");
 const { normalizePrivacyGateway } = require("./privacyGateway.js");
 const { parsePolicy } = require("./governance.js");
+const { normalizeBudget } = require("./budgetCaps.js");
 
 /**
  * @param {unknown} u
@@ -102,6 +103,9 @@ function parseAgentProfile(item, strict) {
   // stays); settings:set throws. Absent stays absent so fixtures deepEqual.
   const policy =
     rec.policy === undefined ? null : parsePolicy(rec.policy, strict);
+  // Default hard cap for threads this profile is applied to (#286). Same
+  // heal-on-read / throw-on-set split; absent stays absent.
+  const budget = normalizeBudget(rec.budget, strict);
   return {
     id,
     name,
@@ -110,6 +114,7 @@ function parseAgentProfile(item, strict) {
     reasoningEffort: /** @type {string | null} */ (effort),
     permissionMode: /** @type {string} */ (permissionMode),
     ...(policy ? { policy } : {}),
+    ...(budget ? { budget } : {}),
   };
 }
 

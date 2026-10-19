@@ -827,6 +827,12 @@ export interface ThreadInfo {
    */
   feltEstimate?: FeltEstimate | null;
   /**
+   * Hard budget cap (#286). Harness state on the row, never the transcript,
+   * so compaction cannot drop it. Absent = no cap. Set from an applied agent
+   * profile, the firing automation, or threads.setBudget; forks inherit it.
+   */
+  budget?: ThreadBudget;
+  /**
    * Follow-up typed while a run was active (issue #92/#137); flushed at the
    * next settle. Persisted on the thread so a reload cannot drop it and the
    * sidebar can show a queue pending on an unselected thread.
@@ -3310,6 +3316,23 @@ export interface AutomationTrigger {
   environment?: string | null;
 }
 
+/**
+ * Hard budget cap (#286). Every field optional, positive; absent = no limit
+ * on that axis. usd / tokens / turns count the thread's lifetime usage
+ * (ThreadDetail.usage); minutes is wall-clock per run. Crossing any one
+ * stops the live run and refuses the next start until the cap is raised.
+ * usd is provider-reported, so it moves when a turn reports (Claude: per
+ * turn result); minutes is the in-turn hard stop.
+ */
+export interface ThreadBudget {
+  usd?: number;
+  /** Input + output tokens as the usage ledger records them. */
+  tokens?: number;
+  turns?: number;
+  /** Per-run wall-clock limit. */
+  minutes?: number;
+}
+
 /** Where an automation lives: this machine only, or the project's solenta.json. */
 export type AutomationScope = "private" | "project";
 
@@ -3348,6 +3371,8 @@ export interface AutomationInfo {
   memory?: string;
   /** Routing tier (#246); provider/model is the fallback. null = off. */
   tier?: ModelRoute | null;
+  /** Hard cap stamped on every thread this automation fires (#286). */
+  budget?: ThreadBudget | null;
   /** Lifecycle stage (#388). Absent reads as act. */
   stage?: AutomationStage;
   /** When the current stage began; graduation counts from here. */
@@ -3368,6 +3393,8 @@ export interface AutomationWrite {
   trigger?: AutomationTrigger | null;
   memory?: string;
   tier?: ModelRoute | null;
+  /** Hard cap per fired thread (#286); null clears. */
+  budget?: ThreadBudget | null;
   /** Defaults to observe on create. */
   stage?: AutomationStage;
   graduate?: boolean;
@@ -3776,6 +3803,11 @@ export interface AgentProfile {
   permissionMode: PermissionMode;
   /** Permission matrix (#262). Absent = no rules, default "ask". */
   policy?: GovernancePolicy;
+  /**
+   * Default hard cap (#286), copied onto a thread when the profile is
+   * applied. Absent leaves the thread's own cap alone.
+   */
+  budget?: ThreadBudget;
 }
 
 /**
@@ -5429,6 +5461,14 @@ export interface CoderApi {
     setFeltEstimate(input: {
       threadId: string;
       savedMs: number | null;
+    }): Promise<ThreadInfo>;
+    /**
+     * Set or clear (null) the thread's hard budget cap (#286). Raising it is
+     * how the user answers a budget stop. Never bumps updatedAt.
+     */
+    setBudget(input: {
+      threadId: string;
+      budget: ThreadBudget | null;
     }): Promise<ThreadInfo>;
     /**
      * Turn spec mode on (issue #269): the thread starts at the requirements

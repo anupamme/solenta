@@ -410,6 +410,11 @@ module.exports = {
     }
     return updated;
   },
+  "threads:setBudget": async (ctx, input) => {
+    const updated = services.setThreadBudget(ctx.store, input);
+    ctx.broadcast("threads:changed", services.listThreads(ctx.store));
+    return updated;
+  },
   "threads:setFeltEstimate": async (ctx, input) => {
     const updated = services.setFeltEstimate(ctx.store, input);
     ctx.broadcast("threads:changed", services.listThreads(ctx.store));

@@ -308,6 +308,12 @@ function normalizeAutomationInput(store, input, existing) {
     : base.memory;
   const memory = memoryRaw != null ? String(memoryRaw).slice(0, MAX_MEMORY_CHARS) : "";
 
+  // #286: hard cap stamped on every thread this automation fires.
+  const { normalizeBudget } = require("./budgetCaps.js");
+  const budget = Object.prototype.hasOwnProperty.call(src, "budget")
+    ? normalizeBudget(src.budget, true)
+    : normalizeBudget(base.budget);
+
   // #388: new automations start report-only and graduate on their own.
   const { STAGES } = require("./automations.js");
   const stageRaw = Object.prototype.hasOwnProperty.call(src, "stage")
@@ -354,6 +360,7 @@ function normalizeAutomationInput(store, input, existing) {
     memory,
     tier,
     scope,
+    budget,
     stage,
     graduate,
   };
@@ -448,6 +455,7 @@ const DEFINITION_KEYS = [
   "hour",
   "trigger",
   "tier",
+  "budget",
 ];
 
 /**
@@ -456,8 +464,8 @@ const DEFINITION_KEYS = [
  */
 function definitionChanged(fields, existing) {
   return DEFINITION_KEYS.some((key) => {
-    if (key === "trigger") {
-      return JSON.stringify(fields.trigger) !== JSON.stringify(existing.trigger || null);
+    if (key === "trigger" || key === "budget") {
+      return JSON.stringify(fields[key]) !== JSON.stringify(existing[key] || null);
     }
     return fields[key] !== existing[key];
   });
@@ -478,6 +486,7 @@ function definitionRow(fields, slug) {
     hour: fields.hour,
     trigger: fields.trigger || null,
     tier: fields.tier || null,
+    ...(fields.budget ? { budget: fields.budget } : {}),
   };
 }
 

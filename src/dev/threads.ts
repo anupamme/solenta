@@ -7,6 +7,7 @@ import type {
   ReasoningEffort,
   SpecArtifact,
   ThreadDetail,
+  ThreadBudget,
   ThreadInfo,
   ThreadSearchInput,
   ThreadSearchResult,
@@ -610,6 +611,11 @@ export function createThreads(ctx: DevCtx): Pick<CoderApi, "threads"> {
                 }
               : s,
           ),
+        });
+      },
+      async setBudget(input: { threadId: string; budget: ThreadBudget | null }) {
+        return patchThread(input.threadId, {
+          budget: input.budget ?? undefined,
         });
       },
       async setFeltEstimate(input: {

@@ -865,6 +865,39 @@ function setCrossThreadInbound(store, input) {
 }
 
 /**
+ * Hard budget cap (#286). null / {} clears it. Lives on the thread row so
+ * compaction can never drop it. Never bumps updatedAt. Answers a budget
+ * stop: an idle thread with no open question card stops asking.
+ *
+ * @param {import('./store').Store} store
+ * @param {{ threadId: string, budget: unknown }} input
+ */
+function setThreadBudget(store, input) {
+  const { normalizeBudget } = require("./budgetCaps.js");
+  const budget = normalizeBudget(input.budget, true);
+  const { threadId } = input;
+  const thread = store.getThread(threadId);
+  if (!thread) {
+    throw new Error(`Unknown thread: ${threadId}`);
+  }
+  /** @type {Record<string, unknown>} */
+  const patch = { budget };
+  if (
+    thread.status !== "working" &&
+    thread.awaitingInput &&
+    !thread.pendingQuestion &&
+    !thread.pendingPlan
+  ) {
+    patch.awaitingInput = false;
+  }
+  const updated = store.updateThread(threadId, patch);
+  store.save();
+  const row = updated ? { ...updated } : { ...thread, ...patch };
+  if (!budget) delete row.budget;
+  return row;
+}
+
+/**
  * Per-thread quota-wait auto-resume override (#462). true/false pins the
  * thread; null inherits the global setting. Never bumps updatedAt.
  *
@@ -1420,6 +1453,7 @@ module.exports = {
   setPendingWorktree,
   refreshWorkerSnapshot,
   setFeltEstimate,
+  setThreadBudget,
   recordHypothesis,
   recordSuggestion,
   resolveSuggestion,

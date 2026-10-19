@@ -54,6 +54,7 @@ import type {
   ReasoningEffort,
   RunStatInfo,
   SpecArtifact,
+  ThreadBudget,
   ThreadDetail,
   ThreadInfo,
   ThreadRecap,
@@ -89,6 +90,7 @@ import {
 } from "../contextRing";
 import { buildTimeline, type TimelineEntry } from "../timeline";
 import { collapseTimeline, type DisplayEntry } from "../toolGroups";
+import type { ShowUserAction } from "../showUser";
 import { RunArtifacts } from "./RunArtifacts";
 import { QuestionPrompt } from "./QuestionPrompt";
 import { InputPrompt } from "./InputPrompt";
@@ -189,6 +191,7 @@ import {
   AskCard,
   TeachCard,
   FeltEstimateCard,
+  BudgetCard,
   DivergenceCard,
 } from "./thread/cards";
 import { setContextChips, setReviewComments } from "../composerSession";
@@ -474,6 +477,8 @@ interface ThreadViewProps {
     threadId: string,
     savedMs: number | null,
   ) => void | Promise<void>;
+  /** Set or clear (null) the thread's hard budget cap (#286). Throws on rejection. */
+  onSetBudget?: (threadId: string, budget: ThreadBudget | null) => Promise<void>;
   /** Settings.defaultWorktree — Start work arms a pending worktree when set. */
   defaultWorktree?: boolean;
   /** Permanently delete the open thread (caller already confirmed in UI). */
@@ -839,6 +844,7 @@ export const ThreadView = memo(function ThreadView({
   onDismissBtw,
   onPromoteBtw,
   onSetFeltEstimate,
+  onSetBudget,
   defaultWorktree = false,
   onDeleteThread,
   changesOpen,
@@ -954,6 +960,8 @@ export const ThreadView = memo(function ThreadView({
   const prevThreadId = useRef<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [budgetOpen, setBudgetOpen] = useState(false);
+  useEffect(() => setBudgetOpen(false), [detail?.thread.id]);
   const detailsRef = useRef<HTMLDivElement>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
@@ -2227,6 +2235,25 @@ export const ThreadView = memo(function ThreadView({
     onViewChanges,
   });
 
+  // show_user (#293): fresh objects so the same target twice re-applies.
+  const [diffFocus, setDiffFocus] = useState<{ path: string } | null>(null);
+  const [filesReveal, setFilesReveal] = useState<{
+    path: string;
+    line: number | null;
+  } | null>(null);
+  const handleShowUser = useCallback(
+    (action: ShowUserAction) => {
+      if (action.target === "diff" && action.path) {
+        setDiffFocus({ path: action.path });
+      }
+      if (action.target === "file" && action.path) {
+        setFilesReveal({ path: action.path, line: action.line });
+      }
+      handleOpenPane(action.target === "file" ? "files" : action.target);
+    },
+    [handleOpenPane],
+  );
+
   const refreshRunStats = useCallback(async () => {
     const threadId = detail?.thread.id;
     const wt = detail?.thread.worktreePath;
@@ -3181,6 +3208,21 @@ export const ThreadView = memo(function ThreadView({
                         </button>
                       ))}
                     </div>
+                      {onSetBudget && !thread.ask && (
+                        <button
+                          type="button"
+                          className={styles.menuItem}
+                          role="menuitem"
+                          data-budget-menu=""
+                          title="Hard cap on spend, tokens, turns or minutes per run"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            setBudgetOpen(true);
+                          }}
+                        >
+                          {thread.budget ? "Edit budget cap…" : "Set budget cap…"}
+                        </button>
+                      )}
                       {onSetCrossThreadInbound && (
                         <div
                           className={styles.menuInbound}
@@ -3930,6 +3972,7 @@ export const ThreadView = memo(function ThreadView({
                 threadBaseBranch={detail?.thread.baseBranch ?? null}
                 planText={planTextOf(detail)}
                 openNonce={changesNonce}
+                focus={diffFocus}
                 onFetchDiff={onFetchDiff}
                 onFetchReviewContext={onFetchReviewContext}
                 onFetchImageDiff={onFetchImageDiff}
@@ -3975,6 +4018,7 @@ export const ThreadView = memo(function ThreadView({
                 threadId={detail.thread.id}
                 api={filesApi}
                 remote={Boolean(project?.remoteHost)}
+                reveal={filesReveal}
                 onAddToPrompt={
                   isArchived
                     ? undefined
@@ -4372,6 +4416,7 @@ export const ThreadView = memo(function ThreadView({
                       onLoadAttachmentImage={onLoadAttachmentImage}
                       onSelectThread={onSelectThread}
                       onOpenAutomations={onOpenAutomations}
+                      onShowUser={isArchived ? undefined : handleShowUser}
                       onIntegrateWorker={onIntegrateWorker}
                       pinned={pinnedIds.has(entry.message.id)}
                       onTogglePin={
@@ -4565,6 +4610,15 @@ export const ThreadView = memo(function ThreadView({
             thread={thread}
             onStopTeach={onStopTeach}
             onRequestTeachReview={onRequestTeachReview}
+          />
+        ) : null}
+
+        {!thread.ask ? (
+          <BudgetCard
+            detail={detail}
+            open={budgetOpen}
+            onClose={() => setBudgetOpen(false)}
+            onSetBudget={onSetBudget}
           />
         ) : null}
 

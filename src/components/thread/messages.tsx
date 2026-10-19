@@ -47,6 +47,12 @@ import {
   isAutomationCreateMessage,
   parseAutomationCreateResult,
 } from "../../automationCard";
+import {
+  isShowUserMessage,
+  parseShowUserResult,
+  showUserLabel,
+  type ShowUserAction,
+} from "../../showUser";
 import styles from "../ThreadView.module.css";
 import { isPdfAttachment, PdfTextNote } from "../composer/AttachmentChip";
 
@@ -278,6 +284,48 @@ function AutomationCreatedCard({
             onClick={() => onOpen(parsed?.id)}
           >
             Open in Automations
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * show_user card (#293). A card that streamed in live while the thread is on
+ * screen opens its pane once on its own; history and remounts only offer
+ * the Show button, so revisiting a thread never yanks the layout around.
+ */
+function ShowUserCard({
+  action,
+  live,
+  onShow,
+}: {
+  action: ShowUserAction;
+  live: boolean;
+  onShow?: (action: ShowUserAction) => void;
+}) {
+  const fired = useRef(false);
+  useEffect(() => {
+    if (!live || fired.current || !onShow) return;
+    fired.current = true;
+    onShow(action);
+  }, [live, action, onShow]);
+  return (
+    <div className={styles.specCard} data-show-user={action.target}>
+      <div className={styles.specCardHead}>
+        <span className={styles.specCardTitle}>{showUserLabel(action)}</span>
+      </div>
+      {action.reason ? <p className={styles.specStatus}>{action.reason}</p> : null}
+      {onShow ? (
+        <div className={styles.permissionActions}>
+          <button
+            type="button"
+            className={styles.permissionAllow}
+            data-show-user-open=""
+            onClick={() => onShow(action)}
+          >
+            Show
           </button>
         </div>
       ) : null}
@@ -1263,6 +1311,7 @@ export const MessageBlock = memo(function MessageBlock({
   onTogglePin,
   threadId = null,
   onOpenAutomations,
+  onShowUser,
   onAddCommandOutput,
 }: {
   message: ChatMessage;
@@ -1301,6 +1350,8 @@ export const MessageBlock = memo(function MessageBlock({
   onTogglePin?: () => void;
   threadId?: string | null;
   onOpenAutomations?: (automationId?: string) => void;
+  /** Open the pane a show_user card points at (#293). */
+  onShowUser?: (action: ShowUserAction) => void;
   /** Attach a quick action's output to this thread's draft (#1216). */
   onAddCommandOutput?: (chip: TerminalChip) => void;
 }) {
@@ -1327,6 +1378,13 @@ export const MessageBlock = memo(function MessageBlock({
         onOpen={onOpenAutomations}
       />
     );
+  }
+  const shown =
+    isShowUserMessage(message) && message.tool?.done && !message.tool.isError
+      ? parseShowUserResult(message.tool.output ?? "")
+      : null;
+  if (shown) {
+    return <ShowUserCard action={shown} live={entered} onShow={onShowUser} />;
   }
   if (message.role === "tool") {
     return (
