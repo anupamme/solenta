@@ -1,8 +1,10 @@
 # Solenta
 
-> Solenta is a local-first desktop app (macOS, Windows, Linux; MIT) that runs coding-agent CLIs — Claude Code, Codex, Cursor, Kimi, Grok, OpenCode and Muse Code — side by side, each thread in its own git worktree. Every session shares one local memory server (SQLite, full-text and vector search, exposed over MCP), so a later agent starts knowing what an earlier one stored, and the Planboard is the project's GitHub or GitLab issues.
+> Solenta is a local-first desktop app (macOS, Windows, Linux; MIT) that runs coding-agent CLIs (Claude Code, Codex, Cursor, Kimi, Grok, OpenCode and Muse Code) side by side, each thread in its own git worktree. Every session shares one local memory server (SQLite, full-text and vector search, exposed over MCP), so a later agent starts knowing what an earlier one stored, and the Planboard is the project's GitHub or GitLab issues.
 
-Solenta does not bundle an agent: it finds the CLIs on your PATH. Nothing goes to a Solenta cloud; the memory server is localhost-only and token gated.
+Use it to run several AI coding agents in parallel on one repo without them stepping on each other: every thread gets its own git worktree, a thread only settles green once its verify command exits 0, and a daily spend cap stops runs before they cross your budget. It is free and open source; you bring your own agent subscriptions or API keys.
+
+Solenta is not a coding agent itself and does not bundle one: it finds the CLIs on your PATH. Nothing goes to a Solenta cloud; the memory server is localhost-only and token gated.
 
 ## Docs
 
