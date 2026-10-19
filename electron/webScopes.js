@@ -151,6 +151,7 @@ const BY_SCOPE = {
     "threads:refreshWorkerSnapshot",
     "threads:resolveSuggestion",
     "threads:setFeltEstimate",
+    "threads:setBudget",
     "threads:startSpec",
     "threads:stopSpec",
     "threads:reviewSpec",

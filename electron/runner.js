@@ -16,6 +16,7 @@ const { runCodexAppServerTurn } = require("./codex-appserver.js");
 const { isNativeCompactTurn } = require("./compaction.js");
 const { heartbeatLane } = require("./mergeQueue.js");
 const { createWatchdogs } = require("./runner-watchdogs.js");
+const { assertUnderThreadBudget } = require("./budgetCaps.js");
 const { createAskRuns } = require("./runner-ask-runs.js");
 const { createTurnSetup } = require("./runner-turn-setup.js");
 const { createSubagents } = require("./runner-subagents.js");
@@ -1992,6 +1993,9 @@ function createRunner(opts) {
     // stall behind a spent daily cap.
     if (thread.memoryConsolidate !== true) {
       services.assertUnderDailyBudget(store);
+      // Per-thread hard cap (#286): user, machine and resume turns alike.
+      // The live-run half is the watchdog sweep (runner-watchdogs.js).
+      assertUnderThreadBudget(store, thread);
     }
 
     const provider = resolveProvider(thread);
@@ -3086,6 +3090,7 @@ function createRunner(opts) {
 
   const {
     checkStalls,
+    checkBudgets,
     heartbeatActiveLanes,
     dispose: disposeWatchdogs,
   } = createWatchdogs(ctx);
@@ -3135,6 +3140,7 @@ function createRunner(opts) {
     deliverNotice,
     appendInbound,
     checkStalls,
+    checkBudgets,
     heartbeatActiveLanes,
     drainQueued,
     sendQueued,
