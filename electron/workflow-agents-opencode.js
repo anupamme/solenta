@@ -125,7 +125,7 @@ function spawnAgentOpencode(opts) {
     binary: spawn.binary,
     args: spawn.args,
     cwd: spawn.cwd,
-    env: withProjectEnv(project, opencodeEnv),
+    env: withProjectEnv(project, opencodeEnv, cwd),
     onEvent: (ev) => {
       gotJson = true;
       if (!ev || typeof ev !== "object") return;
