@@ -27,6 +27,9 @@ import {
   type DivergenceField,
 } from "../../divergence";
 import { Markdown } from "../Markdown";
+import { BudgetFields } from "../BudgetFields";
+import { budgetReached, budgetToDraft, draftToBudget } from "../../budget";
+import type { ThreadBudget } from "../../shared/ipc";
 import { FileHunks } from "../TurnDiffPanel";
 import { parsePatch } from "../../reviewItinerary";
 import { commandPrefix, WHOLE_TOOL_RULE } from "../../permissionRule";
@@ -1044,6 +1047,112 @@ export function TeachCard({
 }
 
 const FELT_BUCKET_LABELS = ["15 min", "30 min", "1 h", "2 h", "4 h+"];
+
+/**
+ * Hard budget cap (#286). Shown when the user opens it from the thread menu,
+ * and on its own once the thread is over its cap: that is the "ask" after a
+ * budget stop. Raising or clearing the cap is the answer; the next start is
+ * refused until then.
+ */
+export function BudgetCard({
+  detail,
+  open,
+  onClose,
+  onSetBudget,
+}: {
+  detail: ThreadDetail;
+  open: boolean;
+  onClose: () => void;
+  onSetBudget?: (threadId: string, budget: ThreadBudget | null) => Promise<void>;
+}) {
+  const { thread } = detail;
+  const reached = budgetReached(thread.budget, detail.usage);
+  const [draft, setDraft] = useState(() => budgetToDraft(thread.budget));
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const budgetKey = JSON.stringify(thread.budget ?? null);
+  useEffect(() => {
+    setDraft(budgetToDraft(thread.budget));
+    setError(null);
+  }, [thread.id, budgetKey]);
+  if (!onSetBudget || (!open && !reached)) return null;
+
+  const save = async (next: ThreadBudget | null) => {
+    setBusy(true);
+    try {
+      await onSetBudget(thread.id, next);
+      setError(null);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className={styles.specCard} data-budget-card="" data-page-block="">
+      <div className={styles.specCardHead}>
+        <span className={styles.specCardTitle}>
+          {reached ? `Budget cap reached: ${reached}` : "Budget cap"}
+        </span>
+      </div>
+      <p className={styles.specStatus}>
+        {reached
+          ? "Runs on this thread are stopped. Raise or clear the cap to continue."
+          : "Hitting any limit stops the run and asks you. Blank means no limit."}
+      </p>
+      <BudgetFields draft={draft} onChange={setDraft} disabled={busy} />
+      {error ? (
+        <p className={styles.specStatus} role="alert" data-budget-error="">
+          {error}
+        </p>
+      ) : null}
+      <div className={styles.permissionActions}>
+        <button
+          type="button"
+          className={styles.permissionAllow}
+          data-budget-save=""
+          disabled={busy}
+          onClick={() => {
+            let next: ThreadBudget | null;
+            try {
+              next = draftToBudget(draft);
+            } catch (err) {
+              setError(err instanceof Error ? err.message : String(err));
+              return;
+            }
+            void save(next);
+          }}
+        >
+          Save cap
+        </button>
+        {thread.budget ? (
+          <button
+            type="button"
+            className={styles.permissionDeny}
+            data-budget-clear=""
+            disabled={busy}
+            onClick={() => void save(null)}
+          >
+            Clear cap
+          </button>
+        ) : null}
+        {open ? (
+          <button
+            type="button"
+            className={styles.permissionDeny}
+            data-budget-close=""
+            disabled={busy}
+            onClick={onClose}
+          >
+            Close
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
 
 /**
  * Felt-estimate card (issue #401): one tap, asked once when a run completes.

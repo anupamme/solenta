@@ -54,6 +54,7 @@ import type {
   ReasoningEffort,
   RunStatInfo,
   SpecArtifact,
+  ThreadBudget,
   ThreadDetail,
   ThreadInfo,
   ThreadRecap,
@@ -190,6 +191,7 @@ import {
   AskCard,
   TeachCard,
   FeltEstimateCard,
+  BudgetCard,
   DivergenceCard,
 } from "./thread/cards";
 import { setContextChips, setReviewComments } from "../composerSession";
@@ -475,6 +477,8 @@ interface ThreadViewProps {
     threadId: string,
     savedMs: number | null,
   ) => void | Promise<void>;
+  /** Set or clear (null) the thread's hard budget cap (#286). Throws on rejection. */
+  onSetBudget?: (threadId: string, budget: ThreadBudget | null) => Promise<void>;
   /** Settings.defaultWorktree — Start work arms a pending worktree when set. */
   defaultWorktree?: boolean;
   /** Permanently delete the open thread (caller already confirmed in UI). */
@@ -840,6 +844,7 @@ export const ThreadView = memo(function ThreadView({
   onDismissBtw,
   onPromoteBtw,
   onSetFeltEstimate,
+  onSetBudget,
   defaultWorktree = false,
   onDeleteThread,
   changesOpen,
@@ -955,6 +960,8 @@ export const ThreadView = memo(function ThreadView({
   const prevThreadId = useRef<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [budgetOpen, setBudgetOpen] = useState(false);
+  useEffect(() => setBudgetOpen(false), [detail?.thread.id]);
   const detailsRef = useRef<HTMLDivElement>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
@@ -3201,6 +3208,21 @@ export const ThreadView = memo(function ThreadView({
                         </button>
                       ))}
                     </div>
+                      {onSetBudget && !thread.ask && (
+                        <button
+                          type="button"
+                          className={styles.menuItem}
+                          role="menuitem"
+                          data-budget-menu=""
+                          title="Hard cap on spend, tokens, turns or minutes per run"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            setBudgetOpen(true);
+                          }}
+                        >
+                          {thread.budget ? "Edit budget cap…" : "Set budget cap…"}
+                        </button>
+                      )}
                       {onSetCrossThreadInbound && (
                         <div
                           className={styles.menuInbound}
@@ -4588,6 +4610,15 @@ export const ThreadView = memo(function ThreadView({
             thread={thread}
             onStopTeach={onStopTeach}
             onRequestTeachReview={onRequestTeachReview}
+          />
+        ) : null}
+
+        {!thread.ask ? (
+          <BudgetCard
+            detail={detail}
+            open={budgetOpen}
+            onClose={() => setBudgetOpen(false)}
+            onSetBudget={onSetBudget}
           />
         ) : null}
 

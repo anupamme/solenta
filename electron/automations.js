@@ -340,6 +340,10 @@ async function runAutomation(ctx, auto, now, opts) {
       automationId: auto.id,
       route: auto.tier || null,
     });
+    // #286: the automation's cap is harness state on the thread it fires.
+    const { budgetPatchFrom } = require("./budgetCaps.js");
+    const capped = budgetPatchFrom(auto);
+    if (capped.budget) ctx.store.updateThread(thread.id, capped);
     services.setProvider(ctx.store, {
       threadId: thread.id,
       provider: auto.provider,

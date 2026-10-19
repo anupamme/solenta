@@ -28,6 +28,8 @@ import type {
 import { parseMcpArgv } from "../../parseMcpArgv";
 import { accountLine, addChatGptAccount } from "../../providerAccounts";
 import styles from "../SettingsModal.module.css";
+import { BudgetFields } from "../BudgetFields";
+import { budgetToDraft, draftToBudget, type BudgetDraft } from "../../budget";
 import type { SettingsModalProps } from "../SettingsModal";
 
 export interface ProfileDraft {
@@ -40,6 +42,8 @@ export interface ProfileDraft {
   customModel: boolean;
   defaultAction: "ask" | "allow";
   rules: GovernanceRule[];
+  /** Default hard cap (#286), as typed. */
+  budget: BudgetDraft;
 }
 
 /** Per-profile rule cap; the store rejects more (#262). */
@@ -112,6 +116,7 @@ function emptyDraft(providers: readonly ProviderInfo[]): ProfileDraft {
     customModel: false,
     defaultAction: "ask",
     rules: [],
+    budget: budgetToDraft(null),
   };
 }
 
@@ -136,6 +141,7 @@ function draftFromProfile(
     customModel: profile.model != null && !known,
     defaultAction: profile.policy?.defaultAction ?? "ask",
     rules: profile.policy?.rules.map((r) => ({ ...r })) ?? [],
+    budget: budgetToDraft(profile.budget),
   };
 }
 
@@ -289,6 +295,13 @@ export function AgentsPane({
     // Absent policy = today's behavior; only store one that changes something.
     if (rules.length > 0 || draft.defaultAction !== "ask") {
       nextProfile.policy = { defaultAction: draft.defaultAction, rules };
+    }
+    try {
+      const budget = draftToBudget(draft.budget);
+      if (budget) nextProfile.budget = budget;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      return;
     }
     const list = settings?.agentProfiles ?? [];
     const next = draft.id
@@ -1502,6 +1515,18 @@ function ProfileForm({
         </select>
       </div>
       <PolicyFields draft={draft} saving={saving} onChange={onChange} />
+      <div className={styles.field} data-profile-budget="">
+        <span className={styles.fieldLabel}>Default budget cap</span>
+        <BudgetFields
+          draft={draft.budget}
+          disabled={saving}
+          onChange={(budget) => onChange({ ...draft, budget })}
+        />
+        <span className={styles.fieldNote}>
+          Copied onto a thread when this profile is applied. Hitting a limit
+          stops the run and asks. Blank means no limit.
+        </span>
+      </div>
       <div className={styles.fieldRow}>
         <button
           type="button"

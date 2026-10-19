@@ -2267,6 +2267,35 @@ describe("SettingsModal governance (#262)", () => {
     m.unmount();
   });
 
+  it("saves a default budget cap on the profile (#286)", async () => {
+    const patches: Partial<AppSettings>[] = [];
+    const settings = {
+      dailyBudgetUsd: null,
+      autoSettleAfterDays: 3,
+      agentProfiles: [scout],
+    } as AppSettings;
+    const m = await mount(
+      modal({
+        initialPane: "agents",
+        providers: [KIMI],
+        settings,
+        onSaveSettings: async (patch) => {
+          patches.push(patch);
+          return { ...settings, ...patch };
+        },
+      }),
+    );
+    const edit = Array.from(m.queryAll("button")).find(
+      (b) => (b.textContent || "").trim() === "Edit",
+    );
+    await m.click(edit!);
+    await m.type(m.query('[data-profile-budget] [data-budget-field="turns"]'), "25");
+    await m.click(m.byText("Update"));
+    assert.equal(patches.length, 1);
+    assert.deepEqual(patches[0].agentProfiles?.[0]?.budget, { turns: 25 });
+    m.unmount();
+  });
+
   it("omits policy when there are no rules and the default is Ask", async () => {
     const patches: Partial<AppSettings>[] = [];
     const settings = {

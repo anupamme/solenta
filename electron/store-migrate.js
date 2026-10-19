@@ -11,6 +11,7 @@ const { normalizePendingQuestion } = require("./questions.js");
 const { normalizeMessagePins } = require("./messagePins.js");
 const { normalizeQueued } = require("./queued.js");
 const { normalizeTrigger } = require("./automation-triggers.js");
+const { normalizeBudget } = require("./budgetCaps.js");
 const { branchPrefixError } = require("./worktrees-branches.js");
 const { normalizeTrustHash } = require("./repoConfig.js");
 const {
@@ -160,8 +161,12 @@ function migrateAutomation(a) {
         ? a.hour
         : 0;
   }
+  const { budget: rawBudget, ...rest } = a;
+  const budget = normalizeBudget(rawBudget);
   return {
-    ...a,
+    ...rest,
+    // #286: absent stays absent so old fixtures still deepEqual.
+    ...(budget ? { budget } : {}),
     provider: a.provider != null ? a.provider : "claude",
     model: a.model !== undefined ? a.model : null,
     preset,
@@ -640,6 +645,11 @@ function migrateThread(t) {
   } else {
     delete next.agentProfileId;
   }
+  // Hard budget cap (#286). Harness state, never transcript. Omitted when
+  // unset so old fixtures still deepEqual.
+  const budget = normalizeBudget(t.budget);
+  if (budget) next.budget = budget;
+  else delete next.budget;
   return next;
 }
 
