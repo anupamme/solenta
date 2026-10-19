@@ -2313,6 +2313,12 @@ function createRunner(opts) {
         pushDetail(threadId);
       }
 
+      // #321: commit leftover uncommitted work before the agent can
+      // `git reset --hard` / `clean -fd` it. After the setup wait so a
+      // half-written install is not snapshotted.
+      await require("./worktrees.js").snapshotBeforeTurn(store, threadId);
+      if (abortIfCancelled(threadId, runId)) return { runId };
+
       if (!memorySeen.has(threadId)) memorySeen.set(threadId, new Set());
       const bootNote = await ask.prefetchBootstrapNote({
         userDataPath,
