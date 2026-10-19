@@ -2482,9 +2482,21 @@ export interface MergeLaneBeat {
 export interface DevServerState {
   running: boolean;
   script?: string;
+  /** Withheld while a declared readiness probe has not passed (#282). */
   url?: string;
   startedAt?: number;
   lastLines?: string[];
+  /** solenta.json `devServer.ready` (#282). Absent = none declared. */
+  probe?: DevServerProbeState;
+}
+
+/** Readiness probe progress. kind/target are absent when the declaration is invalid. */
+export interface DevServerProbeState {
+  kind?: "tcp" | "http" | "exec";
+  target?: string;
+  status: "waiting" | "ready" | "failed";
+  lastError?: string;
+  readyAt?: number;
 }
 
 /**
