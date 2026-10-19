@@ -61,6 +61,7 @@ const { recordConsolidateOutcome } = require("./memory-consolidate.js");
 const { recordRunOutcome } = require("./memory-record.js");
 const { createOtel } = require("./otel.js");
 const { saveToolImages } = require("./tool-images.js");
+const { pdfTextSection } = require("./attachments.js");
 const workflowEngine = require("./workflow.js");
 const { wrapCommand } = require("./ssh.js");
 const { wslTarget } = require("./wsl.js");
@@ -1409,7 +1410,7 @@ function createRunner(opts) {
     attachments = null,
     extra = null,
   ) {
-    /** @type {{ id: string, role: string, text: string, createdAt: number, runId?: string, tool?: object, attachments?: object[], fromThread?: { id: string, title: string }, thinking?: boolean, fromNotice?: boolean, steer?: boolean }} */
+    /** @type {{ id: string, role: string, text: string, createdAt: number, runId?: string, tool?: object, attachments?: object[], fromThread?: { id: string, title: string }, thinking?: boolean, fromNotice?: boolean, steer?: boolean, pdfText?: boolean }} */
     const msg = {
       id: randomUUID(),
       role,
@@ -1422,6 +1423,7 @@ function createRunner(opts) {
     if (extra && extra.thinking) msg.thinking = true;
     if (extra && extra.fromNotice === true) msg.fromNotice = true;
     if (extra && extra.steer === true) msg.steer = true;
+    if (extra && extra.pdfText === true) msg.pdfText = true;
     if (extra && extra.fromThread && extra.fromThread.id) {
       msg.fromThread = {
         id: String(extra.fromThread.id),
@@ -2324,6 +2326,24 @@ function createRunner(opts) {
         bootstrapMemory,
       });
       if (abortIfCancelled(threadId, runId)) return { runId };
+      // Extracted after active.set so a slow PDF never opens a double-send gap.
+      const pdfNote = await pdfTextSection({
+        userDataPath,
+        threadId,
+        provider,
+        attachments,
+      });
+      if (abortIfCancelled(threadId, runId)) return { runId };
+      if (pdfNote) {
+        // The transcript chip says "text only" for what actually happened.
+        const userMsg = store
+          .getMessages(threadId)
+          .findLast((m) => m.role === "user" && m.runId === runId);
+        if (userMsg) {
+          store.updateMessage(threadId, userMsg.id, { pdfText: true });
+          pushDetail(threadId);
+        }
+      }
 
       // Native `/compact` goes out bare: Claude reads any trailing text as
       // summary instructions, and Codex swaps the turn for thread/compact/start.
@@ -2333,7 +2353,7 @@ function createRunner(opts) {
         dispatchThread.sessionId,
       )
         ? "/compact"
-        : promptPrefix + bootNote;
+        : promptPrefix + pdfNote + bootNote;
 
       const name = workflowNameFromThreadId(threadId);
 
@@ -2498,7 +2518,17 @@ function createRunner(opts) {
       throw new Error("Live process is not accepting input");
     }
     const attachments = sanitizeAttachments(input.attachments);
-    const text = prompt + attachmentPromptSection(attachments);
+    const pdfNote = await pdfTextSection({
+      userDataPath,
+      threadId,
+      provider,
+      attachments,
+    });
+    const text = prompt + attachmentPromptSection(attachments) + pdfNote;
+    // PDF extraction can outlast the run.
+    if (active.get(threadId) !== entry || entry.stopping) {
+      throw new Error("The run ended before the steer landed");
+    }
     const sent = await Promise.resolve(entry.handle.send(text));
     if (!sent) {
       throw new Error("Live process is not accepting input");
@@ -2517,7 +2547,7 @@ function createRunner(opts) {
       entry.runId,
       null,
       attachments,
-      { steer: true },
+      { steer: true, pdfText: Boolean(pdfNote) },
     );
     store.save();
     pushDetail(threadId, entry.claudeState || null);

@@ -164,6 +164,68 @@ describe("attachments module", () => {
     assert.ok(section.includes("- Image: /u/shot.png]"));
   });
 
+  it("sends PDF-blind providers extracted text, capped and stored per thread (#466)", async () => {
+    const opts = {
+      userDataPath: tmpDir,
+      threadId: "t1",
+      attachments: [
+        { kind: "file", path: "/u/spec.PDF", name: "spec.PDF" },
+        { kind: "file", path: "/u/scan.pdf", name: "scan.pdf" },
+        { kind: "file", path: "/u/notes.txt", name: "notes.txt" },
+      ],
+      extract: async (p) =>
+        p.endsWith("scan.pdf") ? " \n\f" : "page\n\f".repeat(100),
+    };
+    for (const provider of attachments.PDF_NATIVE_PROVIDERS) {
+      assert.equal(await attachments.pdfTextSection({ ...opts, provider }), "");
+    }
+    const section = await attachments.pdfTextSection({
+      ...opts,
+      provider: "codex",
+    });
+    const txt = /- \/u\/spec\.PDF -> (\S+\.txt) \(first 100 pages only\)/.exec(
+      section,
+    );
+    assert.ok(txt, section);
+    assert.ok(txt[1].startsWith(path.join(tmpDir, "attachments", "t1")));
+    assert.equal(fs.readFileSync(txt[1], "utf8"), "page\n\f".repeat(100));
+    assert.ok(section.includes("- /u/scan.pdf: no text could be extracted"));
+    assert.ok(!section.includes("notes.txt"));
+    assert.equal(
+      await attachments.extractPdfText(tmpDir, "../x", "/u/a.pdf", opts.extract),
+      null,
+    );
+  });
+
+  it("extracts real PDF text through the pdfjs child process (#466)", async () => {
+    const stream = "BT /F1 12 Tf 72 720 Td (Build the widget.) Tj ET";
+    const objs = [
+      "<< /Type /Catalog /Pages 2 0 R >>",
+      "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+      `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
+      "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ];
+    let body = "%PDF-1.4\n";
+    const offsets = objs.map((o, i) => {
+      const at = body.length;
+      body += `${i + 1} 0 obj\n${o}\nendobj\n`;
+      return at;
+    });
+    const xref = body.length;
+    body +=
+      `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n` +
+      offsets.map((o) => `${String(o).padStart(10, "0")} 00000 n \n`).join("") +
+      `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+    const pdf = path.join(tmpDir, "spec.pdf");
+    fs.writeFileSync(pdf, body);
+
+    const out = await attachments.extractPdfText(tmpDir, "t1", pdf);
+    assert.ok(out);
+    assert.match(fs.readFileSync(out.path, "utf8"), /Build the widget\./);
+    assert.equal(out.truncated, false);
+  });
+
   it("saves a pasted image under userData and reads it back as a data URL", async () => {
     const bytes = Buffer.from("fake-png-bytes");
     const dataUrl = `data:image/png;base64,${bytes.toString("base64")}`;
@@ -548,6 +610,38 @@ describe("runner attachments", () => {
       .getMessages(thread.id)
       .find((m) => m.role === "user");
     assert.deepEqual(persisted.attachments, userMsg.attachments);
+  });
+
+  it("adds the extracted-text note for a PDF on a non-native provider (#466)", async () => {
+    runner.stopAll();
+    runner = createRunner({
+      store,
+      core: await loadCore(),
+      pushFn: () => {},
+      tickMs: 15,
+      userDataPath: tmpDir,
+    });
+    process.env.CODER_AGENT_CMD = `${process.execPath} -e require('fs').writeFileSync('argv.json',JSON.stringify(process.argv));process.stdout.write('ok');setTimeout(()=>process.exit(0),20)`;
+
+    const thread = store.getThreads()[0];
+    const pdf = path.join(tmpDir, "spec.pdf");
+    fs.writeFileSync(pdf, "not really a pdf");
+    await runner.startRun({
+      threadId: thread.id,
+      prompt: "implement the spec",
+      attachments: [{ kind: "file", path: pdf, name: "spec.pdf" }],
+    });
+    await waitFor(() => store.getThread(thread.id)?.status === "done");
+
+    const argv = JSON.parse(
+      fs.readFileSync(path.join(tmpDir, "app", "argv.json"), "utf8"),
+    );
+    const dispatchPrompt = argv[argv.length - 1];
+    assert.ok(dispatchPrompt.includes(`- File: ${pdf}`));
+    assert.ok(dispatchPrompt.includes("This model cannot read PDF files"));
+    assert.ok(dispatchPrompt.includes(`- ${pdf}: no text could be extracted`));
+    const userMsg = store.getMessages(thread.id).find((m) => m.role === "user");
+    assert.equal(userMsg.pdfText, true, "transcript chip says text only");
   });
 
   it("leaves prompt and message untouched without attachments", async () => {

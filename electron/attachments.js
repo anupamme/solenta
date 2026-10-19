@@ -418,8 +418,124 @@ async function readImage(filePath) {
   }
 }
 
+/**
+ * Providers whose agent reads a PDF path itself: Claude's Read tool renders
+ * pages, OpenCode `run -f` attaches it natively. Everyone else gets the
+ * locally extracted text (#466).
+ */
+const PDF_NATIVE_PROVIDERS = new Set(["claude", "opencode"]);
+const PDF_TEXT_MAX_PAGES = 100;
+const PDF_TEXT_TIMEOUT_MS = 30_000;
+/** pdf-text.js reads the whole file into memory; refuse slide-deck monsters. */
+const PDF_TEXT_MAX_BYTES = 100 * 1024 * 1024;
+
+/** pdfjs in a child (pdf-text.js): off the main thread, killable on timeout. */
+async function runPdfToText(pdfPath) {
+  try {
+    const st = await fs.promises.stat(pdfPath);
+    if (!st.isFile() || st.size > PDF_TEXT_MAX_BYTES) return "";
+  } catch {
+    return "";
+  }
+  const { execFile } = require("node:child_process");
+  return new Promise((resolve) => {
+    execFile(
+      process.execPath,
+      [
+        path.join(__dirname, "pdf-text.js"),
+        pdfPath,
+        String(PDF_TEXT_MAX_PAGES),
+      ],
+      {
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+        timeout: PDF_TEXT_TIMEOUT_MS,
+        maxBuffer: 64 * 1024 * 1024,
+        windowsHide: true,
+      },
+      (err, stdout) => resolve(err ? "" : String(stdout)),
+    );
+  });
+}
+
+/**
+ * Extract an attached PDF's text to userData/attachments/<threadId>/ so a
+ * provider that cannot read PDFs gets something it can (#466). Capped at
+ * PDF_TEXT_MAX_PAGES. Null when nothing came out (scanned, encrypted,
+ * corrupt, over PDF_TEXT_MAX_BYTES, or timed out).
+ * @param {string} userDataPath
+ * @param {unknown} threadId
+ * @param {string} pdfPath
+ * @param {(pdfPath: string) => Promise<string>} [extract]
+ * @returns {Promise<{ path: string, truncated: boolean } | null>}
+ */
+async function extractPdfText(
+  userDataPath,
+  threadId,
+  pdfPath,
+  extract = runPdfToText,
+) {
+  const tid = validThreadId(threadId);
+  const base = safeBaseName(path.basename(String(pdfPath || "")));
+  if (!userDataPath || !tid || !base || !path.isAbsolute(pdfPath)) return null;
+  const text = await extract(pdfPath);
+  if (!text.replace(/\s+/g, "")) return null;
+  const pages = text.split("\f").length - 1;
+  const dir = threadDir(userDataPath, tid);
+  try {
+    await fs.promises.mkdir(dir, { recursive: true });
+    const full = path.join(
+      dir,
+      `${Date.now()}-${randomUUID().slice(0, 8)}-${base}.txt`,
+    );
+    await fs.promises.writeFile(full, text);
+    return { path: full, truncated: pages >= PDF_TEXT_MAX_PAGES };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * CLI-only prompt section pointing a PDF-blind provider at extracted text
+ * for each attached PDF. Empty for PDF-native providers or no PDFs.
+ * @param {{ userDataPath: string | null, threadId: string, provider: string,
+ *   attachments: { kind: string, path: string }[],
+ *   extract?: (pdfPath: string) => Promise<string> }} opts
+ * @returns {Promise<string>}
+ */
+async function pdfTextSection(opts) {
+  if (!opts.userDataPath || PDF_NATIVE_PROVIDERS.has(opts.provider)) return "";
+  const pdfs = opts.attachments.filter(
+    (a) => a.kind === "file" && /\.pdf$/i.test(a.path),
+  );
+  if (!pdfs.length) return "";
+  const lines = [];
+  for (const a of pdfs) {
+    const out = await extractPdfText(
+      opts.userDataPath,
+      opts.threadId,
+      a.path,
+      opts.extract,
+    );
+    lines.push(
+      out
+        ? `- ${a.path} -> ${out.path}` +
+            (out.truncated ? ` (first ${PDF_TEXT_MAX_PAGES} pages only)` : "")
+        : `- ${a.path}: no text could be extracted (scanned or protected PDF?)`,
+    );
+  }
+  return (
+    "\n\n[This model cannot read PDF files, so Solenta extracted their text " +
+    "locally. Read the .txt instead of the PDF:\n" +
+    lines.join("\n") +
+    "]"
+  );
+}
+
 module.exports = {
   classifyPaths,
+  extractPdfText,
+  pdfTextSection,
+  PDF_NATIVE_PROVIDERS,
   pickAttachments,
   saveImage,
   saveFile,

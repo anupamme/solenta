@@ -47,6 +47,7 @@ import {
   parseAutomationCreateResult,
 } from "../../automationCard";
 import styles from "../ThreadView.module.css";
+import { isPdfAttachment, PdfTextNote } from "../composer/AttachmentChip";
 
 /** Byte-equal to electron/worktrees.js restoreCheckpoint run-active guard. */
 const RESTORE_ACTIVE_TITLE =
@@ -697,9 +698,11 @@ function MemoryStepRow({ message }: { message: ChatMessage }) {
 function TranscriptAttachments({
   attachments,
   onLoadImage,
+  pdfText,
 }: {
   attachments: AttachmentInfo[];
   onLoadImage?: (path: string) => Promise<string | null>;
+  pdfText?: boolean;
 }) {
   return (
     <div className={styles.attachmentChips}>
@@ -708,6 +711,7 @@ function TranscriptAttachments({
           key={a.path}
           attachment={a}
           onLoadImage={onLoadImage}
+          textOnly={Boolean(pdfText) && isPdfAttachment(a)}
         />
       ))}
     </div>
@@ -717,9 +721,11 @@ function TranscriptAttachments({
 function TranscriptAttachmentChip({
   attachment,
   onLoadImage,
+  textOnly,
 }: {
   attachment: AttachmentInfo;
   onLoadImage?: (path: string) => Promise<string | null>;
+  textOnly?: boolean;
 }) {
   const [thumb, setThumb] = useState<string | null>(null);
   useEffect(() => {
@@ -777,6 +783,7 @@ function TranscriptAttachmentChip({
         </svg>
       )}
       <span className={styles.attachmentName}>{attachment.name}</span>
+      {textOnly ? <PdfTextNote /> : null}
     </span>
   );
 }
@@ -1130,6 +1137,7 @@ const UserMessageBlock = memo(function UserMessageBlock({
               <TranscriptAttachments
                 attachments={message.attachments}
                 onLoadImage={onLoadAttachmentImage}
+                pdfText={message.pdfText}
               />
             )}
           </div>
