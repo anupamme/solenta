@@ -2370,6 +2370,19 @@ export function createFakeCoder(opts: FakeOptions = {}): FakeCoder {
           : [next, ...threads];
         return Promise.resolve(next);
       },
+      setBudget: (input: unknown) => {
+        const i = input as { threadId: string; budget: ThreadInfo["budget"] | null };
+        calls.push({ channel: "threads.setBudget", args: [input] });
+        const existing = threads.find((t) => t.id === i.threadId);
+        if (!existing) {
+          return Promise.reject(new Error(`Unknown thread: ${i.threadId}`));
+        }
+        const next: ThreadInfo = { ...existing };
+        if (i.budget) next.budget = i.budget;
+        else delete next.budget;
+        threads = threads.map((t) => (t.id === i.threadId ? next : t));
+        return Promise.resolve(next);
+      },
       setCrossThreadInbound: (input: unknown) => {
         const i = input as {
           threadId: string;

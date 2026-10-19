@@ -7,6 +7,7 @@ const { randomUUID } = require("node:crypto");
 const services = require("./services.js");
 const ask = require("./ask.js");
 const btw = require("./btw.js");
+const privacyGateway = require("./privacyGateway.js");
 const { sanitizeAttachments } = require("./runnerHelpers.js");
 
 /**
@@ -164,7 +165,14 @@ function createAskRuns(ctx) {
         digestNote,
         matchNote,
       };
-      const askPrompt = ask.buildAskPrompt(pack);
+      const gated = privacyGateway.filterOutbound(
+        store.getSettings(),
+        threadId,
+        resolveProvider(thread),
+        ask.buildAskPrompt(pack),
+      );
+      if (gated.note) appendMessage(threadId, "event", gated.note, runId);
+      const askPrompt = gated.text;
 
       let answer = "";
       let source = "retrieval";
@@ -309,7 +317,14 @@ function createAskRuns(ctx) {
         digestNote,
         matchNote,
       };
-      const askPrompt = btw.buildBtwPrompt(pack);
+      const gated = privacyGateway.filterOutbound(
+        store.getSettings(),
+        threadId,
+        resolveProvider(thread),
+        btw.buildBtwPrompt(pack),
+      );
+      if (gated.note) appendMessage(threadId, "event", gated.note);
+      const askPrompt = gated.text;
 
       let answer = "";
       let source = "retrieval";

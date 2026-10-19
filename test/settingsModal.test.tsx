@@ -2267,6 +2267,35 @@ describe("SettingsModal governance (#262)", () => {
     m.unmount();
   });
 
+  it("saves a default budget cap on the profile (#286)", async () => {
+    const patches: Partial<AppSettings>[] = [];
+    const settings = {
+      dailyBudgetUsd: null,
+      autoSettleAfterDays: 3,
+      agentProfiles: [scout],
+    } as AppSettings;
+    const m = await mount(
+      modal({
+        initialPane: "agents",
+        providers: [KIMI],
+        settings,
+        onSaveSettings: async (patch) => {
+          patches.push(patch);
+          return { ...settings, ...patch };
+        },
+      }),
+    );
+    const edit = Array.from(m.queryAll("button")).find(
+      (b) => (b.textContent || "").trim() === "Edit",
+    );
+    await m.click(edit!);
+    await m.type(m.query('[data-profile-budget] [data-budget-field="turns"]'), "25");
+    await m.click(m.byText("Update"));
+    assert.equal(patches.length, 1);
+    assert.deepEqual(patches[0].agentProfiles?.[0]?.budget, { turns: 25 });
+    m.unmount();
+  });
+
   it("omits policy when there are no rules and the default is Ask", async () => {
     const patches: Partial<AppSettings>[] = [];
     const settings = {
@@ -3116,6 +3145,45 @@ describe("SettingsModal worktree location (#1531)", () => {
     await m.type(input, "  /Volumes/fast/wt ");
     await blur();
     assert.deepEqual(patches, [{ worktreeRoot: "/Volumes/fast/wt" }]);
+    m.unmount();
+  });
+});
+
+describe("SettingsModal privacy gateway (#295)", () => {
+  it("saves the default, per-provider overrides and patterns", async () => {
+    const patches: Partial<AppSettings>[] = [];
+    const pg = { default: "off", providers: { codex: "strict" }, patterns: [] } as const;
+    const m = await mount(
+      modal({
+        initialPane: "advanced",
+        providers: [
+          { id: "claude", name: "Claude Code" },
+          { id: "codex", name: "Codex" },
+        ] as ProviderInfo[],
+        settings: { dailyBudgetUsd: null, autoSettleAfterDays: 3, privacyGateway: pg } as unknown as AppSettings,
+        onSaveSettings: async (patch) => {
+          patches.push(patch);
+          return { dailyBudgetUsd: null, autoSettleAfterDays: 3, ...patch } as AppSettings;
+        },
+      }),
+    );
+    const codex = m.query('[data-privacy-provider="codex"]') as HTMLSelectElement;
+    assert.equal(codex.value, "strict");
+    assert.match(m.query('[data-privacy-provider="claude"]')?.textContent ?? "", /Same as every provider \(Off\)/);
+
+    await m.change(m.query("[data-privacy-default]"), "secrets");
+    assert.deepEqual(patches.at(-1), { privacyGateway: { ...pg, default: "secrets" } });
+
+    await m.change(codex, "");
+    assert.deepEqual(patches.at(-1), { privacyGateway: { ...pg, providers: {} } });
+
+    const ta = m.query("[data-privacy-patterns]") as HTMLTextAreaElement;
+    await m.type(ta, "ACME-\\d+\n\n  falcon ");
+    await act(async () => {
+      ta.dispatchEvent(new ta.ownerDocument.defaultView!.FocusEvent("focusout", { bubbles: true }));
+    });
+    assert.deepEqual(patches.at(-1), { privacyGateway: { ...pg, patterns: ["ACME-\\d+", "falcon"] } });
+    assert.match(m.text(), /are not filtered/, "note states what the gateway cannot see");
     m.unmount();
   });
 });

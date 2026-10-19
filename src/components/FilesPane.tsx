@@ -26,6 +26,8 @@ import styles from "./FilesPane.module.css";
 export type FilesPaneApi = Pick<CoderApi["files"], "tree" | "read"> &
   Pick<CoderApi["shell"], "editors" | "openIn">;
 
+export type FileReveal = { path: string; line: number | null };
+
 type Listing = { entries: FileTreeEntry[]; truncated: boolean };
 type DirState = Listing | { error: string } | "loading";
 
@@ -69,12 +71,15 @@ export function FilesPane({
   threadId,
   api,
   remote = false,
+  reveal = null,
   onAddToPrompt,
 }: {
   threadId: string;
   api: FilesPaneApi;
   /** Remote (ssh) projects: listing does not go over the remote layer. */
   remote?: boolean;
+  /** File (and line) an agent pointed at (show_user, #293); a new object re-opens. */
+  reveal?: FileReveal | null;
   onAddToPrompt?: (comment: ReviewComment) => void;
 }) {
   if (remote) {
@@ -85,17 +90,24 @@ export function FilesPane({
     );
   }
   return (
-    <FilesBrowser threadId={threadId} api={api} onAddToPrompt={onAddToPrompt} />
+    <FilesBrowser
+      threadId={threadId}
+      api={api}
+      reveal={reveal}
+      onAddToPrompt={onAddToPrompt}
+    />
   );
 }
 
 function FilesBrowser({
   threadId,
   api,
+  reveal,
   onAddToPrompt,
 }: {
   threadId: string;
   api: FilesPaneApi;
+  reveal: FileReveal | null;
   onAddToPrompt?: (comment: ReviewComment) => void;
 }) {
   const uid = useId();
@@ -139,6 +151,13 @@ function FilesBrowser({
     loadDir("");
     for (const dir of expandedRef.current) loadDir(dir);
   }, [loadDir, epoch]);
+
+  useEffect(() => {
+    if (!reveal) return;
+    setFilter("");
+    setCursor(reveal.path);
+    setOpenPath(reveal.path);
+  }, [reveal]);
 
   const filtering = filter.trim() !== "";
   useEffect(() => {
@@ -408,6 +427,7 @@ function FilesBrowser({
             api={api}
             path={openPath}
             editor={editor}
+            reveal={reveal?.path === openPath ? reveal : null}
             onAddToPrompt={onAddToPrompt}
           />
         ) : (
@@ -423,12 +443,14 @@ function Preview({
   api,
   path,
   editor,
+  reveal,
   onAddToPrompt,
 }: {
   threadId: string;
   api: FilesPaneApi;
   path: string;
   editor: EditorOption | null;
+  reveal: FileReveal | null;
   onAddToPrompt?: (comment: ReviewComment) => void;
 }) {
   const [state, setState] = useState<
@@ -518,6 +540,7 @@ function Preview({
         <TextPreview
           path={path}
           text={state.preview.text}
+          reveal={reveal}
           onAddToPrompt={onAddToPrompt}
         />
       )}
@@ -528,10 +551,12 @@ function Preview({
 function TextPreview({
   path,
   text,
+  reveal,
   onAddToPrompt,
 }: {
   path: string;
   text: string;
+  reveal: FileReveal | null;
   onAddToPrompt?: (comment: ReviewComment) => void;
 }) {
   const lines = useMemo(() => text.replace(/\r?\n$/, "").split(/\r?\n/), [text]);
@@ -539,6 +564,17 @@ function TextPreview({
   const [sel, setSel] = useState<{ anchor: number; start: number; end: number } | null>(null);
   const [note, setNote] = useState("");
   const [added, setAdded] = useState(false);
+  const codeRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const n = reveal?.line;
+    if (!n || n > lines.length) return;
+    setSel({ anchor: n, start: n, end: n });
+    codeRef.current
+      ?.querySelector(`[data-files-line="${n}"]`)
+      ?.scrollIntoView?.({ block: "center" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reveal is the trigger
+  }, [reveal]);
 
   const pick = (n: number, extend: boolean) => {
     setAdded(false);
@@ -562,6 +598,7 @@ function TextPreview({
   return (
     <>
       <div
+        ref={codeRef}
         className={styles.code}
         data-files-code=""
         onKeyDown={(e) => {

@@ -12,6 +12,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { EventEmitter } = require("node:events");
 const { PassThrough } = require("node:stream");
+const { execFileSync } = require("node:child_process");
 const {
   cloneProject,
   cancelClone,
@@ -28,6 +29,8 @@ describe("clone URL rules", () => {
       "ssh://git@github.com/owner/repo.git",
       "git@github.com:owner/repo.git",
       "deploy@host.internal:repos/app",
+      "owner/repo",
+      "my-org/app.js",
     ]) {
       assert.equal(cloneUrlError(ok), null, ok);
     }
@@ -42,6 +45,9 @@ describe("clone URL rules", () => {
       "github.com:owner/repo",
       "https://github.com",
       "https://github.com/owner/repo extra",
+      "-x/repo",
+      "owner/..",
+      "a/b/c",
     ]) {
       assert.ok(cloneUrlError(bad), `should reject ${JSON.stringify(bad)}`);
     }
@@ -51,6 +57,7 @@ describe("clone URL rules", () => {
     assert.equal(repoNameFromUrl("https://github.com/owner/repo.git"), "repo");
     assert.equal(repoNameFromUrl("git@github.com:owner/my-app.git"), "my-app");
     assert.equal(repoNameFromUrl("ssh://git@host/a/b/"), "b");
+    assert.equal(repoNameFromUrl("owner/repo"), "repo");
   });
 });
 
@@ -75,13 +82,20 @@ describe("cloneProject", () => {
     return child;
   }
 
+  let savedGhBin;
+
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "coder-clone-"));
     spawned = [];
     setCloneSpawnFn(fakeSpawn);
+    // A gh that does not exist: the default sign-in probe says no.
+    savedGhBin = process.env.CODER_GH_BIN;
+    process.env.CODER_GH_BIN = path.join(tmpDir, "no-gh");
   });
 
   afterEach(() => {
+    if (savedGhBin === undefined) delete process.env.CODER_GH_BIN;
+    else process.env.CODER_GH_BIN = savedGhBin;
     setCloneSpawnFn(null);
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -125,6 +139,69 @@ describe("cloneProject", () => {
     );
   });
 
+  const succeed = (child, args) => {
+    const target = args[0] === "repo" ? args[3] : args[args.length - 1];
+    fs.mkdirSync(path.join(target, ".git"), { recursive: true });
+    child.stderr.end();
+    child.emit("close", 0);
+  };
+
+  it("clones GitHub owner/repo through gh when gh is signed in", async () => {
+    behave = succeed;
+    await cloneProject(
+      { url: "owner/repo", parentDir: tmpDir },
+      { addProject: async (t) => ({ path: t }), ghSignedIn: async () => true },
+    );
+    assert.equal(spawned[0].bin, process.env.CODER_GH_BIN);
+    assert.deepEqual(spawned[0].args, [
+      "repo",
+      "clone",
+      "owner/repo",
+      path.join(tmpDir, "repo"),
+      "--",
+      "--progress",
+    ]);
+  });
+
+  it("falls back to git over https for owner/repo without gh", async () => {
+    behave = succeed;
+    await cloneProject(
+      { url: "owner/repo", parentDir: tmpDir },
+      { addProject: async (t) => ({ path: t }) },
+    );
+    assert.equal(spawned[0].bin, "git");
+    assert.deepEqual(spawned[0].args, [
+      "clone",
+      "--progress",
+      "--",
+      "https://github.com/owner/repo.git",
+      path.join(tmpDir, "repo"),
+    ]);
+  });
+
+  it("adds an existing checkout of the same repo instead of cloning", async () => {
+    const target = path.join(tmpDir, "repo");
+    fs.mkdirSync(target);
+    execFileSync("git", ["init", "-q"], { cwd: target });
+    execFileSync("git", ["remote", "add", "origin", "git@github.com:Owner/Repo.git"], { cwd: target });
+    const added = [];
+    await cloneProject(
+      { url: "https://github.com/owner/repo", parentDir: tmpDir },
+      { addProject: async (t) => added.push(t) },
+    );
+    assert.deepEqual(added, [target]);
+    assert.equal(spawned.length, 0);
+
+    await assert.rejects(
+      cloneProject(
+        { url: "https://gitlab.com/owner/repo", parentDir: tmpDir },
+        { addProject: async () => ({}) },
+      ),
+      /Folder is not empty/,
+    );
+    assert.equal(spawned.length, 0);
+  });
+
   it("refuses an existing non-empty target without spawning", async () => {
     fs.mkdirSync(path.join(tmpDir, "repo"));
     fs.writeFileSync(path.join(tmpDir, "repo", "keep.txt"), "mine");
@@ -145,7 +222,7 @@ describe("cloneProject", () => {
         { url: "file:///etc", parentDir: tmpDir },
         { addProject: async () => ({}) },
       ),
-      /https:\/\/ or ssh/,
+      /an https:\/\/ URL, or an ssh URL/,
     );
     assert.equal(spawned.length, 0);
   });

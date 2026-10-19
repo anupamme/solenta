@@ -26,6 +26,7 @@ const {
 const { resolveSandbox } = require("./sandbox.js");
 const { normalizeRoute } = require("./routing.js");
 const { dueRecap } = require("./recap.js");
+const { budgetPatchFrom } = require("./budgetCaps.js");
 const {
   messagesInMemory,
   stampLastActivity,
@@ -487,7 +488,12 @@ function applyAgentProfile(store, input) {
   if (mode !== store.getThread(threadId).permissionMode) {
     setPermissionMode(store, { threadId, mode });
   }
-  const updated = store.updateThread(threadId, { agentProfileId: profile.id });
+  // The profile's default cap becomes the thread's (#286); a profile with no
+  // cap leaves the thread's own cap alone.
+  const updated = store.updateThread(threadId, {
+    agentProfileId: profile.id,
+    ...budgetPatchFrom(profile),
+  });
   store.save();
   return decorateThread(store, updated || store.getThread(threadId));
 }
@@ -702,6 +708,9 @@ function forkThread(store, input) {
     permissionMode: source.permissionMode,
     handoffFrom: source.id,
     sessionId: null,
+    // A fork (and every orchestration worker) inherits the cap with fresh
+    // counters (#286): fanning out never escapes it.
+    ...budgetPatchFrom(source),
   };
   // Teach mode is a thread persona, not a session: forks (including
   // orchestrator workers on another provider) stay in teach mode.

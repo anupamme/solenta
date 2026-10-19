@@ -153,7 +153,7 @@ function spawnAgentCodex(opts) {
     binary: spawn.binary,
     args: spawn.args,
     cwd: spawn.cwd,
-    envExtra: withProjectEnv(project, envExtra),
+    envExtra: withProjectEnv(project, envExtra, cwd),
     onEvent: (ev) => {
       if (!ev || typeof ev !== "object") return;
       const sid = realSessionId(codexExtractSessionId(ev));

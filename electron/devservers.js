@@ -1,6 +1,7 @@
 "use strict";
 
 const fs = require("node:fs");
+const net = require("node:net");
 const path = require("node:path");
 // cross-spawn, not child_process: on Windows npm is npm.cmd and Node
 // refuses to exec .cmd shims without a shell. Same reason as agent.js (#442).
@@ -13,12 +14,18 @@ const {
   looksLikeProcessWrapper,
   electronIdentityEnv,
 } = require("./worktreeEnv.js");
+const { readRepoJson } = require("./repoConfig.js");
+const { isLoopbackHost } = require("./links.js");
+const { runVerifyCommand, normalizeCommand } = require("./verify.js");
 
 const PREFERRED_SCRIPTS = ["dev", "start", "serve"];
 const RING_LIMIT = 50;
 const PENDING_LIMIT = 4096;
 const DEAD_TTL_MS = 5 * 60_000;
 const KILL_FALLBACK_MS = 3_000;
+const PROBE_INTERVAL_MS = 500;
+const PROBE_ATTEMPT_MS = 5_000;
+const PROBE_TIMEOUT_MS = 120_000;
 
 /** @type {RegExp} */
 const SERVER_URL_RE =
@@ -98,6 +105,126 @@ function scriptCommand(root, script) {
 }
 
 /**
+ * @typedef {{ kind: "tcp" | "http" | "exec", target: string, timeoutMs: number }} ReadyProbe
+ * @typedef {{
+ *   kind?: "tcp" | "http" | "exec",
+ *   target?: string,
+ *   status: "waiting" | "ready" | "failed",
+ *   lastError?: string,
+ *   readyAt?: number,
+ * }} ProbeState
+ */
+
+/**
+ * `$PORT` / `${PORT}` from the dev server's own env, so a lane's port is
+ * what gets probed. An unset variable is an error, not an empty string.
+ *
+ * @param {string} text
+ * @param {NodeJS.ProcessEnv} env
+ */
+function expandEnv(text, env) {
+  return text.replace(/\$\{(\w+)\}|\$(\w+)/g, (_, a, b) => {
+    const name = a || b;
+    const value = env[name];
+    if (value == null || value === "") throw new Error(`${name} is not set`);
+    return value;
+  });
+}
+
+/**
+ * `devServer.ready` from solenta.json (#282): exactly one of
+ *   { "tcp": 5173 | "$PORT" }
+ *   { "http": "http://localhost:$PORT/health" }   (loopback only)
+ *   { "exec": "test -f /tmp/ready" }
+ * plus an optional `timeoutMs`. Absent → null. Invalid → `{ error }`.
+ *
+ * `exec` needs no solenta.json approval: it only runs after the user
+ * clicked Start on a repo npm script, which already runs repo code.
+ *
+ * @param {unknown} json parsed solenta.json
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {ReadyProbe | { error: string } | null}
+ */
+function parseReadyProbe(json, env) {
+  const dev = json && typeof json === "object" ? /** @type {any} */ (json).devServer : null;
+  const ready = dev && typeof dev === "object" ? dev.ready : undefined;
+  if (ready === undefined) return null;
+  const bad = (/** @type {string} */ msg) => ({ error: `solenta.json: devServer.ready ${msg}` });
+  if (!ready || typeof ready !== "object" || Array.isArray(ready)) return bad("must be an object");
+  const kinds = /** @type {const} */ (["tcp", "http", "exec"]).filter((k) => ready[k] !== undefined);
+  if (kinds.length !== 1) return bad("needs exactly one of tcp, http, exec");
+  const kind = kinds[0];
+  const timeoutMs = ready.timeoutMs === undefined ? PROBE_TIMEOUT_MS : Number(ready.timeoutMs);
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1000) return bad("timeoutMs must be an integer ≥ 1000");
+  try {
+    if (kind === "exec") {
+      const command = normalizeCommand(ready.exec);
+      if (!command) return bad("exec must be a non-empty command string");
+      return { kind, target: command, timeoutMs };
+    }
+    if (kind === "tcp") {
+      const port = Number(typeof ready.tcp === "string" ? expandEnv(ready.tcp, env) : ready.tcp);
+      if (!Number.isInteger(port) || port < 1 || port > 65535) return bad("tcp must be a port");
+      return { kind, target: `localhost:${port}`, timeoutMs };
+    }
+    const url = new URL(expandEnv(String(ready.http), env));
+    if (!/^https?:$/.test(url.protocol) || !isLoopbackHost(url.hostname)) {
+      return bad("http must be a localhost http(s) URL");
+    }
+    return { kind, target: url.href, timeoutMs };
+  } catch (err) {
+    return bad(`${kind}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/**
+ * One probe attempt. Resolves null when ready, else why not.
+ *
+ * @param {ReadyProbe} probe
+ * @param {{ root: string, env: NodeJS.ProcessEnv, project: any, platform: NodeJS.Platform }} ctx
+ * @returns {Promise<string | null>}
+ */
+async function probeOnce(probe, ctx) {
+  if (probe.kind === "tcp") {
+    const port = Number(probe.target.slice(probe.target.lastIndexOf(":") + 1));
+    return new Promise((resolve) => {
+      const sock = net.connect({ host: "localhost", port });
+      const done = (/** @type {string | null} */ why) => {
+        sock.destroy();
+        resolve(why);
+      };
+      sock.setTimeout(PROBE_ATTEMPT_MS, () => done("timed out"));
+      sock.once("connect", () => done(null));
+      sock.once("error", (err) => done(/** @type {any} */ (err).code || err.message));
+    });
+  }
+  if (probe.kind === "http") {
+    try {
+      const res = await fetch(probe.target, {
+        redirect: "manual",
+        signal: AbortSignal.timeout(PROBE_ATTEMPT_MS),
+      });
+      await res.body?.cancel();
+      return res.status >= 200 && res.status < 400 ? null : `HTTP ${res.status}`;
+    } catch (err) {
+      const cause = /** @type {any} */ (err).cause;
+      return (cause && (cause.code || cause.message)) || /** @type {any} */ (err).message;
+    }
+  }
+  const res = await runVerifyCommand({
+    command: probe.target,
+    cwd: ctx.root,
+    timeoutMs: PROBE_ATTEMPT_MS,
+    env: ctx.env,
+    project: ctx.project,
+    platform: ctx.platform,
+  });
+  if (res.ok) return null;
+  const tail = res.log.trim().split("\n").pop();
+  return res.timedOut ? "timed out" : tail || `exit ${res.exitCode}`;
+}
+
+/**
  * @typedef {{
  *   pid: number,
  *   script: string,
@@ -108,6 +235,7 @@ function scriptCommand(root, script) {
  *   dead: boolean,
  *   deadAt: number | null,
  *   platform: NodeJS.Platform,
+ *   probe?: ProbeState,
  * }} DevServerRecord
  */
 
@@ -183,17 +311,61 @@ function lastLinesOf(rec) {
 
 /**
  * @param {DevServerRecord} rec
- * @returns {{ running: boolean, script?: string, url?: string, startedAt?: number, lastLines?: string[] }}
+ * @returns {{ running: boolean, script?: string, url?: string, startedAt?: number, lastLines?: string[], probe?: ProbeState }}
  */
 function toState(rec) {
   const running = !rec.dead && isAlive(rec.pid);
   if (!running) markDead(rec);
-  /** @type {{ running: boolean, script?: string, url?: string, startedAt?: number, lastLines?: string[] }} */
+  /** @type {{ running: boolean, script?: string, url?: string, startedAt?: number, lastLines?: string[], probe?: ProbeState }} */
   const state = { running, script: rec.script, startedAt: rec.startedAt };
-  if (rec.url) state.url = rec.url;
+  // A declared probe gates the URL: the Browser pane auto-loads it.
+  if (rec.url && (!rec.probe || rec.probe.status === "ready")) state.url = rec.url;
+  if (rec.probe) state.probe = { ...rec.probe };
   const lines = lastLinesOf(rec);
   if (lines.length) state.lastLines = lines;
   return state;
+}
+
+/**
+ * Poll the declared probe until it passes, the server dies or is replaced,
+ * or `timeoutMs` runs out. Ready is sticky: no ongoing health checks.
+ *
+ * @param {string} threadId
+ * @param {DevServerRecord} rec
+ * @param {ReadyProbe | { error: string }} probe
+ * @param {{ root: string, env: NodeJS.ProcessEnv, project: any, platform: NodeJS.Platform, intervalMs: number }} ctx
+ */
+function watchReady(threadId, rec, probe, ctx) {
+  if ("error" in probe) {
+    rec.probe = { status: "failed", lastError: probe.error };
+    return;
+  }
+  /** @type {ProbeState} */
+  const state = { kind: probe.kind, target: probe.target, status: "waiting" };
+  rec.probe = state;
+  const gone = () => rec.dead || records.get(threadId) !== rec;
+  const tick = async () => {
+    if (gone()) return;
+    const why = await probeOnce(probe, ctx);
+    if (gone()) return;
+    if (why === null) {
+      state.status = "ready";
+      state.readyAt = Date.now();
+      delete state.lastError;
+      return;
+    }
+    state.lastError = why;
+    if (Date.now() - rec.startedAt >= probe.timeoutMs) {
+      state.status = "failed";
+      return;
+    }
+    schedule();
+  };
+  const schedule = () => {
+    const timer = setTimeout(() => void tick(), ctx.intervalMs);
+    if (typeof timer.unref === "function") timer.unref();
+  };
+  schedule();
 }
 
 /**
@@ -248,6 +420,7 @@ function killProcessGroup(pid, platform = process.platform) {
  *   spawn?: typeof spawn,
  *   env?: NodeJS.ProcessEnv,
  *   project?: { remoteHost?: string, remotePath?: string, path?: string } | null,
+ *   probeIntervalMs?: number,
  * }} [opts]
  */
 function start(threadId, root, script, opts = {}) {
@@ -356,6 +529,22 @@ function start(threadId, root, script, opts = {}) {
   });
   if (typeof child.unref === "function") child.unref();
 
+  if (pid) {
+    const env = { ...process.env, ...extraEnv };
+    // Unreadable solenta.json → no probe; the project settings show that error.
+    const repo = readRepoJson(root);
+    const probe = repo && !repo.error ? parseReadyProbe(repo.json, env) : null;
+    if (probe) {
+      watchReady(threadId, rec, probe, {
+        root,
+        env,
+        project,
+        platform,
+        intervalMs: opts.probeIntervalMs || PROBE_INTERVAL_MS,
+      });
+    }
+  }
+
   return toState(rec);
 }
 
@@ -405,6 +594,7 @@ function listLive() {
 
 module.exports = {
   captureServerUrl,
+  parseReadyProbe,
   detectScripts,
   scriptsFromPackageJson,
   appendLog,

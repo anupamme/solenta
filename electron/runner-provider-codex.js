@@ -393,7 +393,7 @@ function createCodexRun(ctx) {
       binary: spawn.binary,
       args: spawn.args,
       cwd: spawn.cwd,
-      envExtra: threadSecrets.withEnv(threadId, withProjectEnv(project, codexMcpEnv)),
+      envExtra: threadSecrets.withEnv(threadId, withProjectEnv(project, codexMcpEnv, localCwd)),
       prompt,
       images: nativeImages,
       sessionId: resumeId,

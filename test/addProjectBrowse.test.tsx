@@ -287,6 +287,35 @@ describe("Add project: clone from URL (#1506)", () => {
     m.unmount();
   });
 
+  it("takes owner/repo and defaults next to the current project (#459)", async () => {
+    const cloned: CloneProjectInput[] = [];
+    const m = await mount(
+      <AddProjectPathModal
+        onClose={() => {}}
+        onSubmit={async () => ({})}
+        onCreate={async () => ({})}
+        onBrowse={browse}
+        currentProjectCwd="/work/solenta"
+        onClone={async (input) => {
+          cloned.push(input);
+          return { id: "p1" };
+        }}
+      />,
+    );
+    await m.click(m.query("[data-add-project-mode-clone]"));
+    assert.equal(
+      (m.query("[data-add-project-clone-location]") as HTMLInputElement).value,
+      "/work/",
+    );
+    await m.type(m.query("[data-add-project-clone-url]"), "owner/app");
+    assert.equal(m.query("[data-add-project-clone-url-hint]"), null);
+    await m.click(m.query("[data-add-project-path-submit]"));
+    await m.flush();
+    assert.equal(cloned[0]!.url, "owner/app");
+    assert.equal(cloned[0]!.parentDir, "/work");
+    m.unmount();
+  });
+
   it("shows a clone failure inline", async () => {
     const m = await mount(
       <AddProjectPathModal

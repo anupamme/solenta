@@ -4,7 +4,7 @@
 // Follows the seam convention in the header of electron/runner-watchdogs.js.
 
 const { parseAgentCommand } = require("./agent.js");
-const { normalizeProjectEnv } = require("./worktreeEnv.js");
+const { withProjectEnv } = require("./worktreeEnv.js");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -479,8 +479,7 @@ function createGenericRun(ctx) {
     };
     const env = threadSecrets.withEnv(threadId, {
       ...process.env,
-      ...normalizeProjectEnv(project && project.env),
-      ...overlay,
+      ...withProjectEnv(project, overlay, thread.worktreePath || project.path),
     });
     const handle = acp
       ? runAcpAgent({
