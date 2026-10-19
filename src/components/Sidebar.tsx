@@ -406,6 +406,7 @@ export const Sidebar = memo(function Sidebar({
     branches: string[];
   } | null>(null);
   const [scopeMenuOpen, setScopeMenuOpen] = useState(false);
+  const [pickProjectOpen, setPickProjectOpen] = useState(false);
   const [removeConfirmId, setRemoveConfirmId] = useState<string | null>(null);
   const [filterMenu, setFilterMenu] = useState<FilterMenu | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -424,11 +425,12 @@ export const Sidebar = memo(function Sidebar({
     parseGroupBy(loadStored(GROUP_BY_KEY)),
   );
   useEscapeClose(
-    (createMenuOpen || scopeMenuOpen || filterMenu != null) &&
+    (createMenuOpen || scopeMenuOpen || pickProjectOpen || filterMenu != null) &&
       removeConfirmId == null &&
       !moreOpen,
     () => {
       setCreateMenuOpen(false);
+      setPickProjectOpen(false);
       setBasePicker(null);
       setScopeMenuOpen(false);
       setFilterMenu(null);
@@ -1491,6 +1493,7 @@ export const Sidebar = memo(function Sidebar({
             aria-label="Filter threads by project"
             onClick={() => {
               setCreateMenuOpen(false);
+              setPickProjectOpen(false);
               setFilterMenu(null);
               setViewEditor(null);
               setMoreOpen(false);
@@ -1528,7 +1531,20 @@ export const Sidebar = memo(function Sidebar({
             type="button"
             className={styles.iconBtn}
             data-new-thread=""
-            onClick={handleBrandCreate}
+            aria-haspopup={projects.length > 1 ? "menu" : undefined}
+            aria-expanded={projects.length > 1 ? pickProjectOpen : undefined}
+            onClick={(e) => {
+              // Several projects: pick one. Shift+click keeps the default target.
+              if (projects.length > 1 && !e.shiftKey) {
+                setCreateMenuOpen(false);
+                setScopeMenuOpen(false);
+                setFilterMenu(null);
+                setMoreOpen(false);
+                setPickProjectOpen((open) => !open);
+                return;
+              }
+              handleBrandCreate();
+            }}
             disabled={!canCreate}
             title={
               canCreate
@@ -1542,6 +1558,31 @@ export const Sidebar = memo(function Sidebar({
               <path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z" />
             </Icon>
           </button>
+          {pickProjectOpen && projects.length > 1 && (
+            <div className={styles.menu} role="menu" data-new-thread-projects="">
+              {projects.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  className={styles.scopeItem}
+                  role="menuitem"
+                  data-new-thread-project={p.id}
+                  onClick={() => {
+                    setPickProjectOpen(false);
+                    onCreateThread(p.id);
+                  }}
+                >
+                  <ProjectIcon
+                    url={p.iconUrl}
+                    name={p.slug || p.name}
+                    seed={p.id}
+                    size={16}
+                  />
+                  {p.slug || p.name}
+                </button>
+              ))}
+            </div>
+          )}
           {canCreate && createTargetProject && (
             <span className={styles.menuWrap}>
               <button
@@ -1554,6 +1595,7 @@ export const Sidebar = memo(function Sidebar({
                 aria-expanded={createMenuOpen}
                 onClick={() => {
                   setScopeMenuOpen(false);
+                  setPickProjectOpen(false);
                   setFilterMenu(null);
                   setViewEditor(null);
                   setBasePicker(null);
