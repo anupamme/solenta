@@ -2021,6 +2021,16 @@ export interface PendingPermissionInfo {
   folderGrant?: string | null;
 }
 
+/** One row of the approval inbox (#291): a pending prompt and its thread. */
+export interface PendingApprovalInfo extends PendingPermissionInfo {
+  threadId: string;
+  threadTitle: string;
+  projectId: string;
+  provider: string;
+  /** Epoch ms the blocked run started; the inbox sorts oldest first. */
+  since: number | null;
+}
+
 /**
  * A persisted question card on a thread (issue #647): what grok's native
  * ask_user_question and the coder-threads `ask_user` tool put on screen.
@@ -5176,6 +5186,11 @@ export interface CoderApi {
      * pendingPlan card (issue #707). Rejects when nothing is pending; the
      * updated detail arrives via thread:updated.
      */
+    /**
+     * Approval inbox (#291): every pending prompt across all non-archived
+     * threads, oldest run first. Answer each via respondPermission.
+     */
+    pendingApprovals(): Promise<PendingApprovalInfo[]>;
     respondPermission(input: {
       threadId: string;
       requestId: string;

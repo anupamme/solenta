@@ -1,0 +1,130 @@
+.main {
+  composes: main from "./pageShell.module.css";
+}
+
+.header {
+  composes: header from "./pageShell.module.css";
+}
+
+.title {
+  composes: title from "./pageShell.module.css";
+}
+
+.controls {
+  composes: controls from "./pageShell.module.css";
+}
+
+.selectAll {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.button {
+  composes: retry from "./pageShell.module.css";
+}
+
+.button[data-deny] {
+  color: var(--danger);
+}
+
+.button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.error {
+  margin: 12px 24px 0;
+  font-size: 12px;
+  color: var(--danger);
+  white-space: pre-wrap;
+}
+
+.list {
+  composes: list from "./pageShell.module.css";
+}
+
+.empty {
+  margin: 0 4px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.group {
+  composes: group from "./pageShell.module.css";
+}
+
+.groupHeader {
+  composes: groupHeader from "./pageShell.module.css";
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.threadLink {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  text-transform: none;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.threadLink:hover {
+  text-decoration: underline;
+}
+
+.groupMeta {
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-dim);
+}
+
+.row {
+  composes: row from "./pageShell.module.css";
+}
+
+.row[data-risky] {
+  border-color: var(--danger);
+}
+
+.rowTop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 560;
+  color: var(--text);
+}
+
+.command {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.reason {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}

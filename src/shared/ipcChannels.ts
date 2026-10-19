@@ -143,6 +143,7 @@ export const IPC_CHANNELS = [
   { ns: "threads", method: "peek" },
   { ns: "threads", method: "setPermissionMode" },
   { ns: "threads", method: "applyAgentProfile" },
+  { ns: "threads", method: "pendingApprovals" },
   { ns: "threads", method: "respondPermission" },
   { ns: "threads", method: "clearQuestion" },
   { ns: "threads", method: "answerSecret" },

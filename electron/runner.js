@@ -2961,6 +2961,7 @@ function createRunner(opts) {
   const {
     ciWorkflowSignOffs,
     getPendingPermission,
+    listPendingApprovals,
     handleCodexServerRequest,
     respondPermission,
     askUser,
@@ -3123,6 +3124,7 @@ function createRunner(opts) {
     toWorkflowView,
     resolveProvider,
     getPendingPermission,
+    listPendingApprovals,
     requestCiWorkflowSignOff,
     handleCodexServerRequest,
     respondPermission,

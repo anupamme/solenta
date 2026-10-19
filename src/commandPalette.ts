@@ -185,6 +185,7 @@ export const PALETTE_ACTIONS: readonly PaletteAction[] = [
   { id: "fleet", title: "Open fleet" },
   { id: "insights", title: "Open insights" },
   { id: "digest", title: "Open digest" },
+  { id: "approvals", title: "Open approvals", keywords: "permission inbox waiting" },
   { id: "add-project", title: "Add project" },
   {
     id: "toggle-agents",

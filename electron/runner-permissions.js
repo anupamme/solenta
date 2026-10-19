@@ -90,43 +90,75 @@ function createPermissions(ctx) {
    * } | null}
    */
   function getPendingPermission(threadId) {
+    return pendingPermissionsFor(threadId)[0] || null;
+  }
+
+  /**
+   * Every unanswered prompt of the thread, oldest first. The thread view
+   * shows only the head; the approval inbox (#291) lists them all, and
+   * respondPermission finds any of them by requestId.
+   * @param {string} threadId
+   */
+  function pendingPermissionsFor(threadId) {
     const ci = ciWorkflowSignOffs.get(threadId);
     if (ci && !ci.approved) {
-      return {
+      return [{
         requestId: ci.id, toolName: "CI workflow merge",
         summary: "Sign off the workflow patch and merge destination",
         input: ci.input, command: null, acceptAlways: false,
         questions: null, plan: null,
         guardrail: { rule: "CI_WORKFLOW", reason: "Accept signs off only this patch and destination, then resumes orchestration. Changes require a new sign-off." },
-      };
+      }];
     }
     const e = active.get(threadId);
     if (
       e &&
       (e.kind === "claude" || e.kind === "codex" || e.kind === "opencode") &&
-      Array.isArray(e.pendingPermissions)
+      Array.isArray(e.pendingPermissions) &&
+      e.pendingPermissions.length > 0
     ) {
-      const p = e.pendingPermissions[0];
-      if (p) {
-        return {
-          requestId: p.id,
-          toolName: p.toolName,
-          summary: p.summary,
-          input: p.input,
-          command:
-            p.command !== undefined ? p.command : extractCommand(p.rawInput),
-          commandEditable: p.commandEditable !== false,
-          acceptAlways: p.acceptAlways !== false,
-          questions: questionInfo(p.toolName, p.rawInput),
-          inputRequest: p.inputRequest || null,
-          fileChange: p.fileChange || null,
-          plan: planText(p.toolName, p.rawInput),
-          guardrail: p.guardrail || null,
-          folderGrant: p.folderGrant || null,
-        };
+      return e.pendingPermissions.map((p) => ({
+        requestId: p.id,
+        toolName: p.toolName,
+        summary: p.summary,
+        input: p.input,
+        command:
+          p.command !== undefined ? p.command : extractCommand(p.rawInput),
+        commandEditable: p.commandEditable !== false,
+        acceptAlways: p.acceptAlways !== false,
+        questions: questionInfo(p.toolName, p.rawInput),
+        inputRequest: p.inputRequest || null,
+        fileChange: p.fileChange || null,
+        plan: planText(p.toolName, p.rawInput),
+        guardrail: p.guardrail || null,
+        folderGrant: p.folderGrant || null,
+      }));
+    }
+    const plan = pendingPlanAsPermission(threadId);
+    return plan ? [plan] : [];
+  }
+
+  /**
+   * The approval inbox (#291): every pending prompt across all threads,
+   * tagged with its thread. Oldest thread run first; within a thread, the
+   * provider's own order.
+   */
+  function listPendingApprovals() {
+    const out = [];
+    for (const t of store.getThreads()) {
+      if (t.archived) continue;
+      for (const p of pendingPermissionsFor(t.id)) {
+        out.push({
+          ...p,
+          threadId: t.id,
+          threadTitle: t.title,
+          projectId: t.projectId,
+          provider: t.provider,
+          since: t.runStartedAt ?? t.updatedAt ?? null,
+        });
       }
     }
-    return pendingPlanAsPermission(threadId);
+    return out.sort((a, b) => (a.since ?? 0) - (b.since ?? 0));
   }
 
   /**
@@ -269,8 +301,9 @@ function createPermissions(ctx) {
     e.pendingPermissions.push(pending);
     if (e.pendingPermissions.length === 1) {
       store.updateThread(threadId, { awaitingInput: true }, { touch: true });
-      pushThreadsChanged();
     }
+    // Every prompt: the approval inbox (#291) only hears threads:changed.
+    pushThreadsChanged();
     store.save();
     pushDetail(threadId, e.codexState || null);
     return true;
@@ -870,6 +903,7 @@ function createPermissions(ctx) {
   return {
     ciWorkflowSignOffs,
     getPendingPermission,
+    listPendingApprovals,
     handleCodexServerRequest,
     respondPermission,
     askUser,

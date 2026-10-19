@@ -832,8 +832,10 @@ function createClaudeRun(ctx) {
                 { awaitingInput: true },
                 { touch: true },
               );
-              pushThreadsChanged();
             }
+            // Every prompt, not just the first: the approval inbox (#291)
+            // lists them all and only hears threads:changed.
+            pushThreadsChanged();
             pushDetail(threadId, claudeState);
           } else if (request.subtype === "elicitation" && requestId) {
             // #173: an MCP server asking the user mid-run. Same typed-input
@@ -865,8 +867,10 @@ function createClaudeRun(ctx) {
                 { awaitingInput: true },
                 { touch: true },
               );
-              pushThreadsChanged();
             }
+            // Every prompt, not just the first: the approval inbox (#291)
+            // lists them all and only hears threads:changed.
+            pushThreadsChanged();
             pushDetail(threadId, claudeState);
           } else if (requestId) {
             // Unknown control request: answer so the CLI never hangs on us.

@@ -226,6 +226,9 @@ module.exports = {
   "threads:get": async (ctx, id) => threadDetailFor(ctx, id, true),
   // Compare/sibling load (issue #393). Same payload as get, no visit stamp.
   "threads:peek": async (ctx, id) => threadDetailFor(ctx, id, false),
+  // Approval inbox (#291): every pending prompt across threads.
+  "threads:pendingApprovals": async (ctx) =>
+    ctx.runner.listPendingApprovals ? ctx.runner.listPendingApprovals() : [],
   "threads:respondPermission": async (ctx, input) => {
     // runner.respondPermission pushes the updated detail itself.
     ctx.runner.respondPermission(input);
