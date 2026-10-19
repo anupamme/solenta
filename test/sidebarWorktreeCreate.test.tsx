@@ -232,3 +232,38 @@ describe("Sidebar worktree thread creation", () => {
     assert.deepEqual(calls, [["p1", { worktree: true }]]);
   });
 });
+
+describe("Sidebar compose project picker (#443)", () => {
+  it("several projects: click opens a project menu, picking one creates there", async () => {
+    const calls: Array<string | undefined> = [];
+    const m = await mountSidebar([project, remoteProject], (pid) => {
+      calls.push(pid);
+    });
+    const btn = m.query("[data-new-thread]");
+    await m.click(btn);
+    assert.deepEqual(calls, [], "click does not create straight away");
+    assert.ok(m.query("[data-new-thread-projects]"), "project menu opens");
+    await m.click(m.query('[data-new-thread-project="p2"]'));
+    assert.deepEqual(calls, ["p2"]);
+    assert.equal(m.query("[data-new-thread-projects]"), null, "menu closes");
+  });
+
+  it("several projects: shift+click creates in the default target", async () => {
+    const calls: Array<string | undefined> = [];
+    const m = await mountSidebar([project, remoteProject], (pid) => {
+      calls.push(pid);
+    });
+    m.query("[data-new-thread]")!.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true, shiftKey: true }),
+    );
+    await m.flush();
+    assert.deepEqual(calls, ["p1"]);
+    assert.equal(m.query("[data-new-thread-projects]"), null);
+  });
+
+  it("one project: click creates immediately, no menu", async () => {
+    const m = await mountSidebar([project], () => {});
+    await m.click(m.query("[data-new-thread]"));
+    assert.equal(m.query("[data-new-thread-projects]"), null);
+  });
+});

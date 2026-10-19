@@ -740,15 +740,22 @@ describe("Sidebar header create + issue form", () => {
         },
       }),
     );
-    const btn = m.query("[data-new-thread]");
-    assert.ok(btn, "data-new-thread lives in the search row");
-    await m.click(btn!);
+    // Two projects: plain click opens the picker (#443); Shift+click is the
+    // default-target path this test pins.
+    const shiftClick = async () => {
+      m.query("[data-new-thread]")!.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true, shiftKey: true }),
+      );
+      await m.flush();
+    };
+    assert.ok(m.query("[data-new-thread]"), "data-new-thread lives in the search row");
+    await shiftClick();
     assert.deepEqual(calls, ["p2"], "open thread's project when unscoped");
 
     await openScopeMenu(m);
     await m.click(m.query('[data-scope-item="p1"]')!);
     await m.flush();
-    await m.click(m.query("[data-new-thread]")!);
+    await shiftClick();
     assert.deepEqual(calls, ["p2", "p1"], "scope wins over the open thread");
     m.unmount();
   });
