@@ -1394,6 +1394,41 @@ describe("Views menu pane workspace (issue #552)", () => {
     resetComposerSession();
   });
 
+  it("a show_user card opens the Files pane on its file and line (#293)", async () => {
+    const shown = msg({
+      id: "show-1",
+      role: "tool",
+      text: "show_user",
+      tool: {
+        id: "tc-show",
+        name: "mcp__coder-threads__show_user",
+        input: "{}",
+        output: JSON.stringify({ shown: true, target: "file", path: "a.ts", line: 2, reason: null }),
+        done: true,
+        isError: false,
+      },
+    });
+    const m = await mount(
+      view({
+        detail: detail({
+          thread: thread({ id: "t-show" }),
+          messages: [msg({ id: "u1", role: "user", text: "go" }), shown],
+        }),
+      }),
+    );
+    await m.flush();
+    assert.equal(m.query("[data-files-pane]"), null, "history card does not auto-open");
+    await m.click(m.query("[data-show-user-open]"));
+    await m.flush();
+    assert.ok(m.query("[data-files-pane]"), "Files pane opens");
+    assert.equal(
+      m.query("[data-files-line='2']")?.getAttribute("aria-pressed"),
+      "true",
+      "line 2 is highlighted",
+    );
+    m.unmount();
+  });
+
   it("opens the Browser pane as a real preview, not a placeholder", async () => {
     const m = await mount(view({}));
     await m.flush();
