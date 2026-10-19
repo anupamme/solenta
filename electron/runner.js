@@ -2314,6 +2314,12 @@ function createRunner(opts) {
         pushDetail(threadId);
       }
 
+      // #321: commit leftover uncommitted work before the agent can
+      // `git reset --hard` / `clean -fd` it. After the setup wait so a
+      // half-written install is not snapshotted.
+      await require("./worktrees.js").snapshotBeforeTurn(store, threadId);
+      if (abortIfCancelled(threadId, runId)) return { runId };
+
       // #320: the worktree's direnv env, which withProjectEnv layers into
       // the spawn. After setup, since setup may be what writes the .envrc.
       if (projectForGate && !isRemoteProject(projectForGate)) {
