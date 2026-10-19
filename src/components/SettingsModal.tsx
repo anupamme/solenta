@@ -120,8 +120,8 @@ const PANE_META: Record<
   },
   advanced: {
     label: "Advanced",
-    hint: "Guardrails, telemetry export, and importing Vibe Kanban boards.",
-    keywords: "guardrails safety security protection tools secrets injection otel opentelemetry otlp traces headers vibe kanban import",
+    hint: "Guardrails, the privacy gateway, telemetry export, and importing Vibe Kanban boards.",
+    keywords: "guardrails safety security protection tools secrets injection privacy gateway redact redaction pii personal data email otel opentelemetry otlp traces headers vibe kanban import",
   },
 };
 
@@ -756,6 +756,7 @@ export function SettingsModal({
           {pane === "advanced" && (
           <AdvancedPane
             settings={settings}
+            providers={providers}
             saving={saving}
             error={error}
             setError={setError}

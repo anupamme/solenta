@@ -709,12 +709,39 @@ export const ThreadCard = memo(function ThreadCard({
               <a
                 className={styles.prLink}
                 data-pr-badge=""
+                data-pr-state={thread.prState?.toLowerCase()}
+                title={
+                  thread.prState
+                    ? `PR #${thread.prNumber} ${thread.prState.toLowerCase()}`
+                    : undefined
+                }
                 href={thread.prUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => e.stopPropagation()}
               >
+                <svg
+                  width="10"
+                  height="10"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="4" cy="3.5" r="1.5" />
+                  <circle cx="4" cy="12.5" r="1.5" />
+                  <circle cx="12" cy="12.5" r="1.5" />
+                  <path
+                    d={
+                      thread.prState === "MERGED"
+                        ? "M4 5v6M4 5c0 4 8 3 8 6"
+                        : "M4 5v6M12 11V6a2 2 0 0 0-2-2H8"
+                    }
+                  />
+                </svg>
                 #{thread.prNumber}
               </a>
             )}

@@ -91,6 +91,7 @@ import type {
   StayAwakeMode,
   StayAwakeStatus,
   ThreadDetail,
+  ThreadBudget,
   ThreadInfo,
   ThreadMessagePin,
   ThreadSummariesInput,
@@ -459,6 +460,14 @@ export interface UseCoderResult {
     title: string,
     body: string,
   ) => Promise<CreateIssueResult>;
+  /**
+   * Set or clear (null) the thread's hard budget cap (#286). Throws on a
+   * rejected value so the editor can show it inline.
+   */
+  setThreadBudget: (
+    threadId: string,
+    budget: ThreadBudget | null,
+  ) => Promise<void>;
   /** Record the one-tap felt estimate (issue #401); savedMs null = declined. */
   setFeltEstimate: (
     threadId: string,
@@ -1626,6 +1635,7 @@ export function useCoder(): UseCoderResult {
     refreshWorkerSnapshot,
     resolveSuggestion,
     setFeltEstimate,
+    setThreadBudget,
     startSpec,
     stopSpec,
     reviewSpec,
@@ -2184,6 +2194,7 @@ export function useCoder(): UseCoderResult {
     refreshWorkerSnapshot,
     resolveSuggestion,
     setFeltEstimate,
+    setThreadBudget,
     startSpec,
     stopSpec,
     reviewSpec,

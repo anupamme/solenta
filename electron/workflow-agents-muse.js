@@ -161,7 +161,7 @@ function spawnAgentMuse(opts) {
     binary: spawn.binary,
     args: spawn.args,
     cwd: spawn.cwd,
-    env: withProjectEnv(project, museEnv),
+    env: withProjectEnv(project, museEnv, cwd),
     onEvent: (ev) => {
       gotJson = true;
       if (!ev || typeof ev !== "object") return;

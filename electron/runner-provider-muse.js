@@ -380,7 +380,7 @@ function createMuseRun(ctx) {
       binary: spawn.binary,
       args: spawn.args,
       cwd: spawn.cwd,
-      env: threadSecrets.withEnv(threadId, withProjectEnv(project, museEnv)),
+      env: threadSecrets.withEnv(threadId, withProjectEnv(project, museEnv, localCwd)),
       onEvent: (ev) => {
         if (!guard()) return;
 

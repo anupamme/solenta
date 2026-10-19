@@ -1581,6 +1581,66 @@ describe("runner claude provider", () => {
     }
   });
 
+  it("a pending approval survives an app restart and Allow resumes it once (#349)", async () => {
+    process.env.CODER_FAKE_CLAUDE_SCENARIO = "permission";
+    const ctrlFile = path.join(tmpDir, "ctrl-restart.json");
+    process.env.CODER_FAKE_CLAUDE_CTRL_FILE = ctrlFile;
+    try {
+      const thread = store.getThreads()[0];
+      await runner.startRun({ threadId: thread.id, prompt: "guarded work" });
+      await waitFor(() => runner.getPendingPermission(thread.id) != null);
+      const asked = runner.getPendingPermission(thread.id);
+
+      // Quit, then boot a fresh store + runner from what reached disk.
+      runner.stopAll();
+      store = new Store(path.join(tmpDir, "store.json"));
+      runner = createRunner({ store, core, pushFn: () => {}, tickMs: 15, userDataPath: tmpDir });
+
+      const restored = runner.getPendingPermission(thread.id);
+      assert.equal(restored.requestId, asked.requestId);
+      assert.equal(restored.summary, "Bash: npm test");
+      assert.equal(restored.command, "npm test");
+      assert.equal(restored.restored, true);
+      assert.equal(restored.acceptAlways, false);
+      assert.equal(store.getThread(thread.id).awaitingInput, true);
+
+      runner.respondPermission({ threadId: thread.id, requestId: asked.requestId, decision: "allow" });
+      // The resume turn's re-ask of the same call passes without a card.
+      await waitFor(() => fs.existsSync(ctrlFile));
+      await waitFor(() => store.getThread(thread.id).status === "done");
+      const ctrl = JSON.parse(fs.readFileSync(ctrlFile, "utf8"));
+      assert.equal(ctrl.response.response.behavior, "allow");
+      assert.equal(runner.getPendingPermission(thread.id), null);
+      const t = store.getThread(thread.id);
+      assert.equal(t.pendingApproval, null);
+      assert.equal(t.restartGrant, null);
+      assert.equal(t.awaitingInput, false);
+      const msgs = store.getMessages(thread.id);
+      assert.ok(msgs.some((m) => m.role === "event" && m.text === "Allowed after restart: Bash: npm test"));
+      assert.ok(msgs.some((m) => m.role === "user" && m.text.startsWith("[restart] The app restarted while Bash: npm test")));
+    } finally {
+      delete process.env.CODER_FAKE_CLAUDE_CTRL_FILE;
+    }
+  });
+
+  it("Deny on a restored approval closes it without starting a turn (#349)", async () => {
+    process.env.CODER_FAKE_CLAUDE_SCENARIO = "permission";
+    const thread = store.getThreads()[0];
+    await runner.startRun({ threadId: thread.id, prompt: "guarded work" });
+    await waitFor(() => runner.getPendingPermission(thread.id) != null);
+    runner.stopAll();
+    store = new Store(path.join(tmpDir, "store.json"));
+    runner = createRunner({ store, core, pushFn: () => {}, tickMs: 15, userDataPath: tmpDir });
+
+    const restored = runner.getPendingPermission(thread.id);
+    runner.respondPermission({ threadId: thread.id, requestId: restored.requestId, decision: "deny" });
+    assert.equal(runner.getPendingPermission(thread.id), null);
+    assert.equal(runner.isRunning(thread.id), false);
+    const t = store.getThread(thread.id);
+    assert.equal(t.awaitingInput, false);
+    assert.ok(!t.restartGrant);
+  });
+
   it("approving an edited command runs the edit, not the original (#509)", async () => {
     process.env.CODER_FAKE_CLAUDE_SCENARIO = "permission";
     const ctrlFile = path.join(tmpDir, "ctrl-edit.json");

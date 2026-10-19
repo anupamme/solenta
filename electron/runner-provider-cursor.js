@@ -346,7 +346,7 @@ function createCursorRun(ctx) {
       binary: spawn.binary,
       args: spawn.args,
       cwd: spawn.cwd,
-      env: threadSecrets.withEnv(threadId, withProjectEnv(project, cursorEnv)),
+      env: threadSecrets.withEnv(threadId, withProjectEnv(project, cursorEnv, localCwd)),
       onEvent: (ev) => {
         // Cursor does not keep the CLI alive between turns, but a background
         // Task can finish via <task-notification> instead of tool_call/completed

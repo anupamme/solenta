@@ -44,7 +44,7 @@ type PrMergeOpts = {
   auto?: boolean;
 };
 
-function coderGit(): CoderApi["git"] | undefined {
+export function coderGit(): CoderApi["git"] | undefined {
   if (typeof window === "undefined") return undefined;
   return (window as unknown as { coder?: CoderApi }).coder?.git;
 }

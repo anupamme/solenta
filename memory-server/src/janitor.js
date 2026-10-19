@@ -344,7 +344,7 @@ export function autoResolveQueue(db, now = Date.now()) {
 }
 
 /**
- * Maintenance: access-count evidence decay, orphan cleanup, session prune, health snapshot.
+ * Maintenance: orphan cleanup, session prune, health snapshot.
  * @param {import('node:sqlite').DatabaseSync} db
  * @returns {{ liveEntries: number, entityCount: number, edgeCount: number, sessionCount: number, prunedLastRun: number, queuedContradictions: number, lastRun: string }}
  */
@@ -367,15 +367,8 @@ export function runJanitor(db) {
   }
   db.exec('BEGIN')
   try {
-    // (a) access-count evidence decay: *0.98, integer floor, only rows that shrink, never below 0
-    step('decay', () =>
-      db.exec(`
-        UPDATE entries
-        SET access_count = CAST(access_count * 0.98 AS INTEGER)
-        WHERE CAST(access_count * 0.98 AS INTEGER) < access_count
-          AND CAST(access_count * 0.98 AS INTEGER) >= 0
-      `),
-    )
+    // No access_count decay here: ranking owns the single decay (rank_decay on
+    // updated_at, #311), and usage_boost is already log-capped.
 
     // (b) orphan cleanup: mentions/edges pointing at missing entries or entities.
     // NOT EXISTS (not NOT IN): a single NULL id in the subquery makes NOT IN

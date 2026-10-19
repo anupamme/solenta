@@ -137,6 +137,14 @@ const inclusionMode = z
 const inclusionGlobs = z
   .array(z.string().min(1))
   .describe('Repo-relative globs for inclusion glob, e.g. "electron/**/*.js"; a slash-less glob matches basenames')
+const staleAfterDays = z
+  .number()
+  .int()
+  .min(1)
+  .max(3650)
+  .describe(
+    'Freshness horizon for facts that change (versions, prices, owners): full rank for this many days after the last write, then ranked as stale. Superseding restarts it. Omit for facts that stay true until contradicted.',
+  )
 const citationSchema = z.object({
   kind: z.enum(['file', 'thread', 'commit']),
   path: z.string().optional(),
@@ -215,6 +223,7 @@ export function buildServer(memory, opts = {}) {
         citations: z.array(citationSchema).optional(),
         inclusion: inclusionMode.optional(),
         globs: inclusionGlobs.optional(),
+        staleAfterDays: staleAfterDays.optional(),
       },
     },
     // #409: source is set here, not by the caller. An agent that could label
@@ -289,6 +298,7 @@ export function buildServer(memory, opts = {}) {
         citations: z.array(citationSchema).optional(),
         inclusion: inclusionMode.optional(),
         globs: inclusionGlobs.optional(),
+        staleAfterDays: staleAfterDays.optional(),
       },
     },
     async (args) => {
@@ -755,8 +765,7 @@ async function handleApi(req, res, url, memory) {
  * @returns {Promise<http.Server>}
  */
 export function startServer(memory, config, host = '127.0.0.1', configFile) {
-  // The Memory constructor already ran the janitor once; running it again
-  // here would double-decay access counts on every boot.
+  // The Memory constructor already ran the janitor once; no second run here.
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://${host}`)

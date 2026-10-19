@@ -140,9 +140,9 @@ describe('trust ranking + maintenance', () => {
     const fixedIso = new Date(fixedMs).toISOString()
     memory.db
       .prepare(
-        `UPDATE entries SET created_at = ?, last_accessed_at = NULL, access_count = 0, agent = NULL WHERE id = ?`,
+        `UPDATE entries SET created_at = ?, updated_at = ?, last_accessed_at = NULL, access_count = 0, agent = NULL WHERE id = ?`,
       )
-      .run(fixedIso, id)
+      .run(fixedIso, fixedIso, id)
 
     const realNow = Date.now
     Date.now = () => fixedMs
@@ -151,11 +151,13 @@ describe('trust ranking + maintenance', () => {
         .prepare(
           `SELECT
              (e.importance / 3.0)
-               * rank_decay(COALESCE(e.last_accessed_at, e.created_at))
+               * rank_decay(e.updated_at, e.stale_after_days)
+               * recency_boost(e.last_accessed_at)
                * usage_boost(e.access_count, COALESCE(e.helpful_count, 0), COALESCE(e.harmful_count, 0))
                AS baseline,
              (e.importance / 3.0)
-               * rank_decay(COALESCE(e.last_accessed_at, e.created_at))
+               * rank_decay(e.updated_at, e.stale_after_days)
+               * recency_boost(e.last_accessed_at)
                * usage_boost(e.access_count, COALESCE(e.helpful_count, 0), COALESCE(e.harmful_count, 0))
                * agent_trust(e.agent)
                AS with_trust

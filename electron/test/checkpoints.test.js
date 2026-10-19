@@ -16,6 +16,7 @@ const services = require("../services.js");
 const {
   setupWorktree,
   maybeCreateCheckpoint,
+  snapshotBeforeTurn,
   listCheckpoints,
   restoreCheckpoint,
   CHECKPOINT_SUBJECT_PREFIX,
@@ -733,9 +734,10 @@ describe("runner auto-checkpoint on successful turn", () => {
     });
     assert.equal(list.length, 1, "clean success must not add a checkpoint");
 
-    // Failed turn with dirty tree still does not checkpoint (only done path).
-    process.env.CODER_AGENT_CMD = `${process.execPath} -e ${fakeAgentFailScript()}`;
-    fs.writeFileSync(path.join(fx.worktreePath, "fail-edit.txt"), "x\n");
+    // A failed turn's own edits are not checkpointed (only done path). The
+    // agent writes the file: a pre-run edit would get the #321 pre-turn
+    // snapshot.
+    process.env.CODER_AGENT_CMD = `${process.execPath} -e require('fs').writeFileSync('fail-edit.txt','x');${fakeAgentFailScript()}`;
     await runner.startRun({
       threadId: fx.thread.id,
       prompt: "will fail",
@@ -750,6 +752,47 @@ describe("runner auto-checkpoint on successful turn", () => {
       threadId: fx.thread.id,
     });
     assert.equal(list.length, 1, "failed turn must not checkpoint");
+    assert.ok(fs.existsSync(path.join(fx.worktreePath, "fail-edit.txt")));
+  });
+
+  it("snapshots uncommitted work before an agent that resets and cleans (#321)", async () => {
+    const wt = fx.worktreePath;
+    fs.writeFileSync(path.join(wt, "README.md"), "hand edit\n");
+    fs.writeFileSync(path.join(wt, "untracked.txt"), "scratch\n");
+    process.env.CODER_AGENT_CMD = `${process.execPath} -e const{execFileSync:x}=require('child_process');x('git',['reset','--hard']);x('git',['clean','-fd']);process.exit(0)`;
+
+    await runner.startRun({ threadId: fx.thread.id, prompt: "wipe it" });
+    await waitFor(() => {
+      const t = fx.store.getThread(fx.thread.id);
+      return t && t.status === "done" && !runner.isRunning(fx.thread.id);
+    });
+
+    const [snap] = await listCheckpoints({ store: fx.store, threadId: fx.thread.id });
+    assert.ok(snap, "pre-turn snapshot exists");
+    assert.equal(git(wt, ["show", `${snap.sha}:README.md`]), "hand edit");
+    assert.equal(git(wt, ["show", `${snap.sha}:untracked.txt`]), "scratch");
+    // The reset ran against the snapshot, so the work is still on disk too.
+    assert.equal(fs.readFileSync(path.join(wt, "README.md"), "utf8"), "hand edit\n");
+  });
+});
+
+describe("snapshotBeforeTurn", () => {
+  it("skips a worktree mid-merge so conflict markers are not committed", async () => {
+    const fx = await makeWorktreeFixture();
+    try {
+      const wt = fx.worktreePath;
+      fs.writeFileSync(path.join(wt, "README.md"), "<<<<<<< ours\n");
+      const gitDir = path.resolve(wt, git(wt, ["rev-parse", "--git-dir"]));
+      fs.writeFileSync(path.join(gitDir, "MERGE_HEAD"), `${git(wt, ["rev-parse", "HEAD"])}\n`);
+      assert.equal(await snapshotBeforeTurn(fx.store, fx.thread.id), null);
+      assert.match(git(wt, ["status", "--porcelain"]), /README\.md/);
+
+      fs.rmSync(path.join(gitDir, "MERGE_HEAD"));
+      const snap = await snapshotBeforeTurn(fx.store, fx.thread.id);
+      assert.ok(snap && snap.sha);
+    } finally {
+      await rmTree(fx.tmpDir);
+    }
   });
 });
 
