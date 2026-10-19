@@ -64,6 +64,63 @@ describe("DevServerCard", () => {
     m.unmount();
   });
 
+  it("shows readiness probe state while waiting, failed and ready (#282)", async () => {
+    let current: DevServerState = {
+      running: true,
+      script: "dev",
+      startedAt: Date.now(),
+      probe: { kind: "tcp", target: "localhost:5173", status: "waiting", lastError: "ECONNREFUSED" },
+    };
+    const m = await mount(
+      <DevServerCard
+        threadId="t1"
+        listDevScripts={async () => ["dev"]}
+        startDevServer={async () => current}
+        stopDevServer={async () => ({ running: false })}
+        devServerStatus={async () => current}
+      />,
+    );
+    await m.flush();
+    const line = () => m.query("[data-dev-server-probe]");
+    assert.equal(line()?.getAttribute("data-dev-server-probe"), "waiting");
+    assert.equal(line()?.textContent, "Waiting for tcp localhost:5173 (ECONNREFUSED)");
+    assert.equal(m.query("[data-dev-server-url]"), null);
+    m.unmount();
+
+    current = { ...current, probe: { status: "failed", lastError: "solenta.json: devServer.ready needs exactly one of tcp, http, exec" } };
+    const failed = await mount(
+      <DevServerCard
+        threadId="t1"
+        listDevScripts={async () => ["dev"]}
+        startDevServer={async () => current}
+        stopDevServer={async () => ({ running: false })}
+        devServerStatus={async () => current}
+      />,
+    );
+    await failed.flush();
+    assert.match(failed.query("[data-dev-server-probe]")?.textContent || "", /^Not ready: solenta\.json/);
+    failed.unmount();
+
+    current = {
+      ...current,
+      url: "http://localhost:5173/",
+      probe: { kind: "tcp", target: "localhost:5173", status: "ready", readyAt: Date.now() },
+    };
+    const ready = await mount(
+      <DevServerCard
+        threadId="t1"
+        listDevScripts={async () => ["dev"]}
+        startDevServer={async () => current}
+        stopDevServer={async () => ({ running: false })}
+        devServerStatus={async () => current}
+      />,
+    );
+    await ready.flush();
+    assert.equal(ready.query("[data-dev-server-probe]")?.textContent, "Ready tcp localhost:5173");
+    assert.ok(ready.query("[data-dev-server-url]"));
+    ready.unmount();
+  });
+
   it("shows the last log line when start fails", async () => {
     const m = await mount(
       <DevServerCard

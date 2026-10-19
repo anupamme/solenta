@@ -385,3 +385,124 @@ describe("start spawn shape", () => {
   });
 });
 
+
+describe("readiness probes (#282)", () => {
+  const { parseReadyProbe, status } = require("../devservers.js");
+  const net = require("node:net");
+  const http = require("node:http");
+  const { spawn: realSpawn } = require("node:child_process");
+
+  it("parses tcp, http and exec probes, expanding $PORT from the server env", () => {
+    const env = { PORT: "4100" };
+    const ready = (r) => parseReadyProbe({ devServer: { ready: r } }, env);
+    assert.equal(parseReadyProbe({}, env), null);
+    assert.equal(parseReadyProbe({ devServer: {} }, env), null);
+    assert.deepEqual(ready({ tcp: 5173 }), { kind: "tcp", target: "localhost:5173", timeoutMs: 120_000 });
+    assert.deepEqual(ready({ tcp: "$PORT", timeoutMs: 5000 }), { kind: "tcp", target: "localhost:4100", timeoutMs: 5000 });
+    assert.equal(ready({ http: "http://127.0.0.1:${PORT}/health" }).target, "http://127.0.0.1:4100/health");
+    assert.deepEqual(ready({ exec: " test -f /tmp/ready " }), { kind: "exec", target: "test -f /tmp/ready", timeoutMs: 120_000 });
+  });
+
+  it("rejects ambiguous, remote and unresolvable probes", () => {
+    const ready = (r, env = {}) => parseReadyProbe({ devServer: { ready: r } }, env);
+    assert.match(ready({ tcp: 1, exec: "true" }).error, /exactly one/);
+    assert.match(ready({}).error, /exactly one/);
+    assert.match(ready({ http: "http://example.com:80/" }).error, /localhost/);
+    assert.match(ready({ tcp: "$PORT" }).error, /PORT is not set/);
+    assert.match(ready({ tcp: 70000 }).error, /port/);
+    assert.match(ready({ exec: "" }).error, /exec/);
+    assert.match(ready({ tcp: 1, timeoutMs: 5 }).error, /timeoutMs/);
+  });
+
+  // A real, killable process group: stop() signals -pid.
+  const liveSpawn = (_bin, _args, opts) =>
+    realSpawn(process.execPath, ["-e", "console.log(`Local: http://localhost:${process.env.PORT}/`); setInterval(() => {}, 1e3)"], opts);
+
+  async function until(threadId, pred) {
+    for (let i = 0; i < 200; i += 1) {
+      const s = status(threadId);
+      if (pred(s)) return s;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    return assert.fail(`timed out: ${JSON.stringify(status(threadId))}`);
+  }
+
+  async function freePort() {
+    const srv = net.createServer();
+    await new Promise((r) => srv.listen(0, "127.0.0.1", r));
+    const { port } = srv.address();
+    await new Promise((r) => srv.close(r));
+    return port;
+  }
+
+  function repoWith(ready) {
+    const root = tmpDir();
+    fs.writeFileSync(path.join(root, "solenta.json"), JSON.stringify({ devServer: { ready } }));
+    return root;
+  }
+
+  it("tcp: waits, hides the logged URL, then goes ready once the port accepts", async () => {
+    const port = await freePort();
+    const root = repoWith({ tcp: "$PORT" });
+    const first = start("t-probe-tcp", root, "dev", {
+      env: { PORT: String(port) }, spawn: liveSpawn, probeIntervalMs: 20,
+    });
+    try {
+      assert.equal(first.probe.status, "waiting");
+      assert.equal(first.probe.target, `localhost:${port}`);
+      const waiting = await until("t-probe-tcp", (s) => s.lastLines && s.probe.lastError);
+      assert.equal(waiting.probe.status, "waiting");
+      assert.equal(waiting.url, undefined, "url stays hidden until the probe passes");
+      const srv = net.createServer().listen(port, "127.0.0.1");
+      try {
+        const ready = await until("t-probe-tcp", (s) => s.probe.status === "ready");
+        assert.equal(ready.url, `http://localhost:${port}/`);
+        assert.ok(ready.probe.readyAt);
+      } finally {
+        srv.close();
+      }
+    } finally {
+      stop("t-probe-tcp");
+    }
+  });
+
+  it("exec: ready once the command exits 0 in the server root", { skip: process.platform === "win32" }, async () => {
+    const root = repoWith({ exec: "test -f ready.flag" });
+    start("t-probe-exec", root, "dev", { env: { PORT: "1" }, spawn: liveSpawn, probeIntervalMs: 20 });
+    try {
+      await until("t-probe-exec", (s) => s.probe.lastError);
+      fs.writeFileSync(path.join(root, "ready.flag"), "");
+      await until("t-probe-exec", (s) => s.probe.status === "ready");
+    } finally {
+      stop("t-probe-exec");
+    }
+  });
+
+  it("http: a 503 never passes and the probe fails after timeoutMs", async () => {
+    const srv = http.createServer((_req, res) => res.writeHead(503).end()).listen(0, "127.0.0.1");
+    await new Promise((r) => srv.once("listening", r));
+    const { port } = srv.address();
+    const root = repoWith({ http: "http://127.0.0.1:$PORT/health", timeoutMs: 1000 });
+    start("t-probe-http", root, "dev", { env: { PORT: String(port) }, spawn: liveSpawn, probeIntervalMs: 20 });
+    try {
+      const failed = await until("t-probe-http", (s) => s.probe.status === "failed");
+      assert.equal(failed.probe.lastError, "HTTP 503");
+      assert.equal(failed.running, true, "a failed probe does not kill the server");
+      assert.equal(failed.url, undefined);
+    } finally {
+      stop("t-probe-http");
+      srv.close();
+    }
+  });
+
+  it("an invalid declaration fails at start instead of hanging in waiting", () => {
+    const root = repoWith({ tcp: "$NOPE_UNSET_VAR" });
+    const s = start("t-probe-bad", root, "dev", { env: { PORT: "1" }, spawn: liveSpawn });
+    try {
+      assert.equal(s.probe.status, "failed");
+      assert.match(s.probe.lastError, /NOPE_UNSET_VAR is not set/);
+    } finally {
+      stop("t-probe-bad");
+    }
+  });
+});

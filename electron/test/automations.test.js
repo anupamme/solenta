@@ -14,6 +14,9 @@ const {
   runNow,
   listAutomationRuns,
   MAX_THREADS_PER_AUTOMATION,
+  STAGE_MS,
+  graduatedStage,
+  buildRunPrompt,
 } = require("../automations.js");
 
 function at(y, m, d, h, min = 0, s = 0, ms = 0) {
@@ -133,6 +136,51 @@ describe("dueAutomations", () => {
   it("returns [] for a missing list", () => {
     assert.deepEqual(dueAutomations(null, now), []);
     assert.deepEqual(dueAutomations(undefined, now), []);
+  });
+});
+
+describe("calibration lifecycle (#388)", () => {
+  const now = at(2026, 5, 10, 12, 0, 0);
+  const ready = {
+    stage: "observe",
+    graduate: true,
+    stageSince: now - STAGE_MS,
+    lastRunAt: now - 1000,
+    consecutiveFailures: 0,
+    pendingRunThreadId: null,
+  };
+
+  it("graduates one stage once the stage has earned it", () => {
+    assert.deepEqual(graduatedStage(ready, now), { stage: "draft", stageSince: now });
+    assert.deepEqual(graduatedStage({ ...ready, stage: "draft" }, now), {
+      stage: "act",
+      stageSince: now,
+    });
+    assert.equal(graduatedStage({ ...ready, stage: "act" }, now).stage, "act");
+  });
+
+  it("holds the stage when time, a run, health, or opt-in is missing", () => {
+    const held = (patch) => graduatedStage({ ...ready, ...patch }, now).stage;
+    assert.equal(held({ stageSince: now - STAGE_MS + 1 }), "observe");
+    assert.equal(held({ lastRunAt: null }), "observe");
+    assert.equal(held({ lastRunAt: ready.stageSince - 1 }), "observe");
+    assert.equal(held({ consecutiveFailures: 1 }), "observe");
+    assert.equal(held({ pendingRunThreadId: "t1" }), "observe");
+    assert.equal(held({ graduate: false }), "observe");
+  });
+
+  it("starts the clock on a missing stageSince; unknown stages act", () => {
+    assert.deepEqual(graduatedStage({ stage: "observe" }, now), {
+      stage: "observe",
+      stageSince: now,
+    });
+    assert.equal(graduatedStage({}, now).stage, "act");
+  });
+
+  it("only observe and draft add a guardrail to the prompt", () => {
+    assert.match(buildRunPrompt({ prompt: "p", stage: "observe" }), /Change nothing/);
+    assert.match(buildRunPrompt({ prompt: "p", stage: "draft" }), /gh pr create --draft/);
+    assert.doesNotMatch(buildRunPrompt({ prompt: "p", stage: "act" }), /Automation stage/);
   });
 });
 
@@ -299,7 +347,11 @@ describe("automation CRUD + scheduler", () => {
     }
 
     assert.equal(started.length, 1);
-    assert.match(started[0].prompt, /^do the thing\n\n\[Automation memory\]/);
+    // #388: a new automation's first fires are report-only.
+    assert.match(
+      started[0].prompt,
+      /^do the thing\n\n\[Automation stage: observe\][^\n]*\n\n\[Automation memory\]/,
+    );
     const thread = store.getThreads()[0];
     assert.ok(thread);
     assert.equal(thread.title, "Hourly sweep");
@@ -520,6 +572,72 @@ describe("automation CRUD + scheduler", () => {
     assert.equal(after.consecutiveFailures, 0);
     assert.equal(after.pendingRunThreadId, null);
     assert.equal(settleAutomationRuns({ store }), false);
+  });
+
+  it("graduates observe to draft through tick and settle (#388)", async () => {
+    const created = services.addAutomation(store, {
+      projectId: "p1",
+      name: "Calibrating",
+      prompt: "go",
+      provider: "claude",
+      preset: "hourly",
+    });
+    assert.equal(created.stage, "observe");
+    assert.equal(created.graduate, true);
+    let clock = Date.now();
+    const prompts = [];
+    const sched = startScheduler({
+      store,
+      runner: {
+        startRun: async (input) => {
+          prompts.push(input.prompt);
+          store.updateThread(input.threadId, { status: "done" });
+          return { runId: "r" };
+        },
+      },
+      intervalMs: 60 * 60 * 1000,
+      now: () => clock,
+    });
+    const makeDue = () =>
+      store.setAutomations([
+        { ...store.getAutomation(created.id), nextRunAt: clock - 1 },
+      ]);
+    try {
+      makeDue();
+      await sched.tick();
+      clock += STAGE_MS;
+      makeDue();
+      await sched.tick();
+    } finally {
+      sched.stop();
+    }
+    assert.match(prompts[0], /\[Automation stage: observe\]/);
+    assert.match(prompts[1], /\[Automation stage: draft\]/);
+    const after = store.getAutomation(created.id);
+    assert.equal(after.stage, "draft");
+    assert.equal(after.stageSince, clock);
+  });
+
+  it("pre-#388 rows load as act; a hand-picked stage restarts the clock", () => {
+    store.setAutomations([
+      { id: "old", projectId: "p1", name: "Old", prompt: "go", provider: "claude", preset: "hourly" },
+    ]);
+    store.saveNow();
+    const reloaded = new Store(path.join(tmpDir, "store.json"));
+    assert.equal(reloaded.getAutomation("old").stage, "act");
+    const before = Date.now();
+    const updated = services.updateAutomation(reloaded, {
+      id: "old",
+      stage: "draft",
+      graduate: false,
+    });
+    assert.equal(updated.stage, "draft");
+    assert.equal(updated.graduate, false);
+    assert.ok(updated.stageSince >= before);
+    assert.throws(
+      () => services.updateAutomation(reloaded, { id: "old", stage: "yolo" }),
+      /Invalid stage/,
+    );
   });
 
   async function fireAuto(autoId) {

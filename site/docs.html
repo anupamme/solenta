@@ -1171,6 +1171,21 @@
         settle clean up the thread's managed dev server.
       </p>
       <p>
+        By default the server's URL is taken from its log. To wait for the
+        server to actually be up, declare a readiness probe in
+        <code>solenta.json</code>:
+        <code>{"devServer": {"ready": {"tcp": "$PORT"}}}</code>. A probe is
+        exactly one of <code>tcp</code> (a port), <code>http</code> (a
+        localhost URL that must answer 2xx or 3xx) or <code>exec</code> (a
+        command that must exit 0, such as <code>test -f /tmp/ready</code>).
+        <code>$PORT</code> and other variables come from the dev server's
+        environment, so each lane probes its own port. The Dev server card
+        shows the probe's state. The URL appears, and the Browser pane loads
+        it, only once the probe passes. If it hasn't passed by
+        <code>timeoutMs</code> (default 120000), the card shows the last
+        error and the server keeps running.
+      </p>
+      <p>
         Setup commands and quick actions keep their output in the
         transcript, so you can read, copy or attach it without running the
         command again. An <code>onSettle</code> entry in

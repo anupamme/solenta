@@ -13,6 +13,7 @@ import type {
   SubagentPool,
   OtelSettings,
   ModelPrice,
+  PrivacyGatewaySettings,
   WebhookSettings,
   ThreadInfo,
   WebAccessStatus,
@@ -71,6 +72,7 @@ export function createSettings(ctx: DevCtx): Pick<CoderApi, "settings" | "stayAw
   let guardrailsEnabled = true;
   let otel: OtelSettings = { endpoint: null, headers: {}, claudeMetrics: false };
   let modelPrices: Record<string, ModelPrice> = {};
+  let privacyGateway: PrivacyGatewaySettings = { default: "off", providers: {}, patterns: [] };
   let webhook: WebhookSettings = {
     url: null,
     onDone: true,
@@ -181,6 +183,7 @@ export function createSettings(ctx: DevCtx): Pick<CoderApi, "settings" | "stayAw
           otel: { ...otel, headers: { ...otel.headers } },
           webhook: { ...webhook },
           modelPrices: { ...modelPrices },
+          privacyGateway: { ...privacyGateway },
         }) as AppSettings;
       },
       async set(patch: Partial<AppSettings>): Promise<AppSettings> {
@@ -481,6 +484,9 @@ export function createSettings(ctx: DevCtx): Pick<CoderApi, "settings" | "stayAw
           // ponytail: the desktop store validates; the dev twin trusts the editor.
           modelPrices = { ...(patch.modelPrices ?? {}) };
         }
+        if (patch.privacyGateway) {
+          privacyGateway = { ...privacyGateway, ...patch.privacyGateway };
+        }
         return {
           dailyBudgetUsd: ctx.dailyBudgetUsd,
           orchestrationBudgetUsd,
@@ -523,6 +529,7 @@ export function createSettings(ctx: DevCtx): Pick<CoderApi, "settings" | "stayAw
           otel: { ...otel, headers: { ...otel.headers } },
           webhook: { ...webhook },
           modelPrices: { ...modelPrices },
+          privacyGateway: { ...privacyGateway },
         };
       },
       async testWebhook() {

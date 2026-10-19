@@ -308,6 +308,25 @@ function normalizeAutomationInput(store, input, existing) {
     : base.memory;
   const memory = memoryRaw != null ? String(memoryRaw).slice(0, MAX_MEMORY_CHARS) : "";
 
+  // #286: hard cap stamped on every thread this automation fires.
+  const { normalizeBudget } = require("./budgetCaps.js");
+  const budget = Object.prototype.hasOwnProperty.call(src, "budget")
+    ? normalizeBudget(src.budget, true)
+    : normalizeBudget(base.budget);
+
+  // #388: new automations start report-only and graduate on their own.
+  const { STAGES } = require("./automations.js");
+  const stageRaw = Object.prototype.hasOwnProperty.call(src, "stage")
+    ? src.stage
+    : base.stage;
+  const stage = stageRaw == null || stageRaw === "" ? "observe" : String(stageRaw);
+  if (!STAGES.includes(stage)) {
+    throw new Error(`Invalid stage: ${stage}. Expected observe, draft, or act`);
+  }
+  const graduate = Object.prototype.hasOwnProperty.call(src, "graduate")
+    ? src.graduate !== false
+    : base.graduate !== false;
+
   let scope;
   if (existing) {
     scope = existing.scope === "project" ? "project" : "private";
@@ -341,6 +360,9 @@ function normalizeAutomationInput(store, input, existing) {
     memory,
     tier,
     scope,
+    budget,
+    stage,
+    graduate,
   };
 }
 
@@ -433,6 +455,7 @@ const DEFINITION_KEYS = [
   "hour",
   "trigger",
   "tier",
+  "budget",
 ];
 
 /**
@@ -441,8 +464,8 @@ const DEFINITION_KEYS = [
  */
 function definitionChanged(fields, existing) {
   return DEFINITION_KEYS.some((key) => {
-    if (key === "trigger") {
-      return JSON.stringify(fields.trigger) !== JSON.stringify(existing.trigger || null);
+    if (key === "trigger" || key === "budget") {
+      return JSON.stringify(fields[key]) !== JSON.stringify(existing[key] || null);
     }
     return fields[key] !== existing[key];
   });
@@ -463,6 +486,7 @@ function definitionRow(fields, slug) {
     hour: fields.hour,
     trigger: fields.trigger || null,
     tier: fields.tier || null,
+    ...(fields.budget ? { budget: fields.budget } : {}),
   };
 }
 
@@ -520,6 +544,9 @@ function addAutomation(store, input) {
       tier: fields.tier || null,
       enabled: src.enabled !== false,
       memory: fields.memory,
+      stage: fields.stage,
+      graduate: fields.graduate,
+      stageSince: now,
       lastRunAt: null,
       nextRunAt: nextFire(fields.preset, fields.hour, now),
       lastError: null,
@@ -543,6 +570,7 @@ function addAutomation(store, input) {
   const created = {
     id: randomUUID(),
     ...fields,
+    stageSince: now,
     lastRunAt: null,
     nextRunAt: nextFire(fields.preset, fields.hour, now),
     lastError: null,
@@ -607,6 +635,8 @@ function updateAutomation(store, input) {
     ...fields,
     ...(reEnabled ? { consecutiveFailures: 0, lastError: null } : {}),
     ...(triggerChanged ? { triggerCursor: null } : {}),
+    // #388: a hand-picked stage restarts its graduation clock.
+    ...(fields.stage !== existing.stage ? { stageSince: Date.now() } : {}),
     nextRunAt: scheduleChanged
       ? nextFire(
           fields.preset,

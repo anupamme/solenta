@@ -84,27 +84,34 @@ function fromObject(value: unknown): AutomationCreateResult | null {
   };
 }
 
-/** Best-effort parse of the MCP JSON result (providers wrap it). */
-export function parseAutomationCreateResult(
+/** Best-effort parse of an MCP JSON tool result (providers wrap it). */
+export function parseToolJson<T>(
   output: string,
-): AutomationCreateResult | null {
+  pick: (value: unknown) => T | null,
+): T | null {
   const parsed = tryJson(output);
-  const direct = fromObject(parsed);
+  const direct = pick(parsed);
   if (direct) return direct;
   if (parsed && typeof parsed === "object") {
     const o = parsed as Record<string, unknown>;
     if (typeof o.text === "string") {
-      const inner = fromObject(tryJson(o.text));
+      const inner = pick(tryJson(o.text));
       if (inner) return inner;
     }
     if (Array.isArray(o.content)) {
       for (const block of o.content) {
         if (block && typeof block === "object" && typeof (block as { text?: unknown }).text === "string") {
-          const inner = fromObject(tryJson((block as { text: string }).text));
+          const inner = pick(tryJson((block as { text: string }).text));
           if (inner) return inner;
         }
       }
     }
   }
   return null;
+}
+
+export function parseAutomationCreateResult(
+  output: string,
+): AutomationCreateResult | null {
+  return parseToolJson(output, fromObject);
 }
