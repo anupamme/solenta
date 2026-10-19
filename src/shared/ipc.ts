@@ -3650,6 +3650,22 @@ export interface AppSettings {
    * own cost (Claude's total_cost_usd) always wins. Whole-map replace on set.
    */
   modelPrices?: Record<string, ModelPrice>;
+  /**
+   * Privacy gateway (#295): redaction applied to every prompt Solenta hands a
+   * provider CLI. Per-provider level, falling back to `default`; absent or
+   * junk heals to everything off. Merged on set.
+   */
+  privacyGateway?: PrivacyGatewaySettings;
+}
+
+export type PrivacyLevel = "off" | "secrets" | "strict";
+
+export interface PrivacyGatewaySettings {
+  default: PrivacyLevel;
+  /** Provider id → level. Missing ids use `default`. */
+  providers: Record<string, PrivacyLevel>;
+  /** Extra regexes (JavaScript syntax), redacted at the strict level. */
+  patterns: string[];
 }
 
 /** USD per million tokens. Cache reads/writes fall back to `input`. */

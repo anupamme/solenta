@@ -36,6 +36,7 @@ import { noticeRest, workerResults, type WorkerResult } from "../../workerResult
 import { captureCiteFromSelection, type ReplyTarget } from "../../replyContext";
 import { htmlFromToolOutput } from "../../htmlPage";
 import { Markdown } from "../Markdown";
+import { redactDisplay } from "../../redactDisplay";
 import { lazyNamed } from "../../lazyNamed";
 
 // lazyNamed, not lazy: mount() preloads it, so tests never suspend on it.
@@ -154,7 +155,7 @@ function ToolCallCard({
         data-message-id={message.id}
         data-stream-in={entered ? "" : undefined}
       >
-        <p>{message.text}</p>
+        <p>{redactDisplay(message.text)}</p>
       </article>
     );
   }
@@ -193,7 +194,7 @@ function ToolCallCard({
           <span className={styles.toolName}>{tool.name}</span>
         </button>
         <span className={styles.toolSummary}>
-          <PathText text={message.text} />
+          <PathText text={redactDisplay(message.text)} />
         </span>
         <span className={styles.chevron} data-open={open} aria-hidden="true">
           <svg
@@ -213,13 +214,13 @@ function ToolCallCard({
       {open && (
         <div className={styles.toolBody}>
           <pre className={styles.toolPre}>
-            <PathText text={tool.input} />
+            <PathText text={redactDisplay(tool.input)} />
           </pre>
           {tool.output != null && tool.output !== "" && (
             <>
               <div className={styles.toolDivider} />
               <pre className={styles.toolPre}>
-                <PathText text={tool.output} />
+                <PathText text={redactDisplay(tool.output)} />
               </pre>
             </>
           )}
@@ -299,7 +300,7 @@ function ThinkingCard({
   const [entered] = useState(Boolean(animateIn));
   const open = manual ?? autoExpand;
   const status: "running" | "done" = autoExpand ? "running" : "done";
-  const firstLine = message.text.split(/\r?\n/, 1)[0] ?? "";
+  const firstLine = redactDisplay(message.text.split(/\r?\n/, 1)[0] ?? "");
 
   return (
     <section
@@ -348,7 +349,7 @@ function ThinkingCard({
       {open && (
         <div className={styles.toolBody}>
           <pre className={styles.toolPre}>
-            <PathText text={message.text} />
+            <PathText text={redactDisplay(message.text)} />
           </pre>
         </div>
       )}
@@ -414,7 +415,7 @@ export function ToolGroupRow({
           open={open}
           onToggle={onToggle}
         >
-          {label}
+          {redactDisplay(label)}
         </StepLine>
       )}
       {open &&
@@ -606,7 +607,7 @@ function CommandResultEvent({
     >
       <div className={styles.eventRow}>
         <StepLine icon="tool" open={open} onToggle={() => setOpen((v) => !v)}>
-          {summary}
+          {redactDisplay(summary)}
         </StepLine>
         <span className={styles.commandActions}>
           <button
@@ -647,7 +648,7 @@ function CommandResultEvent({
           className={`${styles.toolPre} ${styles.commandOutput}`}
           data-command-output=""
         >
-          {result.log || (result.running ? "…" : "(no output)")}
+          {redactDisplay(result.log) || (result.running ? "…" : "(no output)")}
         </pre>
       )}
     </section>
@@ -1001,7 +1002,7 @@ const UserMessageBlock = memo(function UserMessageBlock({
               <span>{label}</span>
             )}
           </div>
-          <div className={styles.inboundBody}>{message.text}</div>
+          <div className={styles.inboundBody}>{redactDisplay(message.text)}</div>
         </div>
       </article>
     );
@@ -1019,7 +1020,7 @@ const UserMessageBlock = memo(function UserMessageBlock({
         <div className={styles.inboundCard}>
           {rest && (
             <div className={styles.inboundBody} data-worker-result-rest="">
-              {rest}
+              {redactDisplay(rest)}
             </div>
           )}
           {results.map((r) => (
@@ -1032,7 +1033,7 @@ const UserMessageBlock = memo(function UserMessageBlock({
           ))}
           <details className={styles.workerActivity}>
             <summary className={styles.workerActivitySummary}>Full notice</summary>
-            <div className={styles.workerActivityBody}>{message.text}</div>
+            <div className={styles.workerActivityBody}>{redactDisplay(message.text)}</div>
           </details>
         </div>
       </article>
@@ -1068,7 +1069,7 @@ const UserMessageBlock = memo(function UserMessageBlock({
               className={styles.workerActivityBody}
               data-worker-activity-body=""
             >
-              {message.text}
+              {redactDisplay(message.text)}
             </div>
           </details>
           {canEdit && onRequestResubmit && (
@@ -1132,7 +1133,7 @@ const UserMessageBlock = memo(function UserMessageBlock({
                 Steered
               </div>
             )}
-            {message.text}
+            {redactDisplay(message.text)}
             {message.attachments && message.attachments.length > 0 && (
               <TranscriptAttachments
                 attachments={message.attachments}
@@ -1388,7 +1389,7 @@ export const MessageBlock = memo(function MessageBlock({
               kickoff && eventBody ? () => setEventOpen((v) => !v) : undefined
             }
           >
-            {eventHead}
+            {redactDisplay(eventHead ?? "")}
           </StepLine>
           {eventActionLabel && onEventAction && (
             <button
@@ -1402,7 +1403,7 @@ export const MessageBlock = memo(function MessageBlock({
           )}
         </div>
         {eventBody && (eventOpen || !kickoff) ? (
-          <div className={styles.eventTitle}>{eventBody}</div>
+          <div className={styles.eventTitle}>{redactDisplay(eventBody)}</div>
         ) : null}
       </section>
     );
@@ -1424,7 +1425,7 @@ export const MessageBlock = memo(function MessageBlock({
       data-streaming={streaming ? "" : undefined}
     >
       <div data-cite-body="">
-        <Markdown text={message.text} streaming={streaming} />
+        <Markdown text={redactDisplay(message.text)} streaming={streaming} />
       </div>
       {streaming && (
         <span

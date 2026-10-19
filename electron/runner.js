@@ -22,6 +22,7 @@ const { createTurnSetup } = require("./runner-turn-setup.js");
 const { createSubagents } = require("./runner-subagents.js");
 const { createSessionRecording } = require("./runner-session-recording.js");
 const threadSecrets = require("./threadSecrets.js");
+const privacyGateway = require("./privacyGateway.js");
 const { createClaudeSessions } = require("./runner-claude-sessions.js");
 const { createVerifyGate } = require("./runner-verify-gate.js");
 const { createQuotaWait } = require("./runner-quota-wait.js");
@@ -2370,13 +2371,17 @@ function createRunner(opts) {
 
       // Native `/compact` goes out bare: Claude reads any trailing text as
       // summary instructions, and Codex swaps the turn for thread/compact/start.
-      const dispatchPrompt = isNativeCompactTurn(
+      const outbound = isNativeCompactTurn(
         provider,
         rawPrompt,
         dispatchThread.sessionId,
       )
         ? "/compact"
         : promptPrefix + pdfNote + bootNote;
+      // Last stop before the CLI (#295): everything above is in `outbound`.
+      const { text: dispatchPrompt, note: privacyNote } =
+        privacyGateway.filterOutbound(store.getSettings(), threadId, provider, outbound);
+      if (privacyNote) appendMessage(threadId, "event", privacyNote, runId);
 
       const name = workflowNameFromThreadId(threadId);
 
@@ -2552,7 +2557,12 @@ function createRunner(opts) {
       provider,
       attachments,
     });
-    const text = prompt + attachmentPromptSection(attachments) + pdfNote;
+    const { text, note: privacyNote } = privacyGateway.filterOutbound(
+      store.getSettings(),
+      threadId,
+      provider,
+      prompt + attachmentPromptSection(attachments) + pdfNote,
+    );
     // PDF extraction can outlast the run.
     if (active.get(threadId) !== entry || entry.stopping) {
       throw new Error("The run ended before the steer landed");
@@ -2577,6 +2587,7 @@ function createRunner(opts) {
       attachments,
       { steer: true, pdfText: Boolean(pdfNote) },
     );
+    if (privacyNote) appendMessage(threadId, "event", privacyNote, entry.runId);
     store.save();
     pushDetail(threadId, entry.claudeState || null);
     return { runId: entry.runId };
