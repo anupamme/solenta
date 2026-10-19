@@ -3,15 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Solenta - every agent starts where the last one stopped</title>
-  <meta name="description" content="One shared memory across every agent, and a planboard that is your GitHub issues. Agent six begins knowing what agents one through five already ruled out." />
+  <title>Solenta - run Claude Code, Codex and Cursor agents in parallel, with shared memory</title>
+  <meta name="description" content="Free, open-source desktop app for running AI coding agents in parallel: Claude Code, Codex, Cursor, OpenCode, Kimi and Grok, each in its own git worktree, sharing one local memory and a planboard that is your GitHub issues." />
   <link rel="canonical" href="https://solenta.app/" />
   <link rel="image_src" href="https://solenta.app/assets/card.png?v=4" />
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="Solenta" />
   <meta property="og:url" content="https://solenta.app/" />
   <meta property="og:title" content="Solenta - every agent starts where the last one stopped" />
-  <meta property="og:description" content="One shared memory across every agent, and a planboard that is your GitHub issues. Agent six begins knowing what agents one through five already ruled out." />
+  <meta property="og:description" content="Free, open-source desktop app for running AI coding agents in parallel: Claude Code, Codex, Cursor, OpenCode, Kimi and Grok, each in its own git worktree, sharing one local memory and a planboard that is your GitHub issues." />
   <meta property="og:image" content="https://solenta.app/assets/card.png?v=4" />
   <meta property="og:image:secure_url" content="https://solenta.app/assets/card.png?v=4" />
   <meta property="og:image:type" content="image/png" />
@@ -21,7 +21,7 @@
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:site" content="@currentbitsNET" />
   <meta name="twitter:title" content="Solenta - every agent starts where the last one stopped" />
-  <meta name="twitter:description" content="One shared memory across every agent, and a planboard that is your GitHub issues. Agent six begins knowing what agents one through five already ruled out." />
+  <meta name="twitter:description" content="Free, open-source desktop app for running AI coding agents in parallel: Claude Code, Codex, Cursor, OpenCode, Kimi and Grok, each in its own git worktree, sharing one local memory and a planboard that is your GitHub issues." />
   <meta name="twitter:image" content="https://solenta.app/assets/card.png?v=4" />
   <meta name="twitter:image:alt" content="Solenta. Your agents remember." />
   <meta name="theme-color" content="#f5f5f2" />
@@ -35,6 +35,10 @@
   <!-- Meterbird analytics, cookieless until the visitor allows it in the
        consent.js banner; replay only after "Allow". -->
   <script src="consent.js" defer></script>
+  <!-- Structured data for search and answer engines. The FAQPage mirrors #faq
+       word for word; electron/test/site-jsonld.test.js fails when they drift. -->
+  <script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Solenta", "url": "https://solenta.app/", "applicationCategory": "DeveloperApplication", "operatingSystem": "macOS, Windows, Linux", "description": "Free, open-source desktop app for running AI coding agents in parallel: Claude Code, Codex, Cursor, OpenCode, Kimi and Grok, each in its own git worktree, sharing one local memory and a planboard that is your GitHub issues.", "license": "https://opensource.org/licenses/MIT", "downloadUrl": "https://github.com/currentbits/solenta/releases/latest", "sameAs": ["https://github.com/currentbits/solenta"], "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}}</script>
+  <script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "How do I run multiple AI coding agents at once?", "acceptedAnswer": {"@type": "Answer", "text": "Open a thread per task in Solenta. Each thread runs the agent CLI you pick (Claude Code, Codex, Cursor, Kimi, Grok or OpenCode) in its own git worktree, so parallel agents never share a working copy. Threads that need you stay up top, and you can fork one task across several providers and keep the best diff."}}, {"@type": "Question", "name": "How do I stop parallel coding agents from stepping on each other?", "acceptedAnswer": {"@type": "Answer", "text": "Give every agent its own git worktree on its own branch. Solenta does that per thread automatically, and a thread only settles green once its verify command exits 0, so \"done\" means your checks passed, not that the agent said so."}}, {"@type": "Question", "name": "Is Solenta a coding agent?", "acceptedAnswer": {"@type": "Answer", "text": "No. Solenta is the desktop app that runs your coding agents. It drives the agent CLIs you already installed, on your own subscriptions, and adds shared memory, a planboard, worktrees, verify gates and spend caps around them."}}, {"@type": "Question", "name": "Which agents can Solenta run?", "acceptedAnswer": {"@type": "Answer", "text": "Claude Code, Codex, Cursor, Kimi, Grok and OpenCode. Install the CLIs you want to drive and Solenta finds them on your PATH. Permission modes, model overrides and session resume are per provider."}}, {"@type": "Question", "name": "Does my code leave my machine?", "acceptedAnswer": {"@type": "Answer", "text": "Only inside the prompts your chosen agent CLI sends to its provider, same as running that CLI yourself. Solenta adds nothing on top: memory is a local SQLite file, plans are your own GitHub issues, and there is no Solenta cloud."}}, {"@type": "Question", "name": "Do I pay Solenta for tokens?", "acceptedAnswer": {"@type": "Answer", "text": "No. Bring your own subscription or API key per provider. Solenta never resells tokens and never sits in the billing path."}}, {"@type": "Question", "name": "What does the planboard need?", "acceptedAnswer": {"@type": "Answer", "text": "The GitHub CLI signed in, and a project whose origin is on GitHub. Without those, threads, memory and everything else work exactly the same; the board simply stays off."}}, {"@type": "Question", "name": "Is it free?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. MIT licensed, with releases for macOS, Windows and Linux."}}]}</script>
 </head>
 <body>
 
@@ -66,7 +70,7 @@
     <p class="hero-pill reveal">Free &amp; open source, MIT</p>
     <h1 class="reveal">Every agent starts where the <span class="em">last one stopped.</span></h1>
     <p class="sub reveal">
-      One shared memory across every agent, and a planboard that is your GitHub issues.
+      A free desktop app for running AI coding agents in parallel. Claude Code, Codex, Cursor and more, each in its own git worktree, with one shared memory and a planboard that is your GitHub issues.
     </p>
     <div class="hero-ctas reveal">
       <a class="btn btn-primary" data-event="Download"
@@ -394,6 +398,18 @@
       <h2>Questions.</h2>
     </div>
     <div class="faq-list reveal">
+      <details name="faq">
+        <summary>How do I run multiple AI coding agents at once?</summary>
+        <p>Open a thread per task in Solenta. Each thread runs the agent CLI you pick (Claude Code, Codex, Cursor, Kimi, Grok or OpenCode) in its own git worktree, so parallel agents never share a working copy. Threads that need you stay up top, and you can fork one task across several providers and keep the best diff.</p>
+      </details>
+      <details name="faq">
+        <summary>How do I stop parallel coding agents from stepping on each other?</summary>
+        <p>Give every agent its own git worktree on its own branch. Solenta does that per thread automatically, and a thread only settles green once its verify command exits 0, so "done" means your checks passed, not that the agent said so.</p>
+      </details>
+      <details name="faq">
+        <summary>Is Solenta a coding agent?</summary>
+        <p>No. Solenta is the desktop app that runs your coding agents. It drives the agent CLIs you already installed, on your own subscriptions, and adds shared memory, a planboard, worktrees, verify gates and spend caps around them.</p>
+      </details>
       <details name="faq">
         <summary>Which agents can Solenta run?</summary>
         <p>Claude Code, Codex, Cursor, Kimi, Grok and OpenCode. Install the CLIs you want to drive and Solenta finds them on your PATH. Permission modes, model overrides and session resume are per provider.</p>

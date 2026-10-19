@@ -6,8 +6,9 @@
 
 <p align="center">
   <strong>Every agent starts where the last one stopped.</strong><br/>
-  Shared local memory across Claude Code, Codex, Cursor, Kimi, Grok, and OpenCode.<br/>
-  Session ten does not re-learn what session one already ruled out.
+  A free, open-source desktop app for running AI coding agents in parallel:<br/>
+  Claude Code, Codex, Cursor, Kimi, Grok, and OpenCode, each in its own git worktree,<br/>
+  with one shared local memory. Session ten does not re-learn what session one already ruled out.
 </p>
 
 <p align="center">

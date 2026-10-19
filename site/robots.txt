@@ -32,3 +32,5 @@ Allow: /
 
 User-agent: *
 Allow: /
+
+Sitemap: https://solenta.app/sitemap.xml
