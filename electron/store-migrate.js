@@ -187,6 +187,13 @@ function migrateAutomation(a) {
         : null,
     memory: typeof a.memory === "string" ? a.memory : "",
     scope: a.scope === "project" ? "project" : "private",
+    // #388: rows from before the lifecycle already act.
+    stage: a.stage === "observe" || a.stage === "draft" ? a.stage : "act",
+    stageSince:
+      typeof a.stageSince === "number" && Number.isFinite(a.stageSince)
+        ? a.stageSince
+        : null,
+    graduate: a.graduate !== false,
   };
 }
 

@@ -308,6 +308,19 @@ function normalizeAutomationInput(store, input, existing) {
     : base.memory;
   const memory = memoryRaw != null ? String(memoryRaw).slice(0, MAX_MEMORY_CHARS) : "";
 
+  // #388: new automations start report-only and graduate on their own.
+  const { STAGES } = require("./automations.js");
+  const stageRaw = Object.prototype.hasOwnProperty.call(src, "stage")
+    ? src.stage
+    : base.stage;
+  const stage = stageRaw == null || stageRaw === "" ? "observe" : String(stageRaw);
+  if (!STAGES.includes(stage)) {
+    throw new Error(`Invalid stage: ${stage}. Expected observe, draft, or act`);
+  }
+  const graduate = Object.prototype.hasOwnProperty.call(src, "graduate")
+    ? src.graduate !== false
+    : base.graduate !== false;
+
   let scope;
   if (existing) {
     scope = existing.scope === "project" ? "project" : "private";
@@ -341,6 +354,8 @@ function normalizeAutomationInput(store, input, existing) {
     memory,
     tier,
     scope,
+    stage,
+    graduate,
   };
 }
 
@@ -520,6 +535,9 @@ function addAutomation(store, input) {
       tier: fields.tier || null,
       enabled: src.enabled !== false,
       memory: fields.memory,
+      stage: fields.stage,
+      graduate: fields.graduate,
+      stageSince: now,
       lastRunAt: null,
       nextRunAt: nextFire(fields.preset, fields.hour, now),
       lastError: null,
@@ -543,6 +561,7 @@ function addAutomation(store, input) {
   const created = {
     id: randomUUID(),
     ...fields,
+    stageSince: now,
     lastRunAt: null,
     nextRunAt: nextFire(fields.preset, fields.hour, now),
     lastError: null,
@@ -607,6 +626,8 @@ function updateAutomation(store, input) {
     ...fields,
     ...(reEnabled ? { consecutiveFailures: 0, lastError: null } : {}),
     ...(triggerChanged ? { triggerCursor: null } : {}),
+    // #388: a hand-picked stage restarts its graduation clock.
+    ...(fields.stage !== existing.stage ? { stageSince: Date.now() } : {}),
     nextRunAt: scheduleChanged
       ? nextFire(
           fields.preset,
