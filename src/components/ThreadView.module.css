@@ -3389,6 +3389,16 @@ button.diffLineGutter:focus-visible {
   background: var(--green-soft);
 }
 
+/* A compound command's rule list (or a heredoc rule) runs long; the overflow input shows it whole. */
+.permissionAllow code {
+  display: inline-block;
+  max-width: 48ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
 .permissionDeny {
   padding: 4px 10px;
   border-radius: var(--radius-sm);

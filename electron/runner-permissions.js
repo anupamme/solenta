@@ -28,6 +28,7 @@ const { appendAudit } = require("./governanceAudit.js");
 const {
   extractCommand,
   resolveEditedCommand,
+  ruleLabel,
   sessionAllowRule,
 } = require("./permissionCommand.js");
 const { normalizeQuestions } = require("./questions.js");
@@ -175,6 +176,10 @@ function createPermissions(ctx) {
       plan: planText(p.toolName, p.rawInput),
       guardrail: p.guardrail || null,
       folderGrant: p.folderGrant || null,
+      alwaysRules:
+        p.suggestedRules && p.suggestedRules.length > 0
+          ? p.suggestedRules.map((r) => ruleLabel(p.toolName, r))
+          : null,
     };
   }
 
@@ -239,6 +244,49 @@ function createPermissions(ctx) {
     store.updateThread(threadId, { restartGrant: null });
     store.save();
     return grant === actionKey(toolName, rawInput);
+  }
+
+  /** Commands remembered per thread by Always allow; oldest drop first. */
+  const ALWAYS_ALLOW_CAP = 50;
+
+  /** Identity of an always-allowed command: tool + command text only. */
+  function commandKey(toolName, command) {
+    return createHash("sha256")
+      .update(JSON.stringify([String(toolName), String(command).trim()]))
+      .digest("hex");
+  }
+
+  /**
+   * Always allow on a command also remembers that exact command on the
+   * thread. The CLI's session rule alone is not enough: it dies with the
+   * process (idle reap, restart, a settings respawn), and the CLI re-asks
+   * some commands whatever the rule says (a `cd … && git …` compound, writes
+   * outside the project). ponytail: exact text only; the CLI rule covers
+   * variants while its process lives.
+   * @param {string} threadId
+   * @param {string} toolName
+   * @param {string} command
+   */
+  function rememberAlwaysAllow(threadId, toolName, command) {
+    const key = commandKey(toolName, command);
+    const keys = store.getThread(threadId)?.alwaysAllowKeys;
+    const prev = Array.isArray(keys) ? keys.filter((k) => k !== key) : [];
+    store.updateThread(threadId, {
+      alwaysAllowKeys: [...prev, key].slice(-ALWAYS_ALLOW_CAP),
+    });
+  }
+
+  /**
+   * Whether this ask is a command the user already always-allowed here.
+   * @param {string} threadId
+   * @param {string} toolName
+   * @param {unknown} rawInput
+   */
+  function isAlwaysAllowed(threadId, toolName, rawInput) {
+    const command = extractCommand(rawInput);
+    if (!command || !command.trim()) return false;
+    const keys = store.getThread(threadId)?.alwaysAllowKeys;
+    return Array.isArray(keys) && keys.includes(commandKey(toolName, command));
   }
 
   /**
@@ -680,12 +728,21 @@ function createPermissions(ctx) {
       // A governed thread keeps the CLI asking: a Claude session rule would
       // stop can_use_tool for that tool and skip the matrix next time.
       if (decision === "allowAlways" && !governed) {
-        // Prefix of the command that runs (the edit, never the original,
-        // #509) unless the user typed a rule; whole tool only on "*" (#479).
-        const rule = sessionAllowRule(pending.toolName, resolved.next, alwaysRule);
+        // The CLI's own per-subcommand rules for the unedited command, else
+        // the prefix of the command that runs (the edit, never the original,
+        // #509), unless the user typed a rule; whole tool only on "*" (#479).
+        const rule = sessionAllowRule(
+          pending.toolName,
+          resolved.next,
+          alwaysRule,
+          resolved.edited ? undefined : pending.suggestedRules,
+        );
         response.updatedPermissions = [rule];
-        const content = rule.rules[0].ruleContent;
-        ruleNote = ` (rule: ${content ? truncate(content, 200) : `any ${pending.toolName}`})`;
+        const labels = rule.rules.map((r) => ruleLabel(pending.toolName, r));
+        ruleNote = ` (rule: ${truncate(labels.join(", "), 200)})`;
+        if (resolved.field && resolved.next) {
+          rememberAlwaysAllow(threadId, pending.toolName, resolved.next);
+        }
       }
     } else {
       response = {
@@ -1055,6 +1112,7 @@ function createPermissions(ctx) {
     ciWorkflowSignOffs,
     syncPersistedApproval,
     takeRestartGrant,
+    isAlwaysAllowed,
     getPendingPermission,
     listPendingApprovals,
     handleCodexServerRequest,

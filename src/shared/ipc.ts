@@ -2026,6 +2026,12 @@ export interface PendingPermissionInfo {
    */
   folderGrant?: string | null;
   /**
+   * Claude's own allow rules for this ask (`npm test *`, `Read(//tmp/**)`):
+   * one per subcommand of a compound command. Always allow on the unedited
+   * command applies these instead of the first-token prefix.
+   */
+  alwaysRules?: string[] | null;
+  /**
    * The CLI that asked died with the app (issue #349): the card was restored
    * from the thread. Allow resumes the session and the agent re-runs the call.
    */

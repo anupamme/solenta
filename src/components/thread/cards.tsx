@@ -304,9 +304,12 @@ export function PermissionPrompt({
     () => parsePatch(fileChange?.diff ?? ""),
     [fileChange?.diff],
   );
+  // The CLI's own per-subcommand rules fit the unedited command only.
+  const suggested =
+    !edited && pending.alwaysRules?.length ? pending.alwaysRules.join(", ") : null;
   // null: follow the command; a string once the user edits the rule.
   const [ruleDraft, setRuleDraft] = useState<string | null>(null);
-  const rule = ruleDraft ?? commandPrefix(command) ?? "";
+  const rule = ruleDraft ?? suggested ?? commandPrefix(command) ?? "";
   const scoped = editable && acceptAlways;
   const ruleEmpty = scoped && rule.trim() === "";
 
@@ -324,8 +327,9 @@ export function PermissionPrompt({
       alwaysRule,
     );
   };
+  // No alwaysRule sends the suggested rules (main still holds them).
   const always = scoped
-    ? () => answer("allowAlways", rule.trim())
+    ? () => answer("allowAlways", ruleDraft === null && suggested ? undefined : rule.trim())
     : () => answer("allowAlways");
   usePermissionKeys(
     sent
@@ -441,6 +445,7 @@ export function PermissionPrompt({
             className={styles.permissionAllow}
             disabled={sent || empty || ruleEmpty}
             data-permission-always=""
+            title={rule}
             onClick={always}
             aria-keyshortcuts="a"
           >

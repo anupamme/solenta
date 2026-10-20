@@ -213,6 +213,25 @@ describe("PermissionPrompt (#509)", () => {
     assert.equal(spy.calls[0].alwaysRule, "npm test:*");
   });
 
+  it("a compound command shows the CLI's per-subcommand rules, not `rm:*`", async () => {
+    const { m, spy } = mountView({ ...bashPending, alwaysRules: ["rm -rf dist", "npm build *"] });
+    const view = await m;
+    const always = view.query("[data-permission-always]");
+    assert.match(always?.textContent ?? "", /Always allow rm -rf dist, npm build \*/);
+    await view.click(always);
+    assert.equal(spy.calls[0].decision, "allowAlways");
+    // No alwaysRule: main applies the rules it still holds.
+    assert.equal(spy.calls[0].alwaysRule, undefined);
+  });
+
+  it("editing the command drops the CLI's rules for the prefix", async () => {
+    const { m, spy } = mountView({ ...bashPending, alwaysRules: ["rm -rf dist", "npm build *"] });
+    const view = await m;
+    await view.type(view.query("[data-permission-command]"), "npm build");
+    await view.click(view.query("[data-permission-always]"));
+    assert.equal(spy.calls[0].alwaysRule, "npm build:*");
+  });
+
   it("a typed rule wins and survives later command edits (#479)", async () => {
     const { m, spy } = mountView({ ...bashPending, command: "npm test -- foo" });
     const view = await m;

@@ -134,26 +134,68 @@ function commandPrefix(command) {
 }
 
 /**
+ * The CLI's own allow rules for an ask (can_use_tool `permission_suggestions`):
+ * one per subcommand of `cd x && rm y && tar …`, plus the Read grant a `cd`
+ * outside the project needs. commandPrefix only sees the first token (`cd:*`),
+ * which can never cover a compound command. addRules/allow only: a suggested
+ * setMode or directory grant is not what "always allow" means.
+ * @param {unknown} suggestions
+ * @returns {{ toolName: string, ruleContent?: string }[]}
+ */
+function suggestedAllowRules(suggestions) {
+  if (!Array.isArray(suggestions)) return [];
+  return suggestions.flatMap((s) =>
+    s && s.type === "addRules" && s.behavior === "allow" && Array.isArray(s.rules)
+      ? s.rules
+          .filter((r) => r && typeof r.toolName === "string")
+          .map((r) =>
+            typeof r.ruleContent === "string"
+              ? { toolName: r.toolName, ruleContent: r.ruleContent }
+              : { toolName: r.toolName },
+          )
+      : [],
+  );
+}
+
+/**
+ * Card / event label of a rule: bare content for the asking tool
+ * (`npm test *`), `Read(//tmp/**)` for another one.
+ * @param {string} toolName
+ * @param {{ toolName: string, ruleContent?: string }} rule
+ */
+function ruleLabel(toolName, rule) {
+  if (rule.ruleContent === undefined) return `any ${rule.toolName}`;
+  return rule.toolName === toolName
+    ? rule.ruleContent
+    : `${rule.toolName}(${rule.ruleContent})`;
+}
+
+/**
  * Session addRules payload. Command tools get `ruleContent`: the user's
- * `alwaysRule` when given, else the prefix of `command` (the one that runs).
+ * `alwaysRule` when given, else the CLI's `suggested` rules (unedited
+ * command only), else the prefix of `command` (the one that runs).
  * `alwaysRule === WHOLE_TOOL_RULE`, or a tool with no command (Edit/Write),
  * stays `{ toolName }` — the whole tool.
  *
  * @param {string} toolName
  * @param {string | null} command
  * @param {unknown} [alwaysRule]
+ * @param {{ toolName: string, ruleContent?: string }[]} [suggested]
  */
-function sessionAllowRule(toolName, command, alwaysRule) {
+function sessionAllowRule(toolName, command, alwaysRule, suggested) {
   /** @type {{ toolName: string, ruleContent?: string }} */
   const rule = { toolName };
   const typed = typeof alwaysRule === "string" ? alwaysRule.trim() : "";
-  if (command !== null && typed !== WHOLE_TOOL_RULE) {
+  let rules = [rule];
+  if (command !== null && !typed && suggested && suggested.length > 0) {
+    rules = suggested;
+  } else if (command !== null && typed !== WHOLE_TOOL_RULE) {
     const content = typed || commandPrefix(command);
     if (content) rule.ruleContent = content;
   }
   return {
     type: "addRules",
-    rules: [rule],
+    rules,
     behavior: "allow",
     destination: "session",
   };
@@ -166,5 +208,7 @@ module.exports = {
   applyCommand,
   resolveEditedCommand,
   commandPrefix,
+  suggestedAllowRules,
+  ruleLabel,
   sessionAllowRule,
 };
