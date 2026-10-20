@@ -32,6 +32,7 @@ const threadSecrets = require("./threadSecrets.js");
 const { classifyTool } = require("./guardrails.js");
 const { evaluate, threadPolicy } = require("./governance.js");
 const { appendAudit } = require("./governanceAudit.js");
+const { suggestedAllowRules } = require("./permissionCommand.js");
 const {
   secondaryFolders,
   writeGrants,
@@ -78,6 +79,7 @@ function createClaudeRun(ctx) {
     savePlanSteps,
     askUser,
     takeRestartGrant,
+    isAlwaysAllowed,
     addSubagentRow,
     userDataPath,
     completeWorkLogStep,
@@ -763,12 +765,14 @@ function createClaudeRun(ctx) {
               return;
             }
 
+            const governed = Boolean(gov.policy && gov.policy.rules.length);
             if (
               ev.decision === "allow" ||
-              takeRestartGrant(threadId, toolName, rawInput)
+              takeRestartGrant(threadId, toolName, rawInput) ||
+              (!governed && isAlwaysAllowed(threadId, toolName, rawInput))
             ) {
               // Profile allow / session grant / approved before a restart
-              // (#349): no card.
+              // (#349) / a command the user always-allowed here: no card.
               handle.respond(requestId, {
                 behavior: "allow",
                 updatedInput: rawInput,
@@ -812,8 +816,9 @@ function createClaudeRun(ctx) {
                 declared: ev.declared,
                 layer: ev.layer,
                 profileId: gov.profileId,
-                governed: Boolean(gov.policy && gov.policy.rules.length),
+                governed,
               },
+              suggestedRules: suggestedAllowRules(request.permission_suggestions),
             };
             if (editFolder && !granted) pending.folderGrant = editFolder;
             if (

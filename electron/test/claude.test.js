@@ -990,7 +990,10 @@ async function main() {
       request: {
         subtype: "can_use_tool",
         tool_name: "Bash",
-        input: { command: "npm test" },
+        input: { command: process.env.CODER_FAKE_CLAUDE_PERM_COMMAND || "npm test" },
+        ...(process.env.CODER_FAKE_CLAUDE_PERM_SUGGESTIONS
+          ? { permission_suggestions: JSON.parse(process.env.CODER_FAKE_CLAUDE_PERM_SUGGESTIONS) }
+          : {}),
       },
     });
     let buf = "";
@@ -1759,6 +1762,92 @@ describe("runner claude provider", () => {
       }
     });
   }
+
+  it("allow-always on a compound command sends the CLI's own rules and is remembered past the process", async () => {
+    // Real 2.1.x suggestions for this shape: first-token `cd:*` covers none of it.
+    const command = "cd /tmp/x && rm a.tgz && tar czf a.tgz app && npx tauri signer sign a.tgz";
+    process.env.CODER_FAKE_CLAUDE_SCENARIO = "permission";
+    process.env.CODER_FAKE_CLAUDE_PERM_COMMAND = command;
+    process.env.CODER_FAKE_CLAUDE_PERM_SUGGESTIONS = JSON.stringify([
+      {
+        type: "addRules",
+        rules: [
+          { toolName: "Read", ruleContent: "//tmp/x/**" },
+          { toolName: "Bash", ruleContent: "rm a.tgz" },
+          { toolName: "Bash", ruleContent: "tar czf *" },
+        ],
+        behavior: "allow",
+        destination: "localSettings",
+      },
+      { type: "setMode", mode: "acceptEdits", destination: "session" },
+      {
+        type: "addRules",
+        rules: [{ toolName: "Bash", ruleContent: "npx tauri signer *" }],
+        behavior: "allow",
+        destination: "localSettings",
+      },
+    ]);
+    const ctrlFile = path.join(tmpDir, "ctrl-compound.json");
+    process.env.CODER_FAKE_CLAUDE_CTRL_FILE = ctrlFile;
+    try {
+      const thread = store.getThreads()[0];
+      await runner.startRun({ threadId: thread.id, prompt: "release" });
+      await waitFor(() => runner.getPendingPermission(thread.id) != null);
+      const pending = runner.getPendingPermission(thread.id);
+      assert.deepEqual(pending.alwaysRules, [
+        "Read(//tmp/x/**)",
+        "rm a.tgz",
+        "tar czf *",
+        "npx tauri signer *",
+      ]);
+      runner.respondPermission({
+        threadId: thread.id,
+        requestId: pending.requestId,
+        decision: "allowAlways",
+      });
+      await waitFor(() => store.getThread(thread.id).status === "done");
+      const ctrl = JSON.parse(fs.readFileSync(ctrlFile, "utf8"));
+      assert.deepEqual(ctrl.response.response.updatedPermissions, [
+        {
+          type: "addRules",
+          rules: [
+            { toolName: "Read", ruleContent: "//tmp/x/**" },
+            { toolName: "Bash", ruleContent: "rm a.tgz" },
+            { toolName: "Bash", ruleContent: "tar czf *" },
+            { toolName: "Bash", ruleContent: "npx tauri signer *" },
+          ],
+          behavior: "allow",
+          destination: "session",
+        },
+      ]);
+
+      // A fresh CLI (the fake exits per turn, like an idle reap or restart)
+      // has lost the session rule; Solenta still answers without a card.
+      fs.rmSync(ctrlFile);
+      await runner.startRun({ threadId: thread.id, prompt: "release again" });
+      await waitFor(() => fs.existsSync(ctrlFile));
+      assert.equal(runner.getPendingPermission(thread.id), null);
+      const again = JSON.parse(fs.readFileSync(ctrlFile, "utf8"));
+      assert.equal(again.response.response.behavior, "allow");
+      assert.deepEqual(again.response.response.updatedInput, { command });
+      await waitFor(() => store.getThread(thread.id).status === "done");
+
+      // A different command on the same thread still asks.
+      process.env.CODER_FAKE_CLAUDE_PERM_COMMAND = `${command} && echo done`;
+      await runner.startRun({ threadId: thread.id, prompt: "release once more" });
+      await waitFor(() => runner.getPendingPermission(thread.id) != null);
+      runner.respondPermission({
+        threadId: thread.id,
+        requestId: runner.getPendingPermission(thread.id).requestId,
+        decision: "deny",
+      });
+      await waitFor(() => store.getThread(thread.id).status === "done");
+    } finally {
+      delete process.env.CODER_FAKE_CLAUDE_PERM_COMMAND;
+      delete process.env.CODER_FAKE_CLAUDE_PERM_SUGGESTIONS;
+      delete process.env.CODER_FAKE_CLAUDE_CTRL_FILE;
+    }
+  });
 
   it("rejects an empty edited command without consuming the prompt (#509)", async () => {
     process.env.CODER_FAKE_CLAUDE_SCENARIO = "permission";
