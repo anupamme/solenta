@@ -341,6 +341,13 @@ const BY_SCOPE = {
     "app:openRemoteConnection",
     "app:forgetRemoteConnection",
     "app:installRemoteSolenta",
+    // Teleport (#1702): writes git refs, worktrees and the Claude home on
+    // this host, or hands over a whole thread. The other Solenta uses the
+    // owner's full token.
+    "threads:teleportIn",
+    "threads:teleportOut",
+    "threads:teleport",
+    "threads:teleportBack",
     // Host-side effects: open apps, read arbitrary host paths, capture windows.
     "shell:reveal",
     "shell:openPath",

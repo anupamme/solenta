@@ -3,6 +3,7 @@ import type {
   ConflictForecast,
   ProjectInfo,
   ProviderInfo,
+  TeleportTarget,
   ThreadInfo,
 } from "../../shared/ipc";
 import {
@@ -20,6 +21,7 @@ import {
   droppedOutsideWindow,
 } from "../../detachedWindow";
 import { buildThreadActionMenuItems } from "../../threadActionMenu";
+import { loadHosts } from "../../remoteHosts";
 import { isPinned, resolveSnoozePresets } from "../../threadSnooze";
 import { isUnread } from "../../threadUnread";
 import { ProjectIcon } from "../ProjectIcon";
@@ -135,6 +137,7 @@ export const ThreadCard = memo(function ThreadCard({
   onSetThreadProject,
   onSetMuted,
   onSetEjected,
+  onTeleport,
   onRenameThread,
   onFork,
   onToggleSnoozeMenu,
@@ -177,6 +180,8 @@ export const ThreadCard = memo(function ThreadCard({
   /** Live project list at menu-open time. Stable identity (ref getter). */
   listMoveProjects?: () => readonly ProjectInfo[];
   onSetEjected?: (threadId: string, ejected: boolean) => void | Promise<void>;
+  /** Teleport to a saved host, or back with null (#1702). */
+  onTeleport?: (threadId: string, target: TeleportTarget | null) => void | Promise<void>;
   onRenameThread?: (threadId: string, title: string) => void | Promise<void>;
   onFork?: (
     threadId: string,
@@ -281,6 +286,7 @@ export const ThreadCard = memo(function ThreadCard({
   const applyMenuId = (
     id: string,
     presets: ReturnType<typeof resolveSnoozePresets>,
+    teleportTargets: ReadonlyArray<TeleportTarget>,
   ) => {
     if (id === "settle") void onSetSettled?.(thread.id, "settled");
     else if (id === "unsettle") void onSetSettled?.(thread.id, "active");
@@ -304,12 +310,20 @@ export const ThreadCard = memo(function ThreadCard({
     else if (id === "unmute") void onSetMuted?.(thread.id, false);
     else if (id === "eject") void onSetEjected?.(thread.id, true);
     else if (id === "reclaim") void onSetEjected?.(thread.id, false);
+    else if (id === "teleportBack") void onTeleport?.(thread.id, null);
+    else if (id.startsWith("teleport:")) {
+      const target = teleportTargets[Number(id.slice("teleport:".length))];
+      if (target) void onTeleport?.(thread.id, target);
+    }
     else if (id === "detach") detachThread(thread.id);
   };
 
   const openThreadMenu = async (position: { x: number; y: number }) => {
     if (menuBusy.current || renaming || editingTags) return;
     const presets = resolveSnoozePresets(Date.now());
+    const teleportTargets = onTeleport
+      ? loadHosts().map((h) => ({ host: h.host, remotePort: h.remotePort, label: h.label }))
+      : undefined;
     const items = buildThreadActionMenuItems({
       thread,
       providers,
@@ -326,6 +340,7 @@ export const ThreadCard = memo(function ThreadCard({
       projects: listMoveProjects?.() ?? [],
       showMute: Boolean(onSetMuted),
       showEject: Boolean(onSetEjected),
+      teleportTargets,
       showSettle: Boolean(onSetSettled),
       showDetach: canDetachThread(),
     });
@@ -335,7 +350,7 @@ export const ThreadCard = memo(function ThreadCard({
     onToggleSnoozeMenu?.(thread.id);
     try {
       const id = await showContextMenu(items, position);
-      if (id) applyMenuId(id, presets);
+      if (id) applyMenuId(id, presets, teleportTargets ?? []);
     } finally {
       menuBusy.current = false;
       setMenuOpen(false);
@@ -344,7 +359,7 @@ export const ThreadCard = memo(function ThreadCard({
   };
 
   const hasActions = Boolean(
-    onSetSettled || onSetPinned || onSetSnoozed || onSetTags || onSetThreadProject || onFork || onRenameThread || onSetMuted || onSetEjected,
+    onSetSettled || onSetPinned || onSetSnoozed || onSetTags || onSetThreadProject || onFork || onRenameThread || onSetMuted || onSetEjected || onTeleport,
   );
 
   // Card is a non-interactive shell. Stretch select + hover actions are
@@ -482,7 +497,7 @@ export const ThreadCard = memo(function ThreadCard({
                         { x: rect.right, y: rect.bottom },
                       )
                         .then((id) => {
-                          if (id) applyMenuId(id, presets);
+                          if (id) applyMenuId(id, presets, []);
                         })
                         .finally(() => {
                           menuBusy.current = false;

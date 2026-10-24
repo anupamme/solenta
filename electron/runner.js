@@ -1793,6 +1793,10 @@ function createRunner(opts) {
     if (services.isTrashed(thread)) {
       throw new Error("Cannot start a run on a deleted thread");
     }
+    if (thread.teleportedTo) {
+      const where = thread.teleportedTo.label || thread.teleportedTo.host;
+      throw new Error(`This thread is running on ${where}. Teleport it back to continue here.`);
+    }
     if (
       resolveProvider(thread) === "codex" &&
       thread.sessionId &&

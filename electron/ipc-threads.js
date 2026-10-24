@@ -2,6 +2,7 @@
 
 const services = require("./services.js");
 const cliSessions = require("./cli-sessions.js");
+const teleport = require("./teleport.js");
 const { crewIntegration } = require("./crewIntegration.js");
 const { retireAgent, runRetention } = require("./ipc-shared.js");
 
@@ -124,6 +125,87 @@ module.exports = {
       }
     }
     return thread;
+  },
+  // Teleport (#1702). In/Out run on the host that receives or gives up a
+  // thread, invoked over its web API by the other Solenta; teleport and
+  // teleportBack drive them from this desktop.
+  "threads:teleportIn": async (ctx, payload) => {
+    const providers = await services.listProvidersForApi(ctx.store);
+    const claude = providers.find((p) => p.id === "claude");
+    const got = teleport.receiveThread(ctx.store, payload, {
+      worktreeBase: ctx.worktreeBase,
+      broadcast: ctx.broadcast,
+      claudeAvailable: Boolean(claude && claude.available && claude.auth !== "signedOut"),
+      from: payload && payload.from,
+    });
+    ctx.broadcast("threads:changed", services.listThreads(ctx.store));
+    return got;
+  },
+  "threads:teleportOut": async (ctx, input) => {
+    return teleport.packThread(ctx.store, input && input.threadId, {
+      isRunning: ctx.runner ? (id) => ctx.runner.isRunning(id) : undefined,
+    }).payload;
+  },
+  "threads:teleport": async (ctx, input) => {
+    if (ctx.transport !== "desktop" || !ctx.invokeRemote) {
+      throw new Error("Teleport requires the desktop app.");
+    }
+    const threadId = input && input.threadId;
+    const { payload, tree } = teleport.packThread(ctx.store, threadId, {
+      isRunning: ctx.runner ? (id) => ctx.runner.isRunning(id) : undefined,
+    });
+    const target = {
+      host: String(input.host || ""),
+      remotePort: input.remotePort,
+      label: String(input.label || input.host || ""),
+    };
+    // Pending first, so no run starts here while the payload is in flight.
+    ctx.store.updateThread(threadId, { teleportedTo: { ...target, tree, pending: true } });
+    ctx.broadcast("thread:updated", threadDetailFor(ctx, threadId, false));
+    let got;
+    try {
+      got = await ctx.invokeRemote(target, "threads:teleportIn", [{ ...payload, from: { threadId } }]);
+    } catch (err) {
+      ctx.store.updateThread(threadId, { teleportedTo: null });
+      ctx.broadcast("thread:updated", threadDetailFor(ctx, threadId, false));
+      throw err;
+    }
+    ctx.store.updateThread(threadId, {
+      teleportedTo: { ...target, tree, threadId: String(got.threadId), at: Date.now() },
+    });
+    ctx.store.save();
+    ctx.broadcast("threads:changed", services.listThreads(ctx.store));
+    ctx.broadcast("thread:updated", threadDetailFor(ctx, threadId, false));
+    return ctx.store.getThread(threadId);
+  },
+  "threads:teleportBack": async (ctx, input) => {
+    if (ctx.transport !== "desktop" || !ctx.invokeRemote) {
+      throw new Error("Teleport requires the desktop app.");
+    }
+    const threadId = input && input.threadId;
+    const thread = ctx.store.getThread(threadId);
+    const to = thread && thread.teleportedTo;
+    if (!to || !to.threadId) throw new Error("This thread is not teleported.");
+    let payload;
+    try {
+      payload = await ctx.invokeRemote(to, "threads:teleportOut", [{ threadId: to.threadId }]);
+    } catch (err) {
+      if (!/Unknown thread/.test(String(err && err.message))) throw err;
+      // Archived or deleted over there: unlock this copy as it was when it left.
+      ctx.store.updateThread(threadId, { teleportedTo: null });
+      ctx.store.save();
+      ctx.broadcast("thread:updated", threadDetailFor(ctx, threadId, false));
+      throw new Error(`The thread is gone from ${to.label || to.host}, so nothing came back. This copy is unlocked as it was when it left.`);
+    }
+    teleport.returnThread(ctx.store, threadId, payload);
+    try {
+      await ctx.invokeRemote(to, "threads:setArchived", [{ threadId: to.threadId, archived: true }]);
+    } catch {
+      // Back here either way; the remote copy just stays visible there.
+    }
+    ctx.broadcast("threads:changed", services.listThreads(ctx.store));
+    ctx.broadcast("thread:updated", threadDetailFor(ctx, threadId, false));
+    return ctx.store.getThread(threadId);
   },
   "threads:create": async (ctx, input) => {
     const thread = services.createThread(ctx.store, input);

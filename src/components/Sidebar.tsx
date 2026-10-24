@@ -15,6 +15,7 @@ import type {
   ProviderInfo,
   StayAwakeMode,
   StayAwakeStatus,
+  TeleportTarget,
   ThreadInfo,
   ThreadSearchInput,
   ThreadSearchResult,
@@ -237,6 +238,8 @@ export interface SidebarProps {
   onSetMuted?: (threadId: string, muted: boolean) => void | Promise<void>;
   /** Eject/reclaim the provider session so the raw CLI can own it (#554). */
   onSetEjected?: (threadId: string, ejected: boolean) => void | Promise<void>;
+  /** Teleport to a saved host, or back with null (#1702). */
+  onTeleport?: (threadId: string, target: TeleportTarget | null) => void | Promise<void>;
   /** Rename a thread from the row menu. */
   onRenameThread?: (threadId: string, title: string) => void | Promise<void>;
   /** Archive a thread (batch toolbar). */
@@ -352,6 +355,7 @@ export const Sidebar = memo(function Sidebar({
   onSetThreadProject,
   onSetMuted,
   onSetEjected,
+  onTeleport,
   onRenameThread,
   onSetArchived,
   onClearSettled,
@@ -1248,6 +1252,7 @@ export const Sidebar = memo(function Sidebar({
         onSetThreadProject={onSetThreadProject}
         onSetMuted={onSetMuted}
         onSetEjected={onSetEjected}
+        onTeleport={onTeleport}
         onRenameThread={onRenameThread}
         onFork={onFork}
         listMoveProjects={listMoveProjects}

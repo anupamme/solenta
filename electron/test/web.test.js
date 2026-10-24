@@ -663,6 +663,39 @@ describe("heartbeat + backpressure (attachWebBridge)", () => {
       await shutdown(httpServer, bridge);
     }
   });
+
+  it("a big reply draining past maxBufferedBytes is not cut off by a push (#1702)", async () => {
+    const big = "x".repeat(64 * 1024);
+    const { httpServer, bridge, url } = await listenBridge({
+      maxBufferedBytes: 1024,
+      authorize: () => ({ id: "owner", scopes: ["full"] }),
+      handlers: { "threads:teleportOut": async () => big },
+    });
+    try {
+      const ws = await connect(url);
+      ws.send(JSON.stringify({ kind: "auth", token: "secret-token" }));
+      assert.deepEqual(await onceMessage(ws), { kind: "auth-ok" });
+      const [client] = bridge.wss.clients;
+      // A slow link: the reply cannot drain while the socket is corked.
+      client._socket.cork();
+      const reply = onceMessage(ws);
+      ws.send(JSON.stringify({ kind: "invoke", id: 7, channel: "threads:teleportOut", args: [] }));
+      const deadline = Date.now() + 2000;
+      while (!client.bulkReply) {
+        if (Date.now() > deadline) throw new Error("reply never started");
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      assert.ok(client.bufferedAmount > 1024);
+      bridge.broadcast("threads:changed", { n: 1 });
+      assert.equal(bridge.wss.clients.size, 1, "push must not terminate the draining socket");
+      client._socket.uncork();
+      const got = await reply;
+      assert.equal(got.id, 7);
+      assert.equal(got.result.length, big.length);
+    } finally {
+      await shutdown(httpServer, bridge);
+    }
+  });
 });
 
 describe("web bridge denies simulator invoke and push", () => {

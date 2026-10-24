@@ -325,6 +325,8 @@ interface ThreadViewProps {
   onResumeQuotaWait?: () => void | Promise<void>;
   /** Deliver crew notices held since a restart (#1426). */
   onResumeCrew?: () => void | Promise<void>;
+  /** Bring a teleported thread home (#1702). */
+  onTeleportBack?: () => void | Promise<void>;
   /** Per-thread auto-resume override. null inherits the global setting. */
   onSetQuotaWaitAutoResume?: (
     enabled: boolean | null,
@@ -794,6 +796,7 @@ export const ThreadView = memo(function ThreadView({
   onRetryWorkflows,
   onStopRun,
   onResumeQuotaWait,
+  onTeleportBack,
   onResumeCrew,
   onSetQuotaWaitAutoResume,
   queuedPrompt = null,
@@ -2865,6 +2868,25 @@ export const ThreadView = memo(function ThreadView({
     copied === "reply" ? (
       <div className={styles.statusStrip} data-copied-reply="" role="status">
         <span className={styles.statusText}>Copied last reply</span>
+      </div>
+    ) : detail.thread.teleportedTo ? (
+      <div className={styles.statusStrip} data-teleported-strip="" role="status">
+        <span className={styles.statusDiamond} aria-hidden />
+        <span className={styles.statusText}>
+          {detail.thread.teleportedTo.pending
+            ? `Teleporting to ${detail.thread.teleportedTo.label}…`
+            : `Running on ${detail.thread.teleportedTo.label}. Sends here are paused until it comes back.`}
+        </span>
+        {onTeleportBack && !detail.thread.teleportedTo.pending ? (
+          <button
+            type="button"
+            className={styles.statusAction}
+            onClick={() => void onTeleportBack()}
+            data-teleport-back=""
+          >
+            Teleport back
+          </button>
+        ) : null}
       </div>
     ) : detail.thread.status === "quota-wait" ? (
       <div

@@ -255,4 +255,48 @@ describe("buildThreadActionMenuItems (contract)", () => {
     assert.equal(move?.whenLabel, "Crew worker");
     assert.equal(move?.children, undefined);
   });
+
+  it("offers Teleport to each saved host, and Teleport back once away (#1702)", () => {
+    const base = {
+      providers,
+      snoozePresets: presets,
+      isSettled: false,
+      canSettle: true,
+      showSnooze: false,
+      showFork: false,
+      showRename: false,
+      showMute: false,
+      showSettle: false,
+    };
+    const targets = [
+      { host: "box", remotePort: 4620, label: "box" },
+      { host: "me@vm", remotePort: 4620, label: "Build VM" },
+    ];
+    const ready = { ...thread, worktreePath: "/wt" } as ThreadInfo;
+    const go = buildThreadActionMenuItems({ ...base, thread: ready, teleportTargets: targets })
+      .find((i) => i.id === "teleport");
+    assert.deepEqual(go?.children?.map((c) => [c.id, c.label, c.whenLabel]), [
+      ["teleport:0", "box", undefined],
+      ["teleport:1", "Build VM", "me@vm"],
+    ]);
+    const noWt = buildThreadActionMenuItems({ ...base, thread, teleportTargets: targets })
+      .find((i) => i.id === "teleport");
+    assert.equal(noWt?.disabled, true);
+    assert.equal(noWt?.whenLabel, "Needs a worktree");
+    const codex = { ...ready, provider: "codex" } as ThreadInfo;
+    assert.equal(buildThreadActionMenuItems({ ...base, thread: codex, teleportTargets: targets })
+      .some((i) => i.id === "teleport"), false);
+    assert.equal(buildThreadActionMenuItems({ ...base, thread: ready, teleportTargets: [] })
+      .some((i) => i.id === "teleport"), false);
+    const away = { ...ready, teleportedTo: { ...targets[1], threadId: "r1" } } as ThreadInfo;
+    const back = buildThreadActionMenuItems({ ...base, thread: away, teleportTargets: [] })
+      .find((i) => i.id === "teleportBack");
+    assert.equal(back?.label, "Teleport back from Build VM");
+    assert.equal(back?.disabled, false);
+    const sending = { ...away, teleportedTo: { ...targets[1], pending: true } } as ThreadInfo;
+    assert.equal(buildThreadActionMenuItems({ ...base, thread: sending, teleportTargets: [] })
+      .find((i) => i.id === "teleportBack")?.disabled, true);
+    assert.equal(buildThreadActionMenuItems({ ...base, thread: away })
+      .some((i) => i.id === "teleportBack"), false, "hidden without an onTeleport");
+  });
 });

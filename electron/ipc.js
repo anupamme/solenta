@@ -76,6 +76,7 @@ function makeCtx(deps) {
     openRemoteConnection: deps.openRemoteConnection,
     forgetRemoteConnection: deps.forgetRemoteConnection,
     installRemoteSolenta: deps.installRemoteSolenta,
+    invokeRemote: deps.invokeRemote,
     webAccess: deps.webAccess || null,
     getMcpFunnel:
       typeof deps.getMcpFunnel === "function"

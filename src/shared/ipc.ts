@@ -806,6 +806,18 @@ export interface ThreadInfo {
    */
   ejected: boolean;
   /**
+   * Teleport (#1702): this thread now runs on another Solenta host. Runs
+   * here are refused until Teleport back. `pending` while the send is in
+   * flight; `threadId` is the copy on that host. Absent otherwise.
+   */
+  teleportedTo?: TeleportTarget & {
+    threadId?: string;
+    pending?: boolean;
+    at?: number;
+  } | null;
+  /** Teleport (#1702): this thread arrived from another host. */
+  teleportedFrom?: { threadId: string; at: number } | null;
+  /**
    * Free-text user scratch pad (issue #194). Empty string when unset.
    * Never bumps updatedAt. Purely user-facing: the agent never reads it
    * (this is NOT agent memory).
@@ -3141,6 +3153,16 @@ export interface RemoteHostInfo {
   agents: RemoteAgentInfo[];
 }
 
+/** One thread in transit between hosts; built by electron/teleport.js. */
+export type TeleportPayload = { version: number } & Record<string, unknown>;
+
+/** A saved Remote Connection a thread can teleport to (#1702). */
+export interface TeleportTarget {
+  host: string;
+  remotePort: number;
+  label: string;
+}
+
 export interface RemoteConnectionResult {
   host: string;
   remotePort: number;
@@ -5434,6 +5456,21 @@ export interface CoderApi {
      * bumps updatedAt; appended turns do.
      */
     setEjected(input: { threadId: string; ejected: boolean }): Promise<ThreadInfo>;
+    /**
+     * Teleport (#1702): move an idle Claude worktree thread (branch,
+     * uncommitted diff, session, transcript) to a saved remote host.
+     * Desktop only. The thread stays here, locked, until teleportBack.
+     */
+    teleport(input: { threadId: string } & TeleportTarget): Promise<ThreadInfo>;
+    /** Bring a teleported thread home and archive the remote copy. */
+    teleportBack(input: { threadId: string }): Promise<ThreadInfo>;
+    /**
+     * Host side of Teleport, called by the other Solenta over this host's
+     * web API, never by the renderer. The payload is opaque here
+     * (electron/teleport.js owns its shape).
+     */
+    teleportIn(payload: TeleportPayload): Promise<{ threadId: string; title: string }>;
+    teleportOut(input: { threadId: string }): Promise<TeleportPayload>;
     /**
      * Per-thread inbound policy for messages from other threads (issue #551).
      * accept / queue-only / refuse. Never bumps updatedAt.

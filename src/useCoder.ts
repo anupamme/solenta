@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   ActivityItem,
+  TeleportTarget,
   CliAgentInfo,
   AppSettings,
   WebhookTestResult,
@@ -411,6 +412,8 @@ export interface UseCoderResult {
   setThreadProject: (threadId: string, projectId: string) => Promise<void>;
   setMuted: (threadId: string, muted: boolean) => Promise<void>;
   setEjected: (threadId: string, ejected: boolean) => Promise<void>;
+  /** Teleport to a saved remote host, or back home with target null (#1702). */
+  teleport: (threadId: string, target: TeleportTarget | null) => Promise<void>;
   setCrossThreadInbound: (
     threadId: string,
     policy: "accept" | "queue-only" | "refuse",
@@ -1623,6 +1626,7 @@ export function useCoder(): UseCoderResult {
     setThreadProject,
     setMuted,
     setEjected,
+    teleport,
     setCrossThreadInbound,
     setQuotaWaitAutoResume,
     resumeQuotaWait,
@@ -2182,6 +2186,7 @@ export function useCoder(): UseCoderResult {
     setThreadProject,
     setMuted,
     setEjected,
+    teleport,
     setCrossThreadInbound,
     setQuotaWaitAutoResume,
     resumeQuotaWait,

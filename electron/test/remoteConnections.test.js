@@ -21,6 +21,7 @@ const {
   compareVersions,
   openRemoteConnection,
   closeRemoteConnections,
+  invokeRemote,
 } = require("../remoteConnections.js");
 
 async function waitFor(check, timeoutMs = 5_000) {
@@ -216,6 +217,48 @@ describe("remote Connections", () => {
       assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")), {});
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("invokeRemote runs one channel over a tunnel of its own and closes it (#1702)", async () => {
+    const servers = [];
+    const killed = [];
+    const fakeSpawn = (_cmd, args) => {
+      const localPort = Number(args[args.indexOf("-L") + 1].split(":")[1]);
+      const child = Object.assign(new EventEmitter(), {
+        stderr: new EventEmitter(),
+        kill() { killed.push(localPort); },
+      });
+      const wss = new WebSocketServer({ port: localPort, host: "127.0.0.1" });
+      servers.push(wss);
+      wss.on("connection", (ws) => ws.on("message", (raw) => {
+        const msg = JSON.parse(String(raw));
+        if (msg.kind === "auth") return ws.send(JSON.stringify(msg.token === "tok" ? { kind: "auth-ok" } : { kind: "x" }));
+        // A push arriving first must not be mistaken for the reply.
+        ws.send(JSON.stringify({ kind: "push", channel: "threads:changed", payload: [] }));
+        if (msg.channel === "threads:teleportIn") {
+          return ws.send(JSON.stringify({ kind: "reply", id: msg.id, result: { threadId: "r1", got: msg.args[0] } }));
+        }
+        ws.send(JSON.stringify({ kind: "reply", id: msg.id, error: `No handler registered for '${msg.channel}'` }));
+      }));
+      wss.once("listening", () => child.stderr.emit("data", "debug1: Entering interactive session.\n"));
+      return child;
+    };
+    const deps = {
+      spawn: fakeSpawn,
+      execFile: (_c, _a, _o, cb) => cb(null, "tok\n", ""),
+      tokens: { get: () => "", set: () => true, delete() {} },
+    };
+    try {
+      const out = await invokeRemote({ host: "box", remotePort: 4620 }, "threads:teleportIn", [{ a: 1 }], deps);
+      assert.deepEqual(out, { threadId: "r1", got: { a: 1 } });
+      await assert.rejects(
+        invokeRemote({ host: "box" }, "threads:teleportOut", [], deps),
+        /too old for this/,
+      );
+      assert.equal(killed.length, 2);
+    } finally {
+      for (const wss of servers) wss.close();
     }
   });
 

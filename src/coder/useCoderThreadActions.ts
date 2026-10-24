@@ -9,6 +9,7 @@ import type {
   SpecArtifact,
   ThreadDetail,
   ThreadBudget,
+  TeleportTarget,
   ThreadInfo,
   ThreadMessagePin,
   WorkSuggestionStatus,
@@ -512,6 +513,28 @@ export function useCoderThreadActions({
     async (threadId: string, ejected: boolean) => {
       try {
         const thread = await api.threads.setEjected({ threadId, ejected });
+        applyThreads(
+          threadsRef.current.map((t) => (t.id === thread.id ? thread : t)),
+        );
+        setDetail((prev) =>
+          prev && prev.thread.id === thread.id ? { ...prev, thread } : prev,
+        );
+        setError(null);
+      } catch (err) {
+        setError({ scope: "run", message: errorMessage(err) });
+      }
+    },
+    [api, applyThreads],
+  );
+
+  // Teleport (#1702): target null brings the thread back. Errors (busy
+  // thread, missing repo on the host, SSH) land on the run error banner.
+  const teleport = useCallback(
+    async (threadId: string, target: TeleportTarget | null) => {
+      try {
+        const thread = target
+          ? await api.threads.teleport({ threadId, ...target })
+          : await api.threads.teleportBack({ threadId });
         applyThreads(
           threadsRef.current.map((t) => (t.id === thread.id ? thread : t)),
         );
@@ -1046,6 +1069,7 @@ export function useCoderThreadActions({
     setThreadProject,
     setMuted,
     setEjected,
+    teleport,
     setCrossThreadInbound,
     setQuotaWaitAutoResume,
     resumeQuotaWait,
