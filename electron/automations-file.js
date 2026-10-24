@@ -24,6 +24,8 @@ const SLUG_RE = /^[a-z][a-z0-9-]{0,47}$/;
 const MAX_SHARED_AUTOMATIONS = 16;
 const PROMPT_MAX = 4000;
 const PRESETS = new Set(["hourly", "daily", "weekly"]);
+/** canonical()'s keys: anything else in a row is a typo (#438). */
+const ROW_KEYS = new Set(["id", "name", "prompt", "provider", "model", "preset", "hour", "trigger", "tier", "budget"]);
 
 /**
  * Overlay / merge id for a shared automation row.
@@ -121,6 +123,10 @@ function parseRow(raw, index, seen) {
   const r = raw && typeof raw === "object" && !Array.isArray(raw)
     ? /** @type {Record<string, unknown>} */ (raw)
     : {};
+  const bad = Object.keys(r).find((k) => !ROW_KEYS.has(k));
+  if (bad) {
+    return { error: `solenta.json: ${at}: unknown key "${bad}"` };
+  }
 
   const id = typeof r.id === "string" ? r.id : "";
   if (!SLUG_RE.test(id)) {

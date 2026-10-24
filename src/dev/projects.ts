@@ -418,6 +418,9 @@ export function createProjects(ctx: DevCtx): Pick<CoderApi, "projects" | "spaces
       async writeAgentConfig(): Promise<AgentConfigWriteResult> {
         throw new Error("Config doctor writes are not available in browser dev");
       },
+      async moveConfigToRepo(): Promise<{ threadId: string; prUrl: string; prNumber: number }> {
+        throw new Error("Moving settings to solenta.json is not available in browser dev");
+      },
     },
     spaces: {
       async list() {
