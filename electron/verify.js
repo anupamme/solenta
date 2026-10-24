@@ -15,7 +15,7 @@ const { killTree } = require("./proc.js");
 const { wrapCommand } = require("./ssh.js");
 const { wslTarget } = require("./wsl.js");
 const { mergeCacheEnv } = require("./verifyEfficiency.js");
-const { normalizeProjectEnv } = require("./worktreeEnv.js");
+const { projectEnvFor } = require("./worktreeEnv.js");
 
 /**
  * Shell that runs the user's verify command string.
@@ -95,7 +95,10 @@ function tailLog(text, max = VERIFY_LOG_MAX) {
  * @returns {Promise<{ ok: boolean, exitCode: number | null, timedOut: boolean, log: string, durationMs: number }>}
  */
 function runVerifyCommand(input) {
-  const command = normalizeCommand(input && input.command);
+  // Callers cap what they accept; a repo env spec's setup (#396) may run
+  // past VERIFY_COMMAND_MAX, and cutting it here would run half a script.
+  const raw = input && typeof input.command === "string" ? input.command.trim() : "";
+  const command = raw || null;
   const startedAt = Date.now();
   if (!command) {
     return Promise.resolve({
@@ -127,7 +130,7 @@ function runVerifyCommand(input) {
         detached: true,
         env: mergeCacheEnv(input.cwd, {
           ...(input.env || process.env),
-          ...normalizeProjectEnv(project.env),
+          ...projectEnvFor(project, input.cwd),
         }, {
           repoRoot: project && project.path,
         }),

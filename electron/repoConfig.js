@@ -19,12 +19,17 @@
  * The file is code from whoever can push to the repo, so its commands only
  * run once the user has approved this exact set. The approval is a sha256
  * of the commands stored on the project; editing the file re-prompts.
+ *
+ * The repo's own environment spec (#396, envSpec.js: devcontainer.json,
+ * copilot-setup-steps.yml) fills in where the file is silent: its setup
+ * when solenta.json has none, its env always. Both join the same hash.
  */
 
 const fs = require("node:fs");
 const path = require("node:path");
 const { createHash } = require("node:crypto");
 const { normalizeCommand } = require("./verify.js");
+const { readEnvSpec } = require("./envSpec.js");
 
 const REPO_CONFIG_FILE = "solenta.json";
 /** Gitignored per-checkout override of the commands (#438). */
@@ -54,6 +59,8 @@ const cache = new Map();
  *   setupSource?: string,
  *   onSettle?: string,
  *   quickActions?: Array<{ id: string, name: string, command: string, source?: string }>,
+ *   sources?: string[],
+ *   env?: Record<string, string>,
  *   hash?: string,
  *   error?: string,
  * }} RepoConfig
@@ -215,13 +222,15 @@ function parseRepoConfig(data, localData) {
 /**
  * onSettle only joins the canonical form when set, so a file without it
  * keeps the hash it was approved under.
- * @param {{ setup?: string, onSettle?: string, quickActions?: Array<{ name: string, command: string }> }} cfg
+ * Same for env (#396).
+ * @param {{ setup?: string, onSettle?: string, env?: Record<string, string>, quickActions?: Array<{ name: string, command: string }> }} cfg
  */
 function commandsHash(cfg) {
   const canonical = JSON.stringify({
     setup: cfg.setup || null,
     quickActions: (cfg.quickActions || []).map((a) => [a.name, a.command]),
     ...(cfg.onSettle ? { onSettle: cfg.onSettle } : {}),
+    ...(cfg.env ? { env: cfg.env } : {}),
   });
   return createHash("sha256").update(canonical).digest("hex");
 }
@@ -309,7 +318,30 @@ function readRepoConfig(root) {
  */
 function repoConfigFor(project) {
   if (!project || project.remoteHost) return null;
-  return readRepoConfig(project.path);
+  return withEnvSpec(readRepoConfig(project.path), readEnvSpec(project.path));
+}
+
+/**
+ * Fold the env spec into the solenta.json config. A broken spec only
+ * reports when there is no solenta.json to fall back on.
+ * @param {RepoConfig | null} cfg
+ * @param {import("./envSpec.js").EnvSpec | null} spec
+ * @returns {RepoConfig | null}
+ */
+function withEnvSpec(cfg, spec) {
+  if (!spec || (cfg && cfg.error)) return cfg;
+  if (spec.error) return cfg || { error: spec.error };
+  const setup = cfg && cfg.setup ? null : spec.setup;
+  if (!setup && !spec.env) return cfg;
+  /** @type {RepoConfig} */
+  const out = {
+    ...cfg,
+    ...(setup ? { setup, setupSource: spec.file } : {}),
+    ...(spec.env ? { env: spec.env } : {}),
+    sources: [...(cfg ? [REPO_CONFIG_FILE] : []), spec.file],
+  };
+  out.hash = commandsHash(out);
+  return out;
 }
 
 /**
@@ -337,7 +369,7 @@ function effectiveCommands(project) {
     setup: ownSetup
       ? { command: ownSetup, fromRepo: false }
       : ok && ok.setup
-        ? { command: ok.setup, fromRepo: true }
+        ? { command: ok.setup, fromRepo: true, source: ok.setupSource || REPO_CONFIG_FILE }
         : null,
     quickActions: ownActions
       ? ownActions.map((/** @type {any} */ a) => ({ ...a, fromRepo: false }))
@@ -345,6 +377,7 @@ function effectiveCommands(project) {
         ? ok.quickActions.map((a) => ({ ...a, fromRepo: true }))
         : [],
     onSettle: ok && ok.onSettle ? { command: ok.onSettle, fromRepo: true } : null,
+    env: ok && ok.env ? ok.env : null,
     hash: ok ? ok.hash || null : null,
     trusted: isTrusted(project, ok),
   };
@@ -363,6 +396,8 @@ function presentRepoConfig(project) {
     ...(cfg.setupSource ? { setupSource: cfg.setupSource } : {}),
     ...(cfg.quickActions ? { quickActions: cfg.quickActions } : {}),
     ...(cfg.onSettle ? { onSettleCommand: cfg.onSettle } : {}),
+    ...(cfg.env ? { env: cfg.env } : {}),
+    sources: cfg.sources || [REPO_CONFIG_FILE],
     hash: cfg.hash,
     trusted: isTrusted(project, cfg),
   };
