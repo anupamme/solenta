@@ -384,6 +384,32 @@ export function ThreadsPane({
             when the turn finishes. Off = one turn each. Send now still sends
             only the next one.
           </p>
+          <label className={styles.fieldRow}>
+            <input
+              type="checkbox"
+              data-agent-bug-reports=""
+              checked={settings?.agentBugReports !== false}
+              disabled={saving || settings == null}
+              onChange={(e) => {
+                setError(null);
+                void onSaveSettings({
+                  agentBugReports: e.target.checked,
+                }).catch((err) => {
+                  setError(
+                    err instanceof Error && err.message
+                      ? err.message
+                      : "Failed to save settings",
+                  );
+                });
+              }}
+            />
+            <span>Let agents report Solenta bugs</span>
+          </label>
+          <p className={styles.note}>
+            Agents that hit a defect in Solenta itself can send a report to
+            the Solenta team, at most 3 per thread a day. Secrets and file
+            paths are removed first. Each report shows in the thread.
+          </p>
         </div>
         {providers.length > 0 && (
           <div className={styles.field} data-quota-failover="">

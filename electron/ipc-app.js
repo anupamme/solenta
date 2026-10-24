@@ -12,14 +12,7 @@ const { applyZoom } = require("./zoom.js");
 const { whenPathReady } = require("./pathEnv.js");
 const providerAuth = require("./providerAuth.js");
 
-/** Version stamped in the embedded package.json; "dev" outside a build. */
-function appVersion() {
-  try {
-    return String(require("../package.json").version || "") || "dev";
-  } catch {
-    return "dev";
-  }
-}
+const { appVersion } = feedback;
 
 /** IPC_HANDLERS rows for app:*, memory:*, settings:*, stayAwake:*, providers:*, sourceControl:*; ipc.js spreads them in. */
 module.exports = {

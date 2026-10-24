@@ -267,6 +267,26 @@ function automationNoteFor() {
 }
 
 /**
+ * One-line hint for solenta_bug_report (#1703). Same coder-threads gate as
+ * suggestedWorkNoteFor, plus the agentBugReports setting (default on).
+ *
+ * @param {{ agentBugReports?: boolean } | null | undefined} settings
+ * @returns {string}
+ */
+function bugReportNoteFor(settings) {
+  if (settings && settings.agentBugReports === false) return "";
+  try {
+    const { activeServers } = require("./memory-sup.js");
+    if (!activeServers().some((s) => s.name === "coder-threads")) return "";
+  } catch {
+    return "";
+  }
+  return (
+    "\n\n[Solenta bugs] If Solenta itself misbehaves (a coder-threads tool errors, a host feature is missing or stuck), report it with the coder-threads tool solenta_bug_report. Use it only for defects in Solenta, never for bugs in the user's project."
+  );
+}
+
+/**
  * Standing note appended to every Codex dispatch (CLI-only, never stored
  * in the transcript) so the model does not invent a Solenta Computer Use
  * toggle (issue #800). Silent for every other provider.
@@ -577,6 +597,7 @@ module.exports = {
   selfIdNoteFor,
   suggestedWorkNoteFor,
   automationNoteFor,
+  bugReportNoteFor,
   codexComputerUseNoteFor,
   hypothesisNoteFor,
   planStepsFrom,

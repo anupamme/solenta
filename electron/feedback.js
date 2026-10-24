@@ -16,6 +16,15 @@ const ENDPOINT =
 const MAX_TEXT = 4000;
 const TIMEOUT_MS = 15000;
 
+/** Version stamped in the embedded package.json; "dev" outside a build. */
+function appVersion() {
+  try {
+    return String(require("../package.json").version || "") || "dev";
+  } catch {
+    return "dev";
+  }
+}
+
 /**
  * @param {unknown} value
  * @returns {string}
@@ -91,6 +100,7 @@ function appendFeedbackEvent(store, threadId, text) {
 module.exports = {
   ENDPOINT,
   MAX_TEXT,
+  appVersion,
   normalizeFeedback,
   sendFeedback,
   appendFeedbackEvent,
