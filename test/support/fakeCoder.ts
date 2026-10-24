@@ -1836,6 +1836,12 @@ export function createFakeCoder(opts: FakeOptions = {}): FakeCoder {
           projectId: input.projectId,
           written: ["AGENTS.md"],
         }),
+      moveConfigToRepo: (input: { projectId: string }) =>
+        rec("projects.moveConfigToRepo", [input], {
+          threadId: "t-migrate",
+          prUrl: "https://github.com/o/r/pull/9",
+          prNumber: 9,
+        }),
     },
     spaces: {
       list: () => rec("spaces.list", [], spaces.map((s) => ({ ...s }))),

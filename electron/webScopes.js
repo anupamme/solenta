@@ -211,6 +211,7 @@ const BY_SCOPE = {
     "git:push",
     "git:publish",
     "git:createPr",
+    "projects:moveConfigToRepo",
     "git:prMerge",
     "git:checkoutPr",
     "git:prEdit",

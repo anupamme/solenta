@@ -210,8 +210,13 @@ export interface ProjectQuickAction {
  */
 export interface ProjectRepoConfig {
   setupCommand?: string;
-  /** Ids are `repo:<index>`. */
-  quickActions?: ProjectQuickAction[];
+  /** "solenta.local.json" when the local override set it (#438). */
+  setupSource?: string;
+  /**
+   * Ids are `repo:<id>`, or `repo:<index>` for rows without an id. Rows
+   * from solenta.local.json carry `source` (#438).
+   */
+  quickActions?: (ProjectQuickAction & { source?: string })[];
   /**
    * Runs in a worktree thread when it settles (#1531): an explicit settle,
    * or its PR merging/closing. Also runnable as actionId "onSettle".
@@ -5149,6 +5154,13 @@ export interface CoderApi {
       projectId: string;
       targets?: string[];
     }): Promise<AgentConfigWriteResult>;
+    /**
+     * #438: open a PR (from a new worktree thread) that moves the stored
+     * setup command and quick actions into solenta.json.
+     */
+    moveConfigToRepo(input: {
+      projectId: string;
+    }): Promise<{ threadId: string; prUrl: string; prNumber: number }>;
   };
   /**
    * Retired (#568). list() is always []; add/update throw;

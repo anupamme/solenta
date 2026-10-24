@@ -606,6 +606,37 @@ describe("worktree setup options (#1506)", () => {
     m.unmount();
   });
 
+  it("#438: Move to solenta.json opens a PR from the saved commands", async () => {
+    const p1 = project({ id: "p1", name: "ledger", path: "/tmp/ledger", setupCommand: "npm ci" });
+    const t1 = thread({ id: "t1", projectId: "p1" });
+    const fake = createFakeCoder({ projects: [p1], threads: [t1], details: { t1: detail({ thread: t1 }) } });
+    const m = await boot(fake);
+    await m.click(m.query("[data-scope-trigger]"));
+    await m.click(m.query('[data-scope-edit="p1"]'));
+    await m.click(m.query("[data-move-config]"));
+    await m.flush();
+    assert.deepEqual(fake.of("projects.moveConfigToRepo")[0]!.args, [{ projectId: "p1" }]);
+    assert.match(m.query("[data-move-config-done]")?.textContent || "", /PR #9/);
+    m.unmount();
+  });
+
+  it("#438: no move button without stored commands; local rows say so", async () => {
+    const { el } = modal({
+      repoConfig: {
+        setupCommand: "pnpm i",
+        setupSource: "solenta.local.json",
+        quickActions: [{ id: "repo:0", name: "Mine", command: "make", source: "solenta.local.json" }],
+        hash: "a".repeat(64),
+        trusted: true,
+      },
+    });
+    const m = await mount(el);
+    assert.equal(m.query("[data-move-config]"), null);
+    assert.match(m.query('[data-repo-config-source="setup"]')?.textContent || "", /solenta\.local\.json/);
+    assert.match(m.query("[data-repo-config-action]")?.textContent || "", /from solenta\.local\.json/);
+    m.unmount();
+  });
+
   it("shows an invalid file's error", async () => {
     const { el } = modal({
       repoConfig: { error: "solenta.json: quickActions must be an array", trusted: false },
