@@ -383,6 +383,7 @@ export function createFakeCoder(opts: FakeOptions = {}): FakeCoder {
     confirmQuitWithActiveWork: true,
     resumeInterruptedRuns: false,
     combineQueuedFollowUps: true,
+    agentBugReports: true,
     prDiffCapLines: 400,
     maxConcurrentRuns: 4,
     onboardingSeen: true,

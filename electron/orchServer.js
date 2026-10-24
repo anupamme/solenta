@@ -38,6 +38,12 @@ const {
 } = require("./services.js");
 const { stop: stopDevServer } = require("./devservers.js");
 const { resolveThreadRoot } = require("./ipc-shared.js");
+const { appVersion, appendFeedbackEvent } = require("./feedback.js");
+const {
+  buildBugReport,
+  bugReportsEnabled,
+  fileBugReport,
+} = require("./bugReport.js");
 const {
   decideCrossThreadSend,
   attributedPrompt,
@@ -1055,6 +1061,45 @@ function createToolHandlers(deps) {
     return { recorded: true, total };
   }
 
+  /** Agent-filed Solenta defect over the /feedback path (#1703). */
+  async function solenta_bug_report(args) {
+    const thread = requireOwnThread(args);
+    if (!bugReportsEnabled(store)) {
+      throw new Error("Agent bug reports are turned off in Settings.");
+    }
+    const project = projectOf(thread);
+    const report = buildBugReport({
+      thread,
+      messages:
+        typeof store.getMessages === "function"
+          ? store.getMessages(thread.id)
+          : [],
+      projectPath: project && project.path,
+      userDataPath,
+      title: args && args.title,
+      body: args && args.body,
+      version: appVersion(),
+    });
+    const result = await fileBugReport(thread.id, report, {
+      fetch: deps.fetch,
+    });
+    if (result.sent) {
+      appendFeedbackEvent(
+        store,
+        thread.id,
+        `Bug report sent to the Solenta team: ${report.title}`,
+      );
+      if (typeof runner.refreshDetail === "function") {
+        try {
+          runner.refreshDetail(thread.id);
+        } catch {
+          // A missed transcript push must not fail the tool.
+        }
+      }
+    }
+    return { ...result, title: report.title };
+  }
+
   async function automation_create(args) {
     const thread = requireOwnThread(args);
     const triggerRaw = args && args.trigger;
@@ -1423,6 +1468,7 @@ function createToolHandlers(deps) {
     show_user,
     hypothesis_record,
     work_suggest,
+    solenta_bug_report,
     automation_create,
     spec_submit,
     teach_review,
@@ -1448,7 +1494,9 @@ function createToolHandlers(deps) {
  * Build the MCP server exposing the thread tools.
  * @param {{ McpServer: unknown, z: unknown }} sdk
  * @param {ReturnType<typeof createToolHandlers>} handlers
- * @param {{ planboard?: boolean }} [opts] - GitHub-origin sessions only (#849)
+ * @param {{ planboard?: boolean, bugReports?: boolean }} [opts] - planboard:
+ *   GitHub-origin sessions only (#849); bugReports: false hides
+ *   solenta_bug_report (#1703)
  */
 function buildMcpServer(sdk, handlers, opts = {}) {
   const { McpServer, z } = sdk;
@@ -1815,6 +1863,31 @@ function buildMcpServer(sdk, handlers, opts = {}) {
     },
     async (args) => json(await handlers.work_suggest(args)),
   );
+
+  if (opts.bugReports !== false) {
+    server.registerTool(
+      "solenta_bug_report",
+      {
+        description:
+          "Report a defect in Solenta ITSELF (the host app): a coder-threads " +
+          "tool erroring, a missing IPC method, a stuck queue, a worker that " +
+          "never wakes its lead. NEVER for bugs in the user's project. title = " +
+          "one-line summary; body = what you did, what happened, what you " +
+          "expected. App version, provider, model, thread id, OS and the last " +
+          "tool error are attached; secrets and absolute paths are redacted. " +
+          "Do not paste env, credentials or repo file contents. Limited to " +
+          "3 per thread per day; a repeated title is not resent. projectId is " +
+          "YOUR OWN project id; the thread must belong to it.",
+        inputSchema: {
+          threadId: z.string().min(1),
+          projectId: z.string().min(1),
+          title: z.string().min(1).max(200),
+          body: z.string().min(1),
+        },
+      },
+      async (args) => json(await handlers.solenta_bug_report(args)),
+    );
+  }
 
   server.registerTool(
     "automation_create",
@@ -2375,6 +2448,7 @@ function createOrchServer(opts) {
             planboard: Boolean(
               boundProject && planboardNoteFor(boundProject),
             ),
+            bugReports: bugReportsEnabled(store),
           });
         }
         const transport = new sdk.StreamableHTTPServerTransport({

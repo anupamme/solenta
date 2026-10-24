@@ -3634,6 +3634,11 @@ export interface AppSettings {
    * (#468). Default on; false runs them one per turn (#1501).
    */
   combineQueuedFollowUps: boolean;
+  /**
+   * Offer agents the coder-threads solenta_bug_report tool (#1703), which
+   * files redacted Solenta defects through /feedback. Default on.
+   */
+  agentBugReports: boolean;
   /** Solenta tool, injection, and secret checks. Default on; false opts out. */
   guardrailsEnabled: boolean;
   /**

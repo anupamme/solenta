@@ -373,6 +373,9 @@ function validateQuotaFailover(raw) {
  * resumeInterruptedRuns: opt-in (issue #1512 I3); only an explicit true
  * resumes interrupted runs after a restart.
  *
+ * agentBugReports: default on (#1703); only an explicit false hides the
+ * solenta_bug_report tool and its prompt hint.
+ *
  * combineQueuedFollowUps: default on (#468); only an explicit false drains
  * the type-ahead queue one item per turn.
  *
@@ -424,6 +427,7 @@ function normalizeSettings(raw) {
     confirmQuitWithActiveWork: true,
     resumeInterruptedRuns: false,
     combineQueuedFollowUps: true,
+    agentBugReports: true,
     guardrailsEnabled: true,
     prDiffCapLines: DEFAULT_PR_DIFF_CAP_LINES,
     maxConcurrentRuns: DEFAULT_MAX_CONCURRENT_RUNS,
@@ -591,6 +595,8 @@ function normalizeSettings(raw) {
   settings.combineQueuedFollowUps =
     /** @type {{ combineQueuedFollowUps?: unknown }} */ (obj)
       .combineQueuedFollowUps !== false;
+  settings.agentBugReports =
+    /** @type {{ agentBugReports?: unknown }} */ (obj).agentBugReports !== false;
   settings.guardrailsEnabled =
     /** @type {{ guardrailsEnabled?: unknown }} */ (obj).guardrailsEnabled !== false;
   settings.autoSettleOnMerge =

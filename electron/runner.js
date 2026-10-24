@@ -2253,6 +2253,7 @@ function createRunner(opts) {
       foldersNoteFor(projectForGate, dispatchThread) +
       services.suggestedWorkNoteFor() +
       services.automationNoteFor() +
+      services.bugReportNoteFor(store.getSettings && store.getSettings()) +
       services.subagentPoolNoteFor(
         store.getSettings && store.getSettings().subagentPool,
         projectForGate,
