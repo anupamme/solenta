@@ -423,7 +423,21 @@ function returnThread(store, threadId, payload) {
   return store.getThread(threadId);
 }
 
+/** Boot: a send cut off by a quit never got a remote thread id. */
+function clearPendingTeleports(store) {
+  let n = 0;
+  for (const t of store.getThreads() || []) {
+    if (t.teleportedTo && t.teleportedTo.pending) {
+      store.updateThread(t.id, { teleportedTo: null });
+      n++;
+    }
+  }
+  if (n) store.save();
+  return n;
+}
+
 module.exports = {
+  clearPendingTeleports,
   MAX_PAYLOAD_BYTES,
   refuseToPack,
   packThread,

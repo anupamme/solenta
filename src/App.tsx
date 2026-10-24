@@ -254,6 +254,7 @@ export default function App({ rendererSha: rendererShaOverride }: AppProps = {})
     setThreadProject,
     setMuted,
     setEjected,
+    teleport,
     setCrossThreadInbound,
     setQuotaWaitAutoResume,
     resumeQuotaWait,
@@ -1863,6 +1864,7 @@ export default function App({ rendererSha: rendererShaOverride }: AppProps = {})
         onSetThreadProject={handleSetThreadProject}
         onSetMuted={handleSetMuted}
         onSetEjected={handleSetEjected}
+        onTeleport={teleport}
         onRenameThread={handleRenameThread}
         onSetArchived={handleRowArchived}
         onClearSettled={handleClearSettled}
@@ -2093,6 +2095,9 @@ export default function App({ rendererSha: rendererShaOverride }: AppProps = {})
         }
         onResumeCrew={
           selectedThreadId ? () => resumeCrew(selectedThreadId) : undefined
+        }
+        onTeleportBack={
+          selectedThreadId ? () => teleport(selectedThreadId, null) : undefined
         }
         onSetQuotaWaitAutoResume={
           selectedThreadId

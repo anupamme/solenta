@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { CoderApi, RemoteAgentInfo, RemoteHostInfo, RemoteInstallResult } from "../shared/ipc";
 import { accountLine } from "../providerAccounts";
+import { loadHosts, STORAGE_KEY, type SavedHost } from "../remoteHosts";
 import styles from "./SettingsModal.module.css";
 
 type OpenConnection = CoderApi["app"]["openRemoteConnection"];
@@ -13,31 +14,6 @@ function agentState(a: RemoteAgentInfo): string {
   if (a.auth === "signedIn") return accountLine(a) ?? "Ready";
   return "Installed";
 }
-type SavedHost = {
-  id: string;
-  label: string;
-  host: string;
-  remotePort: number;
-  /** Hint only: the encrypted token itself lives in the main process. */
-  tokenSaved?: boolean;
-};
-const STORAGE_KEY = "coder.remoteConnections";
-
-function loadHosts(): SavedHost[] {
-  try {
-    const raw: unknown = JSON.parse(window.localStorage.getItem(STORAGE_KEY) || "[]");
-    if (!Array.isArray(raw)) return [];
-    return raw.filter((item): item is SavedHost =>
-      item && typeof item.id === "string" &&
-      typeof item.label === "string" && typeof item.host === "string" &&
-      Number.isInteger(item.remotePort) && item.remotePort > 0 &&
-      item.remotePort <= 65535,
-    ).slice(0, 30);
-  } catch {
-    return [];
-  }
-}
-
 export function ConnectionsSection({ onOpen, onForget, onInstall }: {
   onOpen?: OpenConnection;
   onForget?: ForgetConnection;

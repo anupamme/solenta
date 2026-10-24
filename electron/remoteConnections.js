@@ -473,6 +473,42 @@ async function waitForHost(child, token) {
   throw child.failure || new Error("Timed out waiting for the remote Solenta host.");
 }
 
+// ssh -L to the host's web port. Sets child.ready once ssh owns the
+// forward and child.failure on exit; onClose runs after the failure is set.
+function spawnTunnel(spawnFn, host, backPort, remotePort, onClose) {
+  const child = spawnFn("ssh", sshArgs(host, backPort, remotePort), {
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+  child.backPort = backPort;
+  child.ready = false;
+  child.failure = null;
+  let stderr = "";
+  let partial = "";
+  const onLine = (line) => {
+    if (/^debug\d: Entering interactive session/.test(line)) child.ready = true;
+    if (/^debug\d: /.test(line)) return;
+    stderr = `${stderr}${line}\n`.slice(-1000);
+    // The forward is up but nothing listens on the remote port. Connect
+    // never starts the host (#245): say so instead of timing out.
+    if (/open failed: connect failed/.test(line) && !child.failure) {
+      child.failure = new Error(`Nothing is listening on port ${remotePort} on ${host}. Start Solenta there with --serve-web${remotePort === DEFAULT_REMOTE_PORT ? "" : `=${remotePort}`} (add --headless on a server without a display), then connect again.`);
+    }
+  };
+  child.stderr?.on("data", (chunk) => {
+    const lines = (partial + String(chunk)).split(/\r?\n/);
+    partial = lines.pop();
+    lines.forEach(onLine);
+  });
+  child.once("error", (err) => { child.failure = err; });
+  child.once("close", (code) => {
+    if (partial) onLine(partial);
+    partial = "";
+    child.failure = new Error(explainSshFailure(host, stderr, code));
+    onClose?.();
+  });
+  return child;
+}
+
 async function openRemoteConnection(input, deps = {}) {
   const { host, label, remotePort, remember, token: typed } = validateConnection(input);
   const key = `${host}:${remotePort}`;
@@ -534,38 +570,11 @@ async function openRemoteConnection(input, deps = {}) {
 
   const startTunnel = async () => {
     const backPort = await freeLoopbackPort();
-    const child = spawnFn("ssh", sshArgs(host, backPort, remotePort), {
-      stdio: ["ignore", "ignore", "pipe"],
-    });
-    entry.child = child;
-    child.backPort = backPort;
-    child.ready = false;
-    child.failure = null;
-    let stderr = "";
-    let partial = "";
-    const onLine = (line) => {
-      if (/^debug\d: Entering interactive session/.test(line)) child.ready = true;
-      if (/^debug\d: /.test(line)) return;
-      stderr = `${stderr}${line}\n`.slice(-1000);
-      // The forward is up but nothing listens on the remote port. Connect
-      // never starts the host (#245): say so instead of timing out.
-      if (/open failed: connect failed/.test(line) && !child.failure) {
-        child.failure = new Error(`Nothing is listening on port ${remotePort} on ${host}. Start Solenta there with --serve-web${remotePort === DEFAULT_REMOTE_PORT ? "" : `=${remotePort}`} (add --headless on a server without a display), then connect again.`);
-      }
-    };
-    child.stderr?.on("data", (chunk) => {
-      const lines = (partial + String(chunk)).split(/\r?\n/);
-      partial = lines.pop();
-      lines.forEach(onLine);
-    });
-    child.once("error", (err) => { child.failure = err; });
-    child.once("close", (code) => {
-      if (partial) onLine(partial);
-      partial = "";
+    const child = spawnTunnel(spawnFn, host, backPort, remotePort, () => {
       if (entry.backPort === backPort) entry.backPort = null;
-      child.failure = new Error(explainSshFailure(host, stderr, code));
       if (entry.win && !entry.closing && !entry.reconnecting) void reconnect(child.failure);
     });
+    entry.child = child;
     return child;
   };
 
@@ -707,6 +716,62 @@ function closeRemoteConnections() {
   active.clear();
 }
 
+// One invoke on the host's web API over a tunnel of its own, no window.
+// The reply can be large (Teleport back, #1702), hence the raised maxPayload.
+function wsInvoke(port, token, channel, args, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, { maxPayload: 128 * 1024 * 1024 });
+    let settled = false;
+    const done = (err, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      ws.terminate();
+      err ? reject(err) : resolve(value);
+    };
+    const timer = setTimeout(() => done(new Error("The remote Solenta host did not answer in time.")), timeoutMs);
+    ws.once("open", () => ws.send(JSON.stringify({ kind: "auth", token })));
+    ws.on("message", (raw) => {
+      let msg;
+      try {
+        msg = JSON.parse(String(raw));
+      } catch {
+        return done(new Error("The remote Solenta host sent an unreadable reply."));
+      }
+      if (msg.kind === "auth-ok") {
+        ws.send(JSON.stringify({ kind: "invoke", id: 1, channel, args }));
+        return;
+      }
+      if (msg.kind !== "reply" || msg.id !== 1) return;
+      if (!msg.error) return done(null, msg.result);
+      done(new Error(/^No handler registered/.test(String(msg.error))
+        ? "Solenta on the remote host is too old for this. Update it there, then try again."
+        : String(msg.error)));
+    });
+    ws.once("error", (err) => done(err));
+    ws.once("close", () => done(new Error("The remote Solenta host closed the connection.")));
+  });
+}
+
+/**
+ * Invoke one IPC channel on a saved remote host. Same token sources and
+ * host prep as Connect: the host's token file over SSH, then the keychain.
+ */
+async function invokeRemote(input, channel, args, deps = {}) {
+  const { host, remotePort } = validateConnection({ host: input && input.host, remotePort: input && input.remotePort, token: "" });
+  const token = (await readRemoteToken(host, remotePort, deps)) || tokenStoreFor(deps).get(`${host}:${remotePort}`);
+  if (!token) {
+    throw new Error(`No web token found on ${host}. Connect to it once from Settings > Connections.`);
+  }
+  const child = spawnTunnel(deps.spawn || spawn, host, await freeLoopbackPort(), remotePort);
+  try {
+    await waitForHost(child, token);
+    return await wsInvoke(child.backPort, token, channel, args, deps.timeoutMs ?? 10 * 60_000);
+  } finally {
+    child.kill();
+  }
+}
+
 module.exports = {
   validateConnection,
   sshArgs,
@@ -722,4 +787,5 @@ module.exports = {
   openRemoteConnection,
   forgetRemoteConnection,
   closeRemoteConnections,
+  invokeRemote,
 };

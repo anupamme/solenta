@@ -98,6 +98,7 @@ const {
   openRemoteConnection,
   forgetRemoteConnection,
   installRemoteSolenta,
+  invokeRemote,
   closeRemoteConnections,
 } = require("./remoteConnections.js");
 
@@ -981,6 +982,7 @@ app.whenReady().then(async () => {
     openRemoteConnection,
     forgetRemoteConnection,
     installRemoteSolenta,
+    invokeRemote,
   });
   // Desktop-only like contextMenu:show: windows are main's, never the web bridge's.
   ipcMain.handle("window:detachThread", (_event, threadId) => openThreadWindow(threadId));
@@ -992,6 +994,8 @@ app.whenReady().then(async () => {
       artifactStore ? artifactStore.cleanup() : Promise.resolve(),
     log: (msg) => console.warn(msg),
   });
+  // No Teleport send survives a restart (#1702): unlock a half-sent thread.
+  require("./teleport.js").clearPendingTeleports(store);
   // Renderer may already have mounted against empty state; this is the
   // signal that invoke channels will answer (#618).
   broadcast("boot:ready");

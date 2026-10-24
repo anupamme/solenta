@@ -487,6 +487,18 @@ export function createThreads(ctx: DevCtx): Pick<CoderApi, "threads"> {
       async setMuted(input: { threadId: string; muted: boolean }) {
         return patchThread(input.threadId, { muted: input.muted });
       },
+      async teleport(): Promise<ThreadInfo> {
+        throw new Error("Teleport requires the desktop app.");
+      },
+      async teleportBack(): Promise<ThreadInfo> {
+        throw new Error("Teleport requires the desktop app.");
+      },
+      async teleportIn(): Promise<{ threadId: string; title: string }> {
+        throw new Error("Teleport requires the desktop app.");
+      },
+      async teleportOut(): Promise<never> {
+        throw new Error("Teleport requires the desktop app.");
+      },
       async setEjected(input: { threadId: string; ejected: boolean }) {
         return patchThread(input.threadId, { ejected: input.ejected === true });
       },

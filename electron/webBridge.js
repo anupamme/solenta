@@ -239,7 +239,14 @@ function attachWebBridge(httpServer, opts) {
         // Web has no solenta-media protocol; image handlers reply with
         // async data URLs instead of a custom-scheme src (issue #145).
         const result = await fn({ ...ctx, serveDataUrls: true, transport: "web" }, ...args);
-        sendJson(ws, { kind: "reply", id, result });
+        const frame = JSON.stringify({ kind: "reply", id, result });
+        if (ws.readyState !== WebSocket.OPEN) return;
+        // A big reply (Teleport back, #1702) legitimately sits over the
+        // push buffer limit while it drains; skip pushes until it has.
+        if (frame.length > maxBufferedBytes) ws.bulkReply = true;
+        ws.send(frame, () => {
+          ws.bulkReply = false;
+        });
       } catch (err) {
         const error = err && err.message ? String(err.message) : String(err);
         sendJson(ws, { kind: "reply", id, error });
@@ -264,6 +271,7 @@ function attachWebBridge(httpServer, opts) {
     for (const [client, device] of authed) {
       if (client.readyState !== WebSocket.OPEN) continue;
       if (!allows(device.scopes, need)) continue;
+      if (client.bulkReply) continue;
       if (client.bufferedAmount > maxBufferedBytes) {
         authed.delete(client);
         client.terminate();

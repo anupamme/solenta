@@ -2366,6 +2366,29 @@ export function createFakeCoder(opts: FakeOptions = {}): FakeCoder {
           : [next, ...threads];
         return Promise.resolve(next);
       },
+      teleport: (input: unknown) => {
+        const i = input as { threadId: string; host: string; remotePort: number; label: string };
+        calls.push({ channel: "threads.teleport", args: [input] });
+        const base =
+          threads.find((t) => t.id === i.threadId) ?? thread({ id: i.threadId });
+        const next: ThreadInfo = {
+          ...base,
+          teleportedTo: { host: i.host, remotePort: i.remotePort, label: i.label, threadId: "remote-1" },
+        };
+        threads = threads.map((t) => (t.id === i.threadId ? next : t));
+        return Promise.resolve(next);
+      },
+      teleportBack: (input: unknown) => {
+        const i = input as { threadId: string };
+        calls.push({ channel: "threads.teleportBack", args: [input] });
+        const base =
+          threads.find((t) => t.id === i.threadId) ?? thread({ id: i.threadId });
+        const next: ThreadInfo = { ...base, teleportedTo: null };
+        threads = threads.map((t) => (t.id === i.threadId ? next : t));
+        return Promise.resolve(next);
+      },
+      teleportIn: () => Promise.reject(new Error("not in the fake")),
+      teleportOut: () => Promise.reject(new Error("not in the fake")),
       setEjected: (input: unknown) => {
         const i = input as { threadId: string; ejected: boolean };
         calls.push({ channel: "threads.setEjected", args: [input] });

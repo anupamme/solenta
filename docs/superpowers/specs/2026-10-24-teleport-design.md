@@ -82,27 +82,36 @@ lead/worker ownership.
 ## Teleport back
 
 Local invokes `threads:teleportOut { threadId }` on the remote (same
-refusals). The remote builds the payload, archives its thread, and returns
-it. Local applies it to the original thread: fast-forward the branch to the
-incoming head (refuse if not a fast-forward), reset the worktree to that
-head, apply the patch, overwrite the jsonl, replace messages, clear
-`teleportedTo`.
+refusals). The remote builds and returns the payload without changing
+anything. Local applies it to the original thread: refuse if the local
+worktree changed since it left (the snapshot tree is kept in
+`teleportedTo.tree`), fast-forward the branch to the incoming head (refuse
+if not a fast-forward), reset the worktree to that head, apply the patch,
+overwrite the jsonl, replace messages, clear `teleportedTo`. Only then does
+local invoke `threads:setArchived` on the remote. If that last call fails,
+the remote copy stays visible there; nothing is lost. If the remote thread
+is gone, Teleport back unlocks the local copy as it was when it left.
 
-If the remote apply fails after the payload is built, nothing on the sender
-changes. `teleportedTo` is set only after `threads:teleportIn` returns.
+Sending sets `teleportedTo { pending: true }` before the invoke so no run
+starts mid-transfer; a failed send clears it, and boot clears any pending
+flag a quit left behind. Big replies sit over the web bridge's 4 MiB push
+buffer limit while they drain, so pushes skip that socket until the reply
+is flushed instead of terminating it.
 
 ## Code
 
 - `electron/teleport.js`: `packThread`, `applyPayload`, `relocateClaudeSession`,
   refusal checks. Pure fs/git; no Electron.
 - `electron/remoteConnections.js`: `invokeRemote(input, channel, args)` —
-  tunnel + auth + one invoke, no window.
+  tunnel + auth + one invoke, no window. `spawnTunnel` is shared with
+  `openRemoteConnection`.
 - IPC: `threads:teleportIn`, `threads:teleportOut` (host side, any
   transport with full scope); `threads:teleport`, `threads:teleportBack`
   (desktop only, drive the above).
 - Runner: refuse `startRun` while `teleportedTo` is set.
-- Renderer: "Teleport to…" thread menu entry listing saved connections;
-  banner with Teleport back on a teleported thread.
+- Renderer: "Teleport to…" thread menu entry listing saved connections
+  (`src/remoteHosts.ts`); composer status strip with Teleport back on a
+  teleported thread.
 
 ## Tests
 

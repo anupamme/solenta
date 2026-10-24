@@ -3,7 +3,7 @@
  * first-level dump of presets, and not an in-card drill-in panel.
  */
 
-import type { ProjectInfo, ProviderInfo, ThreadInfo } from "./shared/ipc";
+import type { ProjectInfo, ProviderInfo, TeleportTarget, ThreadInfo } from "./shared/ipc";
 import type { ContextMenuItem } from "./contextMenu";
 import type { SnoozePreset } from "./threadSnooze";
 import { threadProviderRef } from "./format";
@@ -43,7 +43,20 @@ export type ThreadActionMenuId =
   | "unmute"
   | "eject"
   | "reclaim"
+  | "teleport"
+  | `teleport:${number}`
+  | "teleportBack"
   | "detach";
+
+/** Why Teleport is disabled for this thread; null when it can go (#1702). */
+export function threadTeleportBlockReason(
+  thread: Pick<ThreadInfo, "worktreePath" | "status" | "ejected">,
+): string | null {
+  if (!thread.worktreePath) return "Needs a worktree";
+  if (thread.status === "working" || thread.status === "quota-wait") return "Run is active";
+  if (thread.ejected) return "Ejected to terminal";
+  return null;
+}
 
 export function buildThreadActionMenuItems(input: {
   thread: ThreadInfo;
@@ -65,6 +78,8 @@ export function buildThreadActionMenuItems(input: {
   showMute: boolean;
   /** Eject the provider session so the raw CLI/Desktop can own it (#554). */
   showEject?: boolean;
+  /** Saved Remote Connections to teleport to (#1702); undefined hides Teleport. */
+  teleportTargets?: ReadonlyArray<TeleportTarget>;
   showSettle: boolean;
   /** Open in a window of its own (#519); desktop main window only. */
   showDetach?: boolean;
@@ -195,6 +210,35 @@ export function buildThreadActionMenuItems(input: {
       label: thread.ejected ? "Reclaim in Solenta" : "Eject to terminal",
       separatorBefore: items.length > 0,
       attrs: { "data-eject-toggle": thread.id },
+    });
+  }
+
+  if (input.teleportTargets && thread.teleportedTo) {
+    const to = thread.teleportedTo;
+    items.push({
+      id: "teleportBack",
+      label: to.pending ? `Teleporting to ${to.label}…` : `Teleport back from ${to.label}`,
+      disabled: Boolean(to.pending),
+      separatorBefore: items.length > 0,
+      attrs: { "data-teleport-back": thread.id },
+    });
+  } else if (thread.provider === "claude" && input.teleportTargets?.length) {
+    const block = threadTeleportBlockReason(thread);
+    items.push({
+      id: "teleport",
+      label: "Teleport to…",
+      disabled: Boolean(block),
+      whenLabel: block ?? undefined,
+      separatorBefore: !input.showEject && items.length > 0,
+      attrs: { "data-teleport": thread.id },
+      children: block
+        ? undefined
+        : input.teleportTargets.map((t, i) => ({
+            id: `teleport:${i}`,
+            label: t.label,
+            whenLabel: t.label === t.host ? undefined : t.host,
+            attrs: { "data-teleport-target": t.host },
+          })),
     });
   }
 
