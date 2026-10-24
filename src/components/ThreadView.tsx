@@ -2653,6 +2653,11 @@ export const ThreadView = memo(function ThreadView({
     ...(repoConfig?.setupCommand
       ? [{ id: "setup", name: "Setup", command: repoConfig.setupCommand }]
       : []),
+    ...Object.entries(repoConfig?.env ?? {}).map(([k, v]) => ({
+      id: `env:${k}`,
+      name: k,
+      command: v,
+    })),
     ...(repoConfig?.quickActions ?? []),
     ...(repoConfig?.onSettleCommand
       ? [{ id: "onSettle", name: "On settle", command: repoConfig.onSettleCommand }]
@@ -3607,11 +3612,12 @@ export const ThreadView = memo(function ThreadView({
                     <div
                       className={styles.permissionCard}
                       role="alertdialog"
-                      aria-label="Approve solenta.json commands"
+                      aria-label="Approve repo commands"
                       data-repo-config-approve=""
                     >
                       <div className={styles.permissionHead}>
-                        Run commands from this repo&apos;s solenta.json?
+                        Run commands from this repo&apos;s{" "}
+                        {(repoConfig.sources ?? ["solenta.json"]).join(" and ")}?
                       </div>
                       <p className={styles.repoApproveNote}>
                         These come from a checked-in file, so anyone who

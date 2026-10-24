@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { wslTarget } = require("./wsl.js");
 const { direnvEnv } = require("./direnvEnv.js");
+const { resolveSpecEnv } = require("./envSpec.js");
 
 const REMOTE_OVERLAY = "/tmp/solenta-dev-homes";
 
@@ -53,6 +54,23 @@ function normalizeProjectEnv(raw) {
 }
 
 /**
+ * project.env (#188) over the repo env spec's env (#396). The spec's env
+ * is checked-in code too (NODE_OPTIONS, LD_PRELOAD), so it only applies
+ * once the repo's commands are approved. `cwd` is the workspace folder.
+ *
+ * @param {any} project
+ * @param {string} [cwd]
+ * @returns {Record<string, string>}
+ */
+function projectEnvFor(project, cwd) {
+  const own = normalizeProjectEnv(project && project.env);
+  // Lazy: repoConfig → verify → worktreeEnv would cycle at load time.
+  const eff = require("./repoConfig.js").effectiveCommands(project);
+  if (!eff.env || !eff.trusted) return own;
+  return { ...normalizeProjectEnv(resolveSpecEnv(eff.env, cwd || project.path)), ...own };
+}
+
+/**
  * Layer project.env (#188) UNDER a spawn's own env overlay, so provider
  * overlays (CODEX_HOME, KIMI_CODE_HOME, ...) still win. With `cwd`, the
  * worktree's direnv env (#320) goes under both. Returns `env` untouched
@@ -64,7 +82,7 @@ function normalizeProjectEnv(raw) {
  * @returns {Record<string, string> | null | undefined}
  */
 function withProjectEnv(project, env, cwd) {
-  const projectEnv = normalizeProjectEnv(project && project.env);
+  const projectEnv = projectEnvFor(project, cwd);
   // Remote/WSL spawns run elsewhere; a local .envrc says nothing about them.
   const dirEnv = isRemoteProject(project) ? undefined : direnvEnv(cwd);
   if (!Object.keys(projectEnv).length && !dirEnv) return env;
@@ -594,7 +612,7 @@ function spawnEnvForDevServer(opts = {}) {
   });
   ensureIsolationDirs(isolation);
   return mergeDevServerEnv({
-    projectEnv: project.env,
+    projectEnv: projectEnvFor(project, thread.worktreePath || project.path),
     isolation,
     extra: opts.extra,
   });
@@ -603,6 +621,7 @@ function spawnEnvForDevServer(opts = {}) {
 module.exports = {
   safeId,
   normalizeProjectEnv,
+  projectEnvFor,
   withProjectEnv,
   isRemoteProject,
   isolationEnv,

@@ -6,7 +6,7 @@ const { spotlightEnv, spotlightLane } = require("./mergeQueue.js");
 const {
   spawnEnvForDevServer,
   laneEnvExtra,
-  normalizeProjectEnv,
+  projectEnvFor,
 } = require("./worktreeEnv.js");
 const devservers = require("./devservers.js");
 const terminal = require("./terminal.js");
@@ -156,7 +156,7 @@ module.exports = {
     const { root, project, logDir } = terminalRoot(ctx, threadId);
     return terminal.open(threadId, root, {
       project,
-      env: { ...process.env, ...normalizeProjectEnv(project && project.env) },
+      env: { ...process.env, ...projectEnvFor(project, root) },
       termId: input && input.termId,
       cols: input && input.cols,
       rows: input && input.rows,

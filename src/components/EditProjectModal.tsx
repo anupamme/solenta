@@ -713,7 +713,7 @@ export function EditProjectModal({
               Worktree setup
               {repo?.setupCommand && !setupCommand.trim() ? (
                 <span className={styles.sourceTag} data-repo-config-source="setup">
-                  from solenta.json
+                  from {repo.setupSource ?? "solenta.json"}
                 </span>
               ) : null}
             </label>
@@ -734,8 +734,8 @@ export function EditProjectModal({
               worktree.
               {repo?.setupCommand
                 ? setupCommand.trim()
-                  ? " This overrides the setup in solenta.json."
-                  : " Leave empty to use the setup in solenta.json."
+                  ? ` This overrides the setup in ${repo.setupSource ?? "solenta.json"}.`
+                  : ` Leave empty to use the setup in ${repo.setupSource ?? "solenta.json"}.`
                 : ""}
             </p>
             <label className={styles.fieldRow} htmlFor="edit-project-wait-setup">
