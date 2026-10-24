@@ -123,4 +123,22 @@ describe("setup cache (#396)", () => {
     const ev = events(store, thread.id);
     assert.ok(ev.some((t) => /^\[setup\] cache miss: could not clone node_modules \(cp: clonefile failed/.test(t)));
   });
+
+  it("setup still runs when the failed clone cannot be cleaned up", async () => {
+    setCloneDirFn(async () => {
+      throw new Error("clone failed");
+    });
+    const realRm = fs.rmSync;
+    fs.rmSync = (p, ...rest) => {
+      if (String(p) === path.join(cwd, "node_modules")) throw new Error("EACCES");
+      return realRm(p, ...rest);
+    };
+    try {
+      const result = await kick();
+      assert.equal(result.ok, true);
+      assert.ok(events(store, thread.id).some((t) => /^\[setup\] ok/.test(t)));
+    } finally {
+      fs.rmSync = realRm;
+    }
+  });
 });

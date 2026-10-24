@@ -353,7 +353,8 @@ function kickWorktreeSetup(opts) {
       });
     }
     if (!resolved) return null;
-    await reuseNodeModules(store, { threadId: id, cwd, project, broadcast });
+    // The cache is optional: nothing it throws may keep setup from running.
+    await reuseNodeModules(store, { threadId: id, cwd, project, broadcast }).catch(() => false);
     return runOne(store, { threadId: id, cwd, project, resolved, broadcast });
   })().finally(() => {
     if (inflight.get(id) === p) inflight.delete(id);
@@ -489,7 +490,11 @@ async function reuseNodeModules(store, args) {
   try {
     await cloneDirFn(src, dest);
   } catch (err) {
-    fs.rmSync(dest, { recursive: true, force: true });
+    try {
+      fs.rmSync(dest, { recursive: true, force: true });
+    } catch {
+      // A leftover partial copy is still fine: setup reconciles it.
+    }
     appendEvent(
       store,
       threadId,
