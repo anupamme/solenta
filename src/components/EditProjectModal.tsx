@@ -57,6 +57,8 @@ interface EditProjectModalProps {
   globalProvider?: string | null;
   /** Profiles the model routing tiers map to (#246). */
   agentProfiles?: AgentProfile[];
+  /** #438: PR the stored setup + quick actions into solenta.json. */
+  onMoveConfigToRepo?: () => Promise<{ prUrl: string; prNumber: number }>;
 }
 
 const ROUTING_TIERS: { tier: ModelTier; label: string }[] = [
@@ -80,6 +82,7 @@ export function EditProjectModal({
   providers = [],
   globalProvider = null,
   agentProfiles = [],
+  onMoveConfigToRepo,
 }: EditProjectModalProps) {
   const [name, setName] = useState(project.name);
   const [remoteHost, setRemoteHost] = useState(project.remoteHost ?? "");
@@ -140,6 +143,28 @@ export function EditProjectModal({
   );
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [movedPr, setMovedPr] = useState<{ prUrl: string; prNumber: number } | null>(null);
+  // Saved values, not the draft: the PR moves what the app runs today.
+  const canMoveConfig =
+    Boolean(onMoveConfigToRepo) &&
+    !project.remoteHost &&
+    Boolean(project.setupCommand || project.quickActions?.length);
+  const moveConfig = async () => {
+    if (pending || !onMoveConfigToRepo) return;
+    setPending(true);
+    setError(null);
+    try {
+      setMovedPr(await onMoveConfigToRepo());
+    } catch (err) {
+      setError(
+        err instanceof Error && err.message
+          ? err.message
+          : "Could not open the solenta.json pull request.",
+      );
+    } finally {
+      setPending(false);
+    }
+  };
 
   const dialogRef = useRef<HTMLDivElement>(null);
   const handleClose = useCallback(() => {
@@ -831,7 +856,9 @@ export function EditProjectModal({
                     >
                       <span className={styles.note}>{action.name}</span>
                       <code className={styles.repoCommand}>{action.command}</code>
-                      <span className={styles.sourceTag}>from solenta.json</span>
+                      <span className={styles.sourceTag}>
+                        from {action.source ?? "solenta.json"}
+                      </span>
                     </div>
                   ))
                 : null}
@@ -881,6 +908,30 @@ export function EditProjectModal({
                 {repo.trusted
                   ? "The commands in solenta.json are approved for this project."
                   : "Commands from solenta.json ask for your approval before they first run, and again whenever they change."}
+              </p>
+            ) : null}
+            {movedPr ? (
+              <p className={styles.note} data-move-config-done="">
+                Opened{" "}
+                <a href={movedPr.prUrl} target="_blank" rel="noreferrer">
+                  PR #{movedPr.prNumber}
+                </a>{" "}
+                on a new thread. Once it merges, clear the setup command and
+                quick actions here so solenta.json takes effect.
+              </p>
+            ) : canMoveConfig ? (
+              <p className={styles.note}>
+                <button
+                  type="button"
+                  className={styles.btn}
+                  data-move-config=""
+                  disabled={pending}
+                  onClick={() => void moveConfig()}
+                >
+                  Move to solenta.json
+                </button>{" "}
+                Opens a pull request that adds the saved setup command and quick
+                actions to the repo, so they are reviewed and shared.
               </p>
             ) : null}
           </div>

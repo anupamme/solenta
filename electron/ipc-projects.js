@@ -132,6 +132,12 @@ module.exports = {
       memory: ctx.memory,
     });
   },
+  "projects:moveConfigToRepo": async (ctx, input) => {
+    return require("./configMigrate.js").moveConfigToRepo(ctx.store, input || {}, {
+      worktreeBase: ctx.worktreeBase,
+      broadcast: ctx.broadcast,
+    });
+  },
   "spaces:list": async (ctx) => {
     return services.listSpaces(ctx.store);
   },

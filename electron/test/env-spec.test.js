@@ -190,6 +190,11 @@ describe("env spec in the repo config", () => {
     // The spec's env still rides along.
     assert.deepEqual(eff.env, { A: "1" });
 
+    fs.rmSync(path.join(dir, "solenta.json"));
+    write("solenta.local.json", JSON.stringify({ setup: "yarn" }));
+    eff = effectiveCommands(project);
+    assert.deepEqual(eff.setup, { command: "yarn", fromRepo: true, source: "solenta.local.json" });
+
     eff = effectiveCommands({ ...project, setupCommand: "make" });
     assert.deepEqual(eff.setup, { command: "make", fromRepo: false });
   });

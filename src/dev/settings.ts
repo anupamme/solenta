@@ -68,6 +68,7 @@ export function createSettings(ctx: DevCtx): Pick<CoderApi, "settings" | "stayAw
   let confirmQuitWithActiveWork = true;
   let resumeInterruptedRuns = false;
   let combineQueuedFollowUps = true;
+  let agentBugReports = true;
   let worktreeRoot: string | null = null;
   let guardrailsEnabled = true;
   let otel: OtelSettings = { endpoint: null, headers: {}, claudeMetrics: false };
@@ -170,6 +171,7 @@ export function createSettings(ctx: DevCtx): Pick<CoderApi, "settings" | "stayAw
           confirmQuitWithActiveWork,
           resumeInterruptedRuns,
           combineQueuedFollowUps,
+          agentBugReports,
           worktreeRoot,
           guardrailsEnabled,
           agentProfiles: agentProfiles.map((p) => ({ ...p })),
@@ -379,6 +381,12 @@ export function createSettings(ctx: DevCtx): Pick<CoderApi, "settings" | "stayAw
           }
           combineQueuedFollowUps = patch.combineQueuedFollowUps;
         }
+        if (Object.prototype.hasOwnProperty.call(patch, "agentBugReports")) {
+          if (typeof patch.agentBugReports !== "boolean") {
+            throw new Error("agentBugReports must be a boolean");
+          }
+          agentBugReports = patch.agentBugReports;
+        }
         if (Object.prototype.hasOwnProperty.call(patch, "guardrailsEnabled")) {
           if (typeof patch.guardrailsEnabled !== "boolean") {
             throw new Error("guardrailsEnabled must be a boolean");
@@ -516,6 +524,7 @@ export function createSettings(ctx: DevCtx): Pick<CoderApi, "settings" | "stayAw
           confirmQuitWithActiveWork,
           resumeInterruptedRuns,
           combineQueuedFollowUps,
+          agentBugReports,
           worktreeRoot,
           guardrailsEnabled,
           agentProfiles: agentProfiles.map((p) => ({ ...p })),

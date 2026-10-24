@@ -1,0 +1,100 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://solenta.app/solenta.schema.json",
+  "title": "Solenta project config",
+  "description": "solenta.json (committed, shared) and solenta.local.json (gitignored, this checkout only). solenta.local.json may only hold setup, quickActions and onSettle. See https://solenta.app/docs#project-config",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "setup": {
+      "description": "Runs once in each new worktree, after submodules are fetched.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "quickActions": {
+      "description": "Named buttons in the thread header. solenta.local.json entries merge with solenta.json by id (or name when there is no id).",
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "Stable id, so solenta.local.json can override or hide this entry.",
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,47}$"
+          },
+          "name": { "type": "string", "minLength": 1, "maxLength": 32 },
+          "command": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "hidden": {
+            "description": "solenta.local.json only: hide the solenta.json entry with this id or name.",
+            "const": true
+          }
+        }
+      }
+    },
+    "onSettle": {
+      "description": "Runs once in a worktree thread's checkout when it settles: a command, or the name of a quick action.",
+      "type": "string",
+      "minLength": 1
+    },
+    "devServer": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ready": {
+          "description": "Readiness probe: exactly one of tcp, http, exec.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "tcp": { "description": "A port, or a variable such as \"$PORT\".", "type": ["integer", "string"] },
+            "http": { "description": "A localhost URL that must answer 2xx or 3xx.", "type": "string" },
+            "exec": { "description": "A command that must exit 0.", "type": "string" },
+            "timeoutMs": { "type": "integer", "minimum": 1000, "default": 120000 }
+          }
+        }
+      }
+    },
+    "iconPath": {
+      "description": "Project icon, relative to the repo root.",
+      "type": "string"
+    },
+    "automations": {
+      "description": "Shared automation definitions. Each machine opts in before they fire.",
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "prompt", "provider", "preset"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,47}$" },
+          "name": { "type": "string", "minLength": 1 },
+          "prompt": { "type": "string", "minLength": 1, "maxLength": 4000 },
+          "provider": { "type": "string" },
+          "model": { "type": ["string", "null"] },
+          "preset": { "enum": ["hourly", "daily", "weekly"] },
+          "hour": { "type": ["integer", "null"], "minimum": 0, "maximum": 23 },
+          "trigger": {
+            "type": ["object", "null"],
+            "required": ["event"],
+            "properties": { "event": { "type": "string" } }
+          },
+          "tier": { "enum": ["auto", "fast", "balanced", "strong", null] },
+          "budget": {
+            "type": ["object", "null"],
+            "additionalProperties": false,
+            "properties": {
+              "usd": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+              "tokens": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+              "turns": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+              "minutes": { "type": ["number", "null"], "exclusiveMinimum": 0 }
+            }
+          }
+        }
+      }
+    }
+  }
+}

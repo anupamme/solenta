@@ -383,6 +383,7 @@ export function createFakeCoder(opts: FakeOptions = {}): FakeCoder {
     confirmQuitWithActiveWork: true,
     resumeInterruptedRuns: false,
     combineQueuedFollowUps: true,
+    agentBugReports: true,
     prDiffCapLines: 400,
     maxConcurrentRuns: 4,
     onboardingSeen: true,
@@ -1834,6 +1835,12 @@ export function createFakeCoder(opts: FakeOptions = {}): FakeCoder {
         rec("projects.writeAgentConfig", [input], {
           projectId: input.projectId,
           written: ["AGENTS.md"],
+        }),
+      moveConfigToRepo: (input: { projectId: string }) =>
+        rec("projects.moveConfigToRepo", [input], {
+          threadId: "t-migrate",
+          prUrl: "https://github.com/o/r/pull/9",
+          prNumber: 9,
         }),
     },
     spaces: {

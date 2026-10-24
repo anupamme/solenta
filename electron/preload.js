@@ -178,6 +178,7 @@ const IPC_CHANNELS = Object.freeze([
   { ns: "projects", method: "lintAgentConfig" },
   { ns: "projects", method: "previewAgentConfig" },
   { ns: "projects", method: "writeAgentConfig" },
+  { ns: "projects", method: "moveConfigToRepo" },
   { ns: "spaces", method: "list" },
   { ns: "spaces", method: "add" },
   { ns: "spaces", method: "update" },

@@ -210,16 +210,19 @@ export interface ProjectQuickAction {
  */
 export interface ProjectRepoConfig {
   setupCommand?: string;
-  /** Ids are `repo:<index>`. */
-  quickActions?: ProjectQuickAction[];
+  /**
+   * Ids are `repo:<id>`, or `repo:<index>` for rows without an id. Rows
+   * from solenta.local.json carry `source` (#438).
+   */
+  quickActions?: (ProjectQuickAction & { source?: string })[];
   /**
    * Runs in a worktree thread when it settles (#1531): an explicit settle,
    * or its PR merging/closing. Also runnable as actionId "onSettle".
    */
   onSettleCommand?: string;
   /**
-   * Where setupCommand came from when the repo's own env spec supplied it
-   * (#396), e.g. ".devcontainer/devcontainer.json". Absent = solenta.json.
+   * Where setupCommand came from when not solenta.json: "solenta.local.json"
+   * (#438) or the repo's env spec (#396), e.g. ".devcontainer/devcontainer.json".
    */
   setupSource?: string;
   /** Env from the repo's env spec (#396); applied only once trusted. */
@@ -3643,6 +3646,11 @@ export interface AppSettings {
    * (#468). Default on; false runs them one per turn (#1501).
    */
   combineQueuedFollowUps: boolean;
+  /**
+   * Offer agents the coder-threads solenta_bug_report tool (#1703), which
+   * files redacted Solenta defects through /feedback. Default on.
+   */
+  agentBugReports: boolean;
   /** Solenta tool, injection, and secret checks. Default on; false opts out. */
   guardrailsEnabled: boolean;
   /**
@@ -5153,6 +5161,13 @@ export interface CoderApi {
       projectId: string;
       targets?: string[];
     }): Promise<AgentConfigWriteResult>;
+    /**
+     * #438: open a PR (from a new worktree thread) that moves the stored
+     * setup command and quick actions into solenta.json.
+     */
+    moveConfigToRepo(input: {
+      projectId: string;
+    }): Promise<{ threadId: string; prUrl: string; prNumber: number }>;
   };
   /**
    * Retired (#568). list() is always []; add/update throw;

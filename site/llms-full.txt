@@ -347,6 +347,20 @@ By default the server's URL is taken from its log. To wait for the server to act
 
 Setup commands and quick actions keep their output in the transcript, so you can read, copy or attach it without running the command again. An `onSettle` entry in `solenta.json` (a command, or the name of a quick action) runs once in a worktree thread's checkout when the thread settles. It goes through the same repo-command trust prompt as the rest of the file.
 
+## Project config files
+
+A project's setup command, quick actions, `onSettle`, dev server probe, icon and shared automations can live in files at the repo root, so they are reviewed, diffed and shared like code. Three layers apply, highest first:
+
+- **Edit project** in the app. A setup command set here replaces the files' setup, and a quick action list set here replaces theirs. Nothing here is shared.
+- **`solenta.local.json`**, gitignored and for this checkout only. It may hold `setup`, `quickActions` and `onSettle`.
+- **`solenta.json`**, committed and shared with everyone who opens the repo.
+
+Quick actions merge across the two files by `id` (or by name when there is no id). A local entry with the same id replaces the shared one, a new id adds a button, and `{"id": "test", "hidden": true}` hides a shared entry on this checkout. Commands from either file ask for your approval before they first run, and again whenever the merged set changes.
+
+Start either file with `"$schema": "https://solenta.app/solenta.schema.json"` and editors that read JSON Schema autocomplete and check every key. Solenta rejects an unknown key, so a typo like `setpu` shows up as an error in Edit project instead of being ignored.
+
+If your commands only live in the app, **Move to solenta.json** in Edit project opens a pull request from a new worktree thread. The PR adds them to `solenta.json` and gitignores `solenta.local.json`. Your saved settings stay in place until you clear them after it merges, so nothing changes before review.
+
 ## Terminal and Browser panes
 
 The thread centre is a split of panes, not one transcript. Chat is the transcript. **Terminal** and **Browser** open from buttons in the thread header and sit beside the transcript rather than under it.
