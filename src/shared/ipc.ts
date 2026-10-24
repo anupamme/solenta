@@ -217,6 +217,15 @@ export interface ProjectRepoConfig {
    * or its PR merging/closing. Also runnable as actionId "onSettle".
    */
   onSettleCommand?: string;
+  /**
+   * Where setupCommand came from when the repo's own env spec supplied it
+   * (#396), e.g. ".devcontainer/devcontainer.json". Absent = solenta.json.
+   */
+  setupSource?: string;
+  /** Env from the repo's env spec (#396); applied only once trusted. */
+  env?: Record<string, string>;
+  /** Checked-in files the approval covers. Absent = ["solenta.json"]. */
+  sources?: string[];
   hash?: string;
   trusted: boolean;
   error?: string;

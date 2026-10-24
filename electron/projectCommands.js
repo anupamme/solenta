@@ -236,7 +236,7 @@ function pushCommandState(store, threadId, broadcast, opts) {
  *
  * @param {object | null | undefined} project
  * @param {string | null | undefined} actionId
- * @returns {{ id: string, name: string, command: string, timeoutMs: number, fromRepo: boolean, hash: string | null, trusted: boolean } | null}
+ * @returns {{ id: string, name: string, command: string, timeoutMs: number, fromRepo: boolean, source?: string, hash: string | null, trusted: boolean } | null}
  */
 function resolveCommand(project, actionId) {
   const eff = effectiveCommands(project);
@@ -249,6 +249,7 @@ function resolveCommand(project, actionId) {
       command: eff.setup.command,
       timeoutMs: SETUP_TIMEOUT_MS,
       fromRepo: eff.setup.fromRepo,
+      ...(eff.setup.source ? { source: eff.setup.source } : {}),
       ...trust,
     };
   }
@@ -323,7 +324,7 @@ function kickWorktreeSetup(opts) {
     appendEvent(
       store,
       threadId,
-      "[setup] skipped: solenta.json setup needs your approval. Press Setup in the thread details to review and run it.",
+      `[setup] skipped: ${resolved.source || "solenta.json"} setup needs your approval. Press Setup in the thread details to review and run it.`,
     );
     store.save();
     pushCommandState(store, threadId, broadcast);

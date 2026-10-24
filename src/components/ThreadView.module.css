@@ -4707,4 +4707,6 @@ button.heroProject:hover {
   font-size: 11.5px;
   color: var(--text);
   overflow-wrap: anywhere;
+  /* An env spec's setup is a multi-line script (#396). */
+  white-space: pre-wrap;
 }
