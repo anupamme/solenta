@@ -103,6 +103,7 @@ export function EditProjectModal({
   const [iconDirty, setIconDirty] = useState(false);
   const [setupCommand, setSetupCommand] = useState(project.setupCommand ?? "");
   const [waitForSetup, setWaitForSetup] = useState(project.waitForSetup === true);
+  const [setupCache, setSetupCache] = useState(project.setupCacheOff !== true);
   const [branchPrefix, setBranchPrefix] = useState(project.branchPrefix ?? "");
   const repo = project.repoConfig;
   const [quickActions, setQuickActions] = useState<ProjectQuickAction[]>(
@@ -216,6 +217,7 @@ export function EditProjectModal({
         autoPr,
         setupCommand: setupCommand.trim() || null,
         waitForSetup,
+        setupCacheOff: !setupCache,
         branchPrefix: branchPrefix.trim() || null,
         quickActions: quickActions
           .map((a) => ({
@@ -777,6 +779,22 @@ export function EditProjectModal({
             <p className={styles.note}>
               The first message in a new worktree starts once setup finishes.
               If setup fails, the thread says so and the agent starts anyway.
+            </p>
+            <label className={styles.fieldRow} htmlFor="edit-project-setup-cache">
+              <input
+                id="edit-project-setup-cache"
+                type="checkbox"
+                data-edit-project-setup-cache=""
+                checked={setupCache}
+                disabled={pending}
+                onChange={(e) => setSetupCache(e.target.checked)}
+              />
+              <span>Reuse node_modules from the main checkout</span>
+            </label>
+            <p className={styles.note}>
+              On macOS, when the lockfile matches, a new worktree starts with a
+              copy-on-write clone of the main checkout's node_modules, then
+              setup runs.
             </p>
           </div>
           <div className={styles.field}>

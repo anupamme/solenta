@@ -139,6 +139,11 @@ export interface ProjectInfo {
    * Absent = the agent starts alongside setup.
    */
   waitForSetup?: boolean;
+  /**
+   * New worktrees skip cloning the main checkout's node_modules before
+   * setup (#396). Absent = reuse it when the lockfile matches (macOS).
+   */
+  setupCacheOff?: boolean;
   /** Worktree branch prefix (#1506). Absent = "coder/". */
   branchPrefix?: string;
   /** Defaults for new threads in this project (#1501). Absent = global defaults. */
@@ -416,6 +421,8 @@ export interface ProjectUpdateInput {
   env?: Record<string, string> | null;
   /** #1506. false / null clears it. */
   waitForSetup?: boolean | null;
+  /** #396. false / null clears it. */
+  setupCacheOff?: boolean | null;
   /** #1506. Empty / null restores "coder/"; an invalid prefix rejects. */
   branchPrefix?: string | null;
   /** New-thread defaults (#1501). Replaces the whole object; null clears. */

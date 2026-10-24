@@ -261,6 +261,7 @@ function migrateProject(p) {
   // #1506: strictly boolean; a bad prefix falls back to the default.
   if (next.waitForSetup === true) next.waitForSetup = true;
   else delete next.waitForSetup;
+  if (next.setupCacheOff !== true) delete next.setupCacheOff;
   if (typeof next.branchPrefix !== "string" || branchPrefixError(next.branchPrefix)) {
     delete next.branchPrefix;
   }

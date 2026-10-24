@@ -352,9 +352,10 @@ function kickWorktreeSetup(opts) {
         env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
       });
     }
-    return resolved
-      ? runOne(store, { threadId: id, cwd, project, resolved, broadcast })
-      : null;
+    if (!resolved) return null;
+    // The cache is optional: nothing it throws may keep setup from running.
+    await reuseNodeModules(store, { threadId: id, cwd, project, broadcast }).catch(() => false);
+    return runOne(store, { threadId: id, cwd, project, resolved, broadcast });
   })().finally(() => {
     if (inflight.get(id) === p) inflight.delete(id);
   });
@@ -412,6 +413,105 @@ function runOnSettle(opts) {
   } catch {
     return Promise.resolve(null);
   }
+}
+
+/** First one present in the worktree is the one compared (#396). */
+const LOCKFILES = [
+  "package-lock.json",
+  "npm-shrinkwrap.json",
+  "pnpm-lock.yaml",
+  "yarn.lock",
+  "bun.lock",
+  "bun.lockb",
+];
+
+/** @param {string} src @param {string} dest */
+async function cloneDirDefault(src, dest) {
+  const { execFile } = require("node:child_process");
+  const { promisify } = require("node:util");
+  // APFS clonefile: copy-on-write, so a 1 GB node_modules costs ~nothing.
+  await promisify(execFile)("cp", ["-Rc", src, dest], { timeout: 5 * 60_000 });
+}
+
+let cloneDirFn = cloneDirDefault;
+
+/**
+ * Test hook: swap the directory cloner. Pass null/undefined to restore.
+ * @param {typeof cloneDirDefault | null | undefined} fn
+ */
+function setCloneDirFn(fn) {
+  cloneDirFn = typeof fn === "function" ? fn : cloneDirDefault;
+}
+
+/** @param {string} file */
+function sha256File(file) {
+  try {
+    return require("node:crypto")
+      .createHash("sha256")
+      .update(fs.readFileSync(file))
+      .digest("hex");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Setup cache (#396): when the new worktree's lockfile matches the main
+ * checkout's byte for byte, clone the main checkout's node_modules in
+ * before setup runs. Setup still runs after, so an `npm install`-style
+ * setup finishes as a no-op and its other steps (builds) still happen; a
+ * stale main node_modules is reconciled by it. macOS only (clonefile);
+ * opt out per project with `setupCacheOff`. Any miss or error leaves the
+ * worktree as it was and setup runs normally. Never throws.
+ *
+ * @param {import("./store").Store} store
+ * @param {{ threadId: string, cwd: string, project: object | null, broadcast?: (channel: string, payload: unknown) => void }} args
+ * @returns {Promise<boolean>} true when node_modules was cloned in
+ */
+async function reuseNodeModules(store, args) {
+  const { threadId, cwd, project, broadcast } = args;
+  const p = /** @type {any} */ (project);
+  if (process.platform !== "darwin" && cloneDirFn === cloneDirDefault) return false;
+  if (!p || p.setupCacheOff === true || p.remoteHost || !p.path) return false;
+  const main = String(p.path);
+  if (path.resolve(main) === path.resolve(cwd)) return false;
+  const lock = LOCKFILES.find((f) => fs.existsSync(path.join(cwd, f)));
+  if (!lock) return false;
+  const hash = sha256File(path.join(cwd, lock));
+  if (!hash || hash !== sha256File(path.join(main, lock))) return false;
+  const src = path.join(main, "node_modules");
+  const dest = path.join(cwd, "node_modules");
+  try {
+    if (!fs.statSync(src).isDirectory() || fs.existsSync(dest)) return false;
+  } catch {
+    return false;
+  }
+  const started = Date.now();
+  try {
+    await cloneDirFn(src, dest);
+  } catch (err) {
+    try {
+      fs.rmSync(dest, { recursive: true, force: true });
+    } catch {
+      // A leftover partial copy is still fine: setup reconciles it.
+    }
+    appendEvent(
+      store,
+      threadId,
+      `[setup] cache miss: could not clone node_modules (${err && err.message ? String(err.message).split("\n")[0] : err}); running full setup`,
+    );
+    store.save();
+    pushCommandState(store, threadId, broadcast);
+    return false;
+  }
+  appendEvent(
+    store,
+    threadId,
+    `[setup] reused node_modules from the main checkout (${lock} ${hash.slice(0, 8)}) in ${formatDuration(Date.now() - started)}`,
+  );
+  store.save();
+  pushCommandState(store, threadId, broadcast);
+  return true;
 }
 
 /** @param {string} cwd */
@@ -658,6 +758,8 @@ module.exports = {
   pendingSetup,
   runCommand,
   setRunCommandFn,
+  setCloneDirFn,
+  reuseNodeModules,
   formatDuration,
   eventText,
   shellText,
