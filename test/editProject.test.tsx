@@ -74,6 +74,7 @@ describe("edit project", () => {
       autoPr: false,
       setupCommand: null,
       waitForSetup: false,
+      setupCacheOff: false,
       branchPrefix: null,
       quickActions: [],
       env: {},

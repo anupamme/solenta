@@ -475,6 +475,11 @@ function updateProject(store, projectId, patch) {
   else if (input.waitForSetup === false || input.waitForSetup === null) {
     delete next.waitForSetup;
   }
+  // #396 setup cache opt-out; same false/null-deletes rule.
+  if (input.setupCacheOff === true) next.setupCacheOff = true;
+  else if (input.setupCacheOff === false || input.setupCacheOff === null) {
+    delete next.setupCacheOff;
+  }
 
   // #1506. Empty / null / the default restores the default. An invalid
   // prefix rejects the save rather than minting broken branch names.
