@@ -1574,6 +1574,7 @@ describe("orch-server HTTP", () => {
       "refresh_worker_snapshot",
       "secret_request",
       "show_user",
+      "solenta_bug_report",
       "spec_submit",
       "task_add",
       "task_claim",
