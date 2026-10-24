@@ -119,6 +119,7 @@ describe("agent waits for setup (#1506)", () => {
 
   afterEach(async () => {
     if (finishSetup) finishSetup({ ok: true, exitCode: 0, durationMs: 1 });
+    finishSetup = null;
     for (const t of store.getThreads()) await waitForCommand(t.id);
     if (runner) runner.stopAll();
     setRunCommandFn(null);
@@ -153,6 +154,7 @@ describe("agent waits for setup (#1506)", () => {
     assert.equal(fs.existsSync(spawnedFile), false, "agent must not spawn yet");
     assert.equal(store.getThread(thread.id).status, "working");
 
+    await until(() => finishSetup);
     finishSetup({ ok: true, exitCode: 0, timedOut: false, log: "", durationMs: 5 });
     await started;
     await until(() => fs.existsSync(spawnedFile));
@@ -164,6 +166,8 @@ describe("agent waits for setup (#1506)", () => {
     const thread = newWorktreeThread();
     const started = runner.startRun({ threadId: thread.id, prompt: "go" });
     await until(() => workLog(thread.id).some((w) => w.label === "Waiting for setup"));
+    // The runner is reached a few ticks after the waiting step shows.
+    await until(() => finishSetup);
     finishSetup({ ok: false, exitCode: 1, timedOut: false, log: "npm ERR!", durationMs: 5 });
     await started;
     await until(() => fs.existsSync(spawnedFile));
