@@ -98,6 +98,11 @@ describe("solenta.local.json layer", () => {
     assert.deepEqual(hid.quickActions.map((a) => a.name), ["Lint"]);
   });
 
+  it("a hidden row with an id never falls back to hiding by name", () => {
+    const cfg = parseRepoConfig(shared, { quickActions: [{ id: "removed", name: "Test", hidden: true }] });
+    assert.deepEqual(cfg.quickActions.map((a) => a.name), ["Test", "Lint"]);
+  });
+
   it("explicit ids give stable button ids", () => {
     const cfg = parseRepoConfig(shared);
     assert.deepEqual(cfg.quickActions.map((a) => a.id), ["repo:test", "repo:1"]);
@@ -195,6 +200,15 @@ describe("move stored commands to solenta.json", () => {
       if (threadId) await waitForCommand(threadId);
       fs.rmSync(tmp, { recursive: true, force: true });
     }
+  });
+
+  it("keeps an onSettle that named a replaced file action", () => {
+    const { migratedDoc } = require("../configMigrate.js");
+    const existing = { onSettle: "Cleanup", quickActions: [{ name: "Cleanup", command: "make clean" }] };
+    const doc = migratedDoc(existing, { setup: null, actions: [{ name: "Test", command: "npm test" }] });
+    assert.equal(doc.onSettle, "make clean");
+    const same = migratedDoc(existing, { setup: null, actions: [{ name: "Cleanup", command: "make clean" }] });
+    assert.equal(same.onSettle, "Cleanup");
   });
 
   it("refuses a project with nothing stored", async () => {

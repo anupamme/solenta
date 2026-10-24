@@ -123,7 +123,7 @@ function parseLayer(data, file) {
       if (r.hidden !== undefined) {
         if (r.hidden !== true) return { error: `${at}.hidden must be true` };
         if (!id && !name) return { error: `${at} needs an id or name to hide` };
-        rows.push({ key: id || name, name, command: "", hidden: true });
+        rows.push({ key: id || name, ...(id ? { id } : {}), name, command: "", hidden: true });
         continue;
       }
       const command = normalizeCommand(r.command);

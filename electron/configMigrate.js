@@ -57,11 +57,20 @@ function migratedDoc(existing, cmds) {
   if (cmds.actions.length) {
     /** @type {string[]} */
     const taken = [];
-    doc.quickActions = cmds.actions.map((a) => {
+    const next = cmds.actions.map((a) => {
       const id = slugFromName(a.name, taken);
       taken.push(id);
       return { id, name: String(a.name).trim(), command: String(a.command).trim() };
     });
+    // An onSettle that names one of the replaced actions keeps that
+    // action's command, unless the new list has the same name and command.
+    const old = Array.isArray(base.quickActions)
+      ? base.quickActions.find((/** @type {any} */ r) => r && r.name === base.onSettle)
+      : null;
+    if (old && !next.some((a) => a.name === old.name && a.command === String(old.command).trim())) {
+      doc.onSettle = String(old.command).trim();
+    }
+    doc.quickActions = next;
   }
   return doc;
 }
