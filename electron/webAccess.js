@@ -179,6 +179,9 @@ function createMcpFunnel(deps) {
     const on = Boolean(input && input.on);
     const port = input && input.port;
     const current = await status(port);
+    // Turning off something that is not serving is a no-op, even without
+    // Tailscale: shutdown always calls set({ on: false }).
+    if (!on && !current.serving) return current;
     if (!current.installed) throw new Error("Tailscale is not installed.");
     if (!current.loggedIn) throw new Error("Tailscale is not running or not logged in.");
     if (on) {

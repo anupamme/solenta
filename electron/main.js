@@ -1336,7 +1336,9 @@ function teardownServices() {
   }
   if (mcpFunnel) {
     try {
-      void mcpFunnel.set({ on: false, port: null });
+      void mcpFunnel.set({ on: false, port: null }).catch((err) =>
+        console.warn("mcp-funnel: off failed:", err && err.message ? err.message : err),
+      );
     } catch {
       // ignore
     }
