@@ -63,6 +63,37 @@
         Every notable change to Solenta, newest first.
       </p>
 
+      <h2 id="v0-27-0">0.27.0 <small>2026-10-27</small></h2>
+      <h3>Added</h3>
+      <ul>
+        <li><strong>Teleport.</strong> Move an idle Claude thread to your own SSH host or headless server and it keeps working with the laptop closed. Teleport back brings its commits, uncommitted changes, session and transcript home.</li>
+        <li><strong>Set up another computer from Connect.</strong> Install or update Solenta on a Linux host over SSH, run it there with <code>--headless</code>, and see each agent's readiness in onboarding.</li>
+        <li><strong>Agent Client Protocol.</strong> Any ACP agent runs as a custom CLI with streaming replies, work-log steps and permission cards, and Zed, JetBrains and other ACP editors can drive Solenta tasks.</li>
+        <li><strong>Any agent CLI.</strong> Add Goose, Qwen Code, Amp or any other CLI under Settings › Agents as a best-effort custom provider.</li>
+        <li><strong>Approvals inbox.</strong> Every pending permission prompt across all threads in one queue, answered one by one or in a batch.</li>
+        <li><strong>Budget caps.</strong> Cap spend, tokens, turns or minutes per thread or automation. Hitting a cap stops the run and asks you.</li>
+        <li><strong>Privacy gateway.</strong> Optionally redact secrets and personal data from prompts before they reach a cloud provider, with a level per provider. Off by default.</li>
+        <li><strong>Thrash recovery.</strong> An agent that fails the same fix three times is stopped, rolled back to the last green checkpoint and handed to another provider.</li>
+        <li><strong>Commit &amp; PR in one click.</strong> The Git panel commits, pushes and opens the PR, and the sidebar colours each PR badge by state. Repos with no origin get Publish to GitHub, GitLab, Bitbucket or Azure DevOps.</li>
+        <li><strong>Bitbucket and Azure DevOps PRs.</strong> Open, track and merge pull requests there too.</li>
+        <li><strong>Worktrees set themselves up.</strong> Setup and env come from the repo's devcontainer.json or copilot-setup-steps.yml, and on macOS a matching lockfile clones the main checkout's node_modules instead of installing from zero.</li>
+        <li><strong>Project config files.</strong> A gitignored <code>solenta.local.json</code> overrides <code>solenta.json</code>, both are schema-checked, and one button moves app-only commands into <code>solenta.json</code> through a PR.</li>
+        <li><strong>Dev server readiness.</strong> <code>devServer.ready</code> in <code>solenta.json</code> declares a tcp, http or command probe, and the Browser pane waits for it.</li>
+        <li><strong>Composer.</strong> <code>!</code> runs a shell command in the worktree without a model turn, <code>/copy</code> copies the last reply, <code>/jump</code> and a prompt rail navigate long threads, queued follow-ups go out as one turn, and attached screenshots can be pinned, drawn on and cropped.</li>
+        <li><strong>Faster permission cards.</strong> Answer with y, n or a. Always allow covers a command prefix instead of all of Bash, and sticks for compound and repeated commands.</li>
+        <li><strong>PDFs for every provider.</strong> Models that cannot read PDFs get the extracted text.</li>
+        <li><strong>Agents point at things.</strong> An agent can open the diff, a file line or the terminal for you, and report Solenta bugs through a tool.</li>
+        <li><strong>OpenCode asks first.</strong> Interactive OpenCode turns run on <code>opencode serve</code> and show edits and shell commands as permission cards.</li>
+        <li><strong>Clone by owner/repo.</strong> Adding a GitHub project clones with your gh access and reuses a checkout you already have.</li>
+      </ul>
+      <h3>Fixed</h3>
+      <ul>
+        <li><strong>Linux headless.</strong> <code>solenta --headless</code> on a server with no display no longer crashes at launch, so Remote Connections can start it.</li>
+        <li><strong>On-device housekeeping.</strong> Apple's <code>fm</code> is now called correctly on macOS 27, so titles, commit messages and recaps run free and offline instead of quietly using a paid CLI.</li>
+        <li><strong>Finished workers.</strong> Settling a lead settles its merged workers and cleans up landed worktrees.</li>
+        <li><strong>Faster startup.</strong> The main process uses V8's compile cache.</li>
+      </ul>
+
       <h2 id="v0-26-0">0.26.0 <small>2026-10-16</small></h2>
       <h3>Added</h3>
       <ul>
