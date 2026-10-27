@@ -408,6 +408,18 @@ describe("mcp funnel", () => {
     assert.equal(stopped.serving, false);
   });
 
+  it("turning off without Tailscale installed is a quiet no-op (shutdown path)", async () => {
+    const funnel = createMcpFunnel({
+      exec: async () => {
+        throw Object.assign(new Error("spawn ENOENT"), { code: "ENOENT" });
+      },
+    });
+    const st = await funnel.set({ on: false, port: null });
+    assert.equal(st.installed, false);
+    assert.equal(st.serving, false);
+    await assert.rejects(funnel.set({ on: true, port: 7422 }), /not installed/);
+  });
+
   it("refuses to replace another Funnel on the same HTTPS port", async () => {
     const funnel = createMcpFunnel({
       exec: async (_bin, args) => {
