@@ -72,6 +72,8 @@ export const IPC_CHANNELS = [
   { ns: "mcp", method: "oauthConnect" },
   { ns: "mcp", method: "oauthCancel" },
   { ns: "mcp", method: "oauthDisconnect" },
+  { ns: "mcp", method: "listTools" },
+  { ns: "mcp", method: "setToolRule" },
   { ns: "pairing", method: "list" },
   { ns: "pairing", method: "create" },
   { ns: "pairing", method: "revoke" },

@@ -9,6 +9,8 @@ import type {
   McpServerDefinition,
   McpServerInfo,
   McpServerSaveInput,
+  McpToolAction,
+  McpToolInfo,
 } from "../shared/ipc";
 import {
   parseMcpConfigDocument,
@@ -67,6 +69,27 @@ export function devMcpCatalogRows(
     installed: installed.has(entry.id),
     ...(installed.get(entry.id) ? { installedName: installed.get(entry.id) } : {}),
   }));
+}
+
+/** Fixture tools so browser dev can show the per-tool rules UI. */
+export function devMcpTools(name: string): McpToolInfo[] {
+  return [
+    { name: "search", description: `Search ${name}` },
+    { name: "read_item", description: "Read one item by id" },
+    { name: "create_item", description: "Create a new item" },
+    { name: "delete_item", description: "Delete an item permanently" },
+  ];
+}
+
+export function withToolRule<T extends { toolRules?: Record<string, McpToolAction> }>(
+  s: T,
+  tool: string,
+  action: McpToolAction | null,
+): T {
+  const rules = { ...(s.toolRules || {}) };
+  if (action === null) delete rules[tool];
+  else rules[tool] = action;
+  return { ...s, toolRules: rules };
 }
 
 export function redactDevMcp(s: McpServerInfo): McpServerDefinition {
@@ -251,6 +274,24 @@ export function createMcp(ctx: DevCtx): Pick<CoderApi, "mcp"> {
             ? { ...s, oauth: { accessToken: "dev", refreshToken: "dev", expiresAt: Date.now() + 3_600_000 } }
             : s,
         ) as McpServerInfo[];
+        const saved = ctx.mcpServers.find((s) => s.name === input.name);
+        if (!saved) throw new Error(`Unknown MCP server: ${input.name}`);
+        return redactMcpServer(saved) as unknown as McpServerDefinition;
+      },
+      async listTools(input: { name: string }) {
+        if (!ctx.mcpServers.some((s) => s.name === input.name)) {
+          throw new Error(`Unknown MCP server: ${input.name}`);
+        }
+        return { tools: devMcpTools(input.name) };
+      },
+      async setToolRule(input: {
+        name: string;
+        tool: string;
+        action: McpToolAction | null;
+      }): Promise<McpServerDefinition> {
+        ctx.mcpServers = ctx.mcpServers.map((s) =>
+          s.name === input.name ? withToolRule(s, input.tool, input.action) : s,
+        );
         const saved = ctx.mcpServers.find((s) => s.name === input.name);
         if (!saved) throw new Error(`Unknown MCP server: ${input.name}`);
         return redactMcpServer(saved) as unknown as McpServerDefinition;

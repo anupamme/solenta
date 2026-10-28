@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { resolveCoderApi } from "../coderApi";
 import type {
   CoderApi,
@@ -51,7 +51,7 @@ import {
 import styles from "./SkillsTab.module.css";
 import { parseMcpArgv } from "../parseMcpArgv";
 import { InspectorBanner } from "./InspectorSection";
-import { McpMarketplace } from "./McpMarketplace";
+import { McpMarketplace, McpToolsPanel } from "./McpMarketplace";
 
 export { formatSkillTokens };
 
@@ -110,7 +110,10 @@ export interface SkillsManagerProps {
    * Sign-in and tool methods (#1720). Defaults to the app bridge so the
    * Settings wiring stays as is; tests pass their own.
    */
-  mcpApi?: Pick<CoderApi["mcp"], "oauthConnect" | "oauthCancel" | "oauthDisconnect">;
+  mcpApi?: Pick<
+    CoderApi["mcp"],
+    "oauthConnect" | "oauthCancel" | "oauthDisconnect" | "listTools" | "setToolRule"
+  >;
 }
 
 function bridgeMcp(): SkillsManagerProps["mcpApi"] {
@@ -1111,6 +1114,18 @@ export function SkillsManager({
         onTrust={(server) => void handleTrustMcp(server)}
         marketError={marketError}
         mcpAuth={mcpCalls ? mcpAuth : undefined}
+        renderTools={
+          mcpCalls
+            ? (server) =>
+                server.enabled ? (
+                  <McpToolsPanel
+                    server={server}
+                    listTools={mcpCalls.listTools}
+                    setToolRule={mcpCalls.setToolRule}
+                  />
+                ) : null
+            : undefined
+        }
         onMcpConnect={(name) => void handleMcpConnect(name)}
         onMcpCancelConnect={handleMcpCancelConnect}
         onMcpDisconnect={(name) => void handleMcpDisconnect(name)}
@@ -1604,6 +1619,7 @@ function McpServersSection({
   onTrust,
   marketError,
   mcpAuth,
+  renderTools,
   onMcpConnect,
   onMcpCancelConnect,
   onMcpDisconnect,
@@ -1644,6 +1660,7 @@ function McpServersSection({
   marketError: string | null;
   /** Undefined hides sign-in controls (no bridge). */
   mcpAuth: Record<string, McpAuthState> | undefined;
+  renderTools: ((server: McpServerDefinition) => ReactNode) | undefined;
   onMcpConnect: (name: string) => void;
   onMcpCancelConnect: (name: string) => void;
   onMcpDisconnect: (name: string) => void;
@@ -1692,6 +1709,7 @@ function McpServersSection({
         onConnect={mcpAuth ? onMcpConnect : undefined}
         onCancelConnect={onMcpCancelConnect}
         onDisconnect={onMcpDisconnect}
+        renderExtra={renderTools}
         onToggle={onToggle}
         onRemove={onRemove}
         onTrust={onTrust}

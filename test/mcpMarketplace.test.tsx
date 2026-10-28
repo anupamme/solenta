@@ -7,13 +7,14 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { mount, unmountAll } from "./support/dom.ts";
-import { McpMarketplace } from "../src/components/McpMarketplace";
+import { McpMarketplace, McpToolsPanel } from "../src/components/McpMarketplace";
 import { AddedMcpsSection, type McpAuthState } from "../src/components/SkillsSections";
 import { devMcpCatalogRows } from "../src/devCoder.ts";
 import type {
   McpCatalogEntry,
   McpServerDefinition,
   McpServerRemoteDefinition,
+  McpToolAction,
 } from "../src/shared/ipc";
 
 afterEach(() => unmountAll());
@@ -238,5 +239,88 @@ describe("MCP sign-in controls", () => {
     );
     assert.equal(m.query("[data-mcp-auth]")?.getAttribute("data-mcp-auth"), "optional");
     assert.equal(m.text().includes("Needs sign-in"), false);
+  });
+});
+
+describe("MCP tools panel", () => {
+  const server: McpServerDefinition = {
+    name: "github",
+    transport: "http",
+    url: "https://api.githubcopilot.com/mcp/",
+    headerNames: ["Authorization"],
+    hasToken: false,
+    enabled: true,
+    toolRules: { delete_repo: "deny" },
+  };
+
+  it("lists tools on expand and saves allow / ask / deny / default per tool", async () => {
+    const lists: string[] = [];
+    const sets: Array<{ name: string; tool: string; action: string | null }> = [];
+    let rules: Record<string, McpToolAction> = { delete_repo: "deny" };
+    const m = await mount(
+      <McpToolsPanel
+        server={server}
+        listTools={async ({ name }) => {
+          lists.push(name);
+          return {
+            tools: [
+              { name: "search_code", description: "Search code" },
+              { name: "delete_repo", description: "Delete a repository" },
+            ],
+          };
+        }}
+        setToolRule={async (input) => {
+          sets.push(input);
+          rules = { ...rules };
+          if (input.action === null) delete rules[input.tool];
+          else rules[input.tool] = input.action;
+          return { ...server, toolRules: rules };
+        }}
+      />,
+    );
+    assert.ok(m.text().includes("Tools · 1 rule"));
+    assert.equal(m.query("[data-mcp-tool]"), null, "nothing listed until expanded");
+    await m.click(m.query('button[aria-label="Tools for github"]'));
+    await m.flush();
+    assert.deepEqual(lists, ["github"]);
+    assert.deepEqual(
+      m.queryAll("[data-mcp-tool]").map((el) => el.getAttribute("data-mcp-tool")),
+      ["search_code", "delete_repo"],
+    );
+    const del = m.query('select[aria-label="Rule for delete_repo"]') as HTMLSelectElement;
+    assert.equal(del.value, "deny");
+    await m.change(m.query('select[aria-label="Rule for search_code"]'), "allow");
+    await m.change(del, "");
+    assert.deepEqual(sets, [
+      { name: "github", tool: "search_code", action: "allow" },
+      { name: "github", tool: "delete_repo", action: null },
+    ]);
+    assert.ok(m.text().includes("best effort"), "enforcement note");
+  });
+
+  it("shows the connection error with Retry", async () => {
+    let calls = 0;
+    const m = await mount(
+      <McpToolsPanel
+        server={server}
+        listTools={async () => {
+          calls += 1;
+          if (calls === 1) {
+            throw new Error("Error invoking remote method 'mcp:listTools': Error: No answer from github within 10s");
+          }
+          return { tools: [] };
+        }}
+        setToolRule={async () => server}
+      />,
+    );
+    await m.click(m.query('button[aria-label="Tools for github"]'));
+    await m.flush();
+    assert.equal(
+      m.query('[role="alert"]')?.textContent?.startsWith("No answer from github within 10s"),
+      true,
+    );
+    await m.click(m.byText("Retry"));
+    await m.flush();
+    assert.ok(m.text().includes("This server has no tools."));
   });
 });

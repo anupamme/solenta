@@ -4047,6 +4047,7 @@ export interface McpServerRemoteInfo {
   enabled: boolean;
   provenance?: McpServerProvenance;
   catalogId?: string;
+  toolRules?: McpToolRules;
 }
 
 /** Stored local stdio MCP server (settings slice). */
@@ -4061,6 +4062,7 @@ export interface McpServerStdioInfo {
   trusted: boolean;
   provenance?: McpServerProvenance;
   catalogId?: string;
+  toolRules?: McpToolRules;
 }
 
 /**
@@ -4088,6 +4090,12 @@ export interface McpServerRemoteDefinition {
 /** Per-tool allow/ask/deny for one MCP server (#1720). */
 export type McpToolAction = "allow" | "ask" | "deny";
 export type McpToolRules = Record<string, McpToolAction>;
+
+/** One tool from an MCP server's tools/list (#1720). */
+export interface McpToolInfo {
+  name: string;
+  description: string;
+}
 
 /** Public stdio MCP definition: env names only, never values. */
 export interface McpServerStdioDefinition {
@@ -5070,6 +5078,14 @@ export interface CoderApi {
     oauthCancel(input: { name: string }): Promise<{ cancelled: boolean }>;
     /** Forget the stored sign-in tokens. */
     oauthDisconnect(input: { name: string }): Promise<McpServerDefinition>;
+    /** Connect to the server and list its tools (10 s limit). */
+    listTools(input: { name: string }): Promise<{ tools: McpToolInfo[] }>;
+    /** Set one tool's allow / ask / deny; null goes back to the default. */
+    setToolRule(input: {
+      name: string;
+      tool: string;
+      action: McpToolAction | null;
+    }): Promise<McpServerDefinition>;
   };
   /**
    * External MCP pairing (#157). Mint a scoped, expiring token so Claude

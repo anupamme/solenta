@@ -113,7 +113,12 @@ import type {
 import { normalizeMessagePins } from "../../src/messagePins";
 import { queuedItemFiles, queuedRow } from "../../src/queuedFiles";
 import { buildActivity } from "../../src/activity";
-import { DEV_MCP_CATALOG, devMcpCatalogRows } from "../../src/devCoder.ts";
+import {
+  DEV_MCP_CATALOG,
+  devMcpCatalogRows,
+  devMcpTools,
+  withToolRule,
+} from "../../src/devCoder.ts";
 import {
   mergeMcpSettingsPatch,
   parseMcpConfigDocument,
@@ -1289,6 +1294,16 @@ export function createFakeCoder(opts: FakeOptions = {}): FakeCoder {
           return Promise.reject(new Error(`Unknown MCP server: ${input.name}`));
         }
         return rec("mcp.oauthConnect", [input], redactMcpServer(saved) as McpServerDefinition);
+      },
+      listTools: (input: { name: string }) =>
+        rec("mcp.listTools", [input], { tools: devMcpTools(input.name) }),
+      setToolRule: (input: { name: string; tool: string; action: "allow" | "ask" | "deny" | null }) => {
+        const next = settingsState.mcpServers.map((s) =>
+          s.name === input.name ? withToolRule(s, input.tool, input.action) : s,
+        ) as McpServerInfo[];
+        settingsState = { ...settingsState, mcpServers: next };
+        const saved = next.find((s) => s.name === input.name);
+        return rec("mcp.setToolRule", [input], redactMcpServer(saved) as McpServerDefinition);
       },
       oauthCancel: (input: { name: string }) =>
         rec("mcp.oauthCancel", [input], { cancelled: false }),

@@ -123,6 +123,8 @@ const IPC_CHANNELS = Object.freeze([
   { ns: "mcp", method: "oauthConnect" },
   { ns: "mcp", method: "oauthCancel" },
   { ns: "mcp", method: "oauthDisconnect" },
+  { ns: "mcp", method: "listTools" },
+  { ns: "mcp", method: "setToolRule" },
   { ns: "pairing", method: "list" },
   { ns: "pairing", method: "create" },
   { ns: "pairing", method: "revoke" },

@@ -1,5 +1,11 @@
 import { useMemo, useState } from "react";
-import type { McpCatalogEntry } from "../shared/ipc";
+import type {
+  McpCatalogEntry,
+  McpServerDefinition,
+  McpToolAction,
+  McpToolInfo,
+  McpToolRules,
+} from "../shared/ipc";
 import styles from "./SkillsTab.module.css";
 import own from "./McpMarketplace.module.css";
 
@@ -241,5 +247,121 @@ export function McpMarketplace({
         </ul>
       )}
     </section>
+  );
+}
+
+const TOOL_ACTIONS: Array<{ value: McpToolAction | ""; label: string }> = [
+  { value: "", label: "Default" },
+  { value: "allow", label: "Allow" },
+  { value: "ask", label: "Ask" },
+  { value: "deny", label: "Deny" },
+];
+
+/**
+ * One installed server's tools with a per-tool allow / ask / deny (#1720).
+ * Rules compile into governance rules; Claude enforces all three, Codex and
+ * OpenCode hide denied tools, the rest is best effort.
+ */
+export function McpToolsPanel({
+  server,
+  listTools,
+  setToolRule,
+}: {
+  server: McpServerDefinition;
+  listTools: (input: { name: string }) => Promise<{ tools: McpToolInfo[] }>;
+  setToolRule: (input: {
+    name: string;
+    tool: string;
+    action: McpToolAction | null;
+  }) => Promise<McpServerDefinition>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [tools, setTools] = useState<McpToolInfo[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [rules, setRules] = useState<McpToolRules>(server.toolRules ?? {});
+
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await listTools({ name: server.name });
+      setTools(res.tools);
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : String(err);
+      setError(raw.replace(/^Error invoking remote method '[^']+': (Error: )?/, ""));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    if (next && !tools && !loading) void load();
+  };
+
+  const change = async (tool: string, value: McpToolAction | "") => {
+    setError(null);
+    try {
+      const saved = await setToolRule({ name: server.name, tool, action: value || null });
+      setRules(saved.toolRules ?? {});
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const ruleCount = Object.keys(rules).length;
+  return (
+    <div className={own.toolsWrap} data-mcp-tools={server.name}>
+      <button
+        type="button"
+        className={styles.ghostBtn}
+        aria-expanded={open}
+        aria-label={`Tools for ${server.name}`}
+        onClick={toggle}
+      >
+        {open ? "Hide tools" : ruleCount ? `Tools · ${ruleCount} rule${ruleCount === 1 ? "" : "s"}` : "Tools"}
+      </button>
+      {open && (
+        <div className={own.tools}>
+          {loading && <span className={own.status}>Connecting to {server.name}…</span>}
+          {error && (
+            <span className={own.status} data-state="error" role="alert">
+              {error}{" "}
+              <button type="button" className={styles.ghostBtn} onClick={() => void load()}>
+                Retry
+              </button>
+            </span>
+          )}
+          {tools && tools.length === 0 && <span className={own.status}>This server has no tools.</span>}
+          {tools?.map((t) => (
+            <div key={t.name} className={own.toolRow} data-mcp-tool={t.name}>
+              <span className={own.toolName} title={t.description || t.name}>
+                {t.name}
+              </span>
+              <select
+                className={own.toolSelect}
+                aria-label={`Rule for ${t.name}`}
+                value={rules[t.name] ?? ""}
+                onChange={(e) => void change(t.name, e.target.value as McpToolAction | "")}
+              >
+                {TOOL_ACTIONS.map((a) => (
+                  <option key={a.value} value={a.value}>
+                    {a.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ))}
+          {tools && tools.length > 0 && (
+            <span className={own.status}>
+              Claude enforces allow, ask and deny. Codex and OpenCode hide denied tools.
+              Other agents: best effort.
+            </span>
+          )}
+        </div>
+      )}
+    </div>
   );
 }

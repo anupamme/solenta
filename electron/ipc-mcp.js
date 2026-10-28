@@ -14,6 +14,8 @@ const xcodeMcp = require("./xcodeMcp.js");
 const pairing = require("./pairing.js");
 const oauth = require("./mcpOauth.js");
 const oauthClient = require("./mcpOauthClient.js");
+const { listServerTools } = require("./mcpTools.js");
+const { MCP_TOOL_NAME_RE } = require("./mcp.js");
 
 function requireDesktopPairing(ctx) {
   if (ctx.transport !== "desktop") {
@@ -204,6 +206,30 @@ const handlers = {
     return saveServerRow(ctx, name, (s) => {
       const { oauth: _drop, ...rest } = s;
       return rest;
+    });
+  },
+  // #1720: connect, initialize, tools/list, close (10 s limit).
+  "mcp:listTools": async (ctx, input) => {
+    const name = inputName(input);
+    await refreshMcpTokens(ctx);
+    const row = services.getSettings(ctx.store).mcpServers.find((s) => s.name === name);
+    if (!row) throw new Error(`Unknown MCP server: ${name}`);
+    return { tools: await (ctx.listServerTools || listServerTools)(row) };
+  },
+  // #1720: per-tool allow / ask / deny; null clears back to the default.
+  "mcp:setToolRule": async (ctx, input) => {
+    const name = inputName(input);
+    const tool = input && typeof input.tool === "string" ? input.tool : "";
+    const action = input ? input.action : undefined;
+    if (!MCP_TOOL_NAME_RE.test(tool)) throw new Error("Invalid MCP tool name");
+    if (action !== null && !["allow", "ask", "deny"].includes(action)) {
+      throw new Error("Tool rule must be allow, ask, deny or null");
+    }
+    return saveServerRow(ctx, name, (s) => {
+      const rules = { ...(s.toolRules || {}) };
+      if (action === null) delete rules[tool];
+      else rules[tool] = action;
+      return { ...s, toolRules: rules };
     });
   },
   "mcp:xcodeStatus": async (ctx, input) => {
