@@ -227,6 +227,10 @@ module.exports = {
     const { fetchProviderModels } = require("./providerModels.js");
     return fetchProviderModels(ctx.store.getSettings(), String((input && input.provider) || ""));
   },
+  // Ollama / LM Studio probe (#1717): loopback by default, a LAN host when given.
+  "providers:detectLocal": async (_ctx, input) => {
+    return require("./localModels.js").detectLocalModels(input);
+  },
   "sourceControl:discover": async (_ctx, input) => {
     return discoverSourceControl({
       rescan: Boolean(input && input.rescan),

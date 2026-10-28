@@ -494,6 +494,23 @@ function buildDevCoder(): CoderApi {
           { id: `${input.provider}-live-small`, label: "Live small" },
         ];
       },
+      // Canned (#1717): Ollama up with a small- and a large-context model.
+      async detectLocal(input?: { ollamaUrl?: string | null; lmstudioUrl?: string | null }) {
+        const root = (input?.ollamaUrl || "http://127.0.0.1:11434").replace(/\/+$/, "").replace(/\/v1$/, "");
+        return [
+          {
+            kind: "ollama" as const,
+            url: root,
+            baseUrl: `${root}/v1`,
+            running: true,
+            models: [
+              { id: "qwen3-coder:30b", label: "qwen3-coder:30b", contextTokens: 262144 },
+              { id: "llama3.2:3b", label: "llama3.2:3b", contextTokens: 8192 },
+            ],
+          },
+          { kind: "lmstudio" as const, url: "http://127.0.0.1:1234", baseUrl: "http://127.0.0.1:1234/v1", running: false, models: [] },
+        ];
+      },
     },
     ...createSourceControl(),
     ...createWorkflows(ctx),

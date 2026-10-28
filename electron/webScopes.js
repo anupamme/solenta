@@ -266,6 +266,7 @@ const BY_SCOPE = {
   ],
   settings: [
     "providers:fetchModels",
+    "providers:detectLocal",
     "settings:set",
     "settings:testWebhook",
     "memory:store",

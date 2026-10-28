@@ -3334,6 +3334,17 @@ export interface FetchedModel {
   contextTokens?: number;
 }
 
+/** A local model server probed by providers.detectLocal (#1717). */
+export interface LocalModelServer {
+  kind: "ollama" | "lmstudio";
+  /** Server root, e.g. http://127.0.0.1:11434. */
+  url: string;
+  /** OpenAI-compatible base opencode talks to: `${url}/v1`. */
+  baseUrl: string;
+  running: boolean;
+  models: FetchedModel[];
+}
+
 /** A checkout found by first-run discovery (#1501). */
 export interface RecentRepo {
   /** Main checkout; a linked worktree maps to it. */
@@ -5123,6 +5134,12 @@ export interface CoderApi {
      * missing key, a timeout or an HTTP error.
      */
     fetchModels(input: { provider: string }): Promise<FetchedModel[]>;
+    /**
+     * Probe Ollama and LM Studio (#1717). Never throws for a server that is
+     * not running; it comes back `running: false`. URLs override the
+     * default loopback hosts (a LAN Ollama).
+     */
+    detectLocal(input?: { ollamaUrl?: string | null; lmstudioUrl?: string | null }): Promise<LocalModelServer[]>;
   };
   /**
    * Forge CLI probe (issue #608). Cached until `{ rescan: true }` or a

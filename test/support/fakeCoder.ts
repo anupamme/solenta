@@ -67,6 +67,7 @@ import type {
   FsBrowseResult,
   ProviderInfo,
   FetchedModel,
+  LocalModelServer,
   SourceControlDiscovery,
   CliSlashCommand,
   SkillCatalogEntry,
@@ -238,6 +239,8 @@ export interface FakeOptions {
   providers?: ProviderInfo[];
   /** providers.fetchModels result (#1714). */
   fetchedModels?: FetchedModel[];
+  /** providers.detectLocal result (#1717); nothing running by default. */
+  localServers?: LocalModelServer[];
   /** threads.listAgents rows (#172); empty by default. */
   agents?: Array<{ name: string; description: string; source: "builtin" | "project" | "user" }>;
   workflows?: WorkflowTemplateInfo[];
@@ -1515,6 +1518,8 @@ export function createFakeCoder(opts: FakeOptions = {}): FakeCoder {
       list: () => rec("providers.list", [], providers),
       fetchModels: (input: { provider: string }) =>
         rec("providers.fetchModels", [input], opts.fetchedModels ?? []),
+      detectLocal: (input?: { ollamaUrl?: string | null; lmstudioUrl?: string | null }) =>
+        rec("providers.detectLocal", [input], opts.localServers ?? []),
     },
     sourceControl: {
       discover: (input?: { rescan?: boolean }) =>
