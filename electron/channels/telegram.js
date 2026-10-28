@@ -45,8 +45,8 @@ function chunkText(text, max = MAX_TEXT) {
  * @param {typeof fetch} [opts.fetch]
  * @param {number} [opts.offset] first update id to ask for
  * @param {(offset: number) => void} [opts.onOffset]
- * @param {(msg: { chatId: string, senderId: string, text: string }) => Promise<void> | void} opts.onMessage
- * @param {(press: { id: string, chatId: string, senderId: string, data: string }) => Promise<void> | void} opts.onButton
+ * @param {(msg: { chatId: string, chatType: string, senderId: string, text: string }) => Promise<void> | void} opts.onMessage
+ * @param {(press: { id: string, chatId: string, chatType: string, senderId: string, data: string }) => Promise<void> | void} opts.onButton
  * @param {(state: { state: "connected" | "error", error?: string }) => void} [opts.onState]
  * @param {(msg: string) => void} [opts.log]
  * @param {number} [opts.pollTimeoutSec]
@@ -131,6 +131,7 @@ function createTelegram(opts) {
             if (m && m.chat && m.from) {
               await opts.onMessage({
                 chatId: String(m.chat.id),
+                chatType: String(m.chat.type || ""),
                 senderId: String(m.from.id),
                 text: typeof m.text === "string" ? m.text : "",
               });
@@ -138,6 +139,7 @@ function createTelegram(opts) {
               await opts.onButton({
                 id: String(q.id),
                 chatId: String(q.message.chat.id),
+                chatType: String(q.message.chat.type || ""),
                 senderId: String(q.from.id),
                 data: String(q.data || ""),
               });

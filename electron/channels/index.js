@@ -9,7 +9,7 @@
  * data }) normalized events in here.
  *
  * Chat text is untrusted: it only ever becomes a prompt (never a shell
- * argument), senders off the allowlist get no reply at all, and threads run
+ * argument), senders off the allowlist and group chats get no reply at all, and threads run
  * with the project's / profile's normal permission mode.
  *
  * State: store.getChannelState("telegram") holds the poll offset and the
@@ -134,8 +134,17 @@ function createChannels(deps) {
     }
   }
 
-  /** @param {{ chatId: string, senderId: string, text: string }} msg */
-  async function onMessage({ chatId, senderId, text }) {
+  /** @param {{ chatId: string, chatType: string, senderId: string, text: string }} msg */
+  async function onMessage({ chatId, chatType, senderId, text }) {
+    // Private chats only: in a group, every member would read the agent's
+    // output (code, diffs, maybe secrets) even if only the sender is allowed.
+    if (chatType !== "private") {
+      if (!warnedSenders.has(`chat:${chatId}`)) {
+        warnedSenders.add(`chat:${chatId}`);
+        log(`telegram: ignored a message in ${chatType || "a non-private"} chat ${chatId}. Message the bot directly.`);
+      }
+      return;
+    }
     if (!allowed(senderId)) {
       if (!warnedSenders.has(senderId)) {
         warnedSenders.add(senderId);
@@ -180,9 +189,9 @@ function createChannels(deps) {
     else await startThread(chatId, body);
   }
 
-  /** @param {{ id: string, chatId: string, senderId: string, data: string }} press */
-  async function onButton({ id, chatId, senderId, data }) {
-    if (!allowed(senderId)) return;
+  /** @param {{ id: string, chatId: string, chatType: string, senderId: string, data: string }} press */
+  async function onButton({ id, chatId, chatType, senderId, data }) {
+    if (chatType !== "private" || !allowed(senderId)) return;
     const answer = async (/** @type {string} */ text) => {
       try {
         if (tg.client) await tg.client.answerButton(id, text);

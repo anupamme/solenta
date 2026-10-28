@@ -109,7 +109,8 @@ export function ChannelsSection({
       <p className={styles.note}>
         Start and continue threads by messaging your own Telegram bot. Results,
         approvals and questions come back to the chat. Create a bot with
-        @BotFather and paste its token here.
+        @BotFather and paste its token here. Message the bot directly: group
+        chats are ignored, so agent output never reaches other members.
       </p>
       <div className={styles.memoryRow}>
         <span

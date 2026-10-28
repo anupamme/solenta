@@ -76,12 +76,12 @@ function fakeTelegram() {
     failPolls(on) {
       failPolls = on;
     },
-    message(from, text, chat = from) {
-      push({ message: { chat: { id: Number(chat) }, from: { id: Number(from) }, text } });
+    message(from, text, chat = from, type = "private") {
+      push({ message: { chat: { id: Number(chat), type }, from: { id: Number(from) }, text } });
     },
-    press(from, data, chat = from) {
+    press(from, data, chat = from, type = "private") {
       push({
-        callback_query: { id: `cb${nextId}`, from: { id: Number(from) }, data, message: { chat: { id: Number(chat) } } },
+        callback_query: { id: `cb${nextId}`, from: { id: Number(from) }, data, message: { chat: { id: Number(chat), type } } },
       });
     },
   };
@@ -161,6 +161,17 @@ describe("telegram channel", () => {
     assert.equal(store.getThreads().length, 0);
     assert.equal(tg.sent[0].chat_id, ME);
     assert.equal(logs.filter((l) => l.includes("999")).length, 1);
+  });
+
+  it("ignores group chats even from an allowed sender, so output never reaches other members", async () => {
+    tg.message(ME, "deploy prod", "-100123", "group");
+    tg.message(ME, "and again", "-100456", "supergroup");
+    tg.message(ME, "/status");
+    await waitFor(() => tg.sent.length === 1, "status reply");
+    assert.equal(runner.starts.length, 0);
+    assert.equal(store.getThreads().length, 0);
+    assert.ok(tg.sent.every((m) => String(m.chat_id) === String(ME)));
+    assert.equal(logs.filter((l) => l.includes("-100123")).length, 1);
   });
 
   it("first message creates a tagged thread and sends the prompt", async () => {
