@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import type {
-  McpCatalogEntry,
   McpImportPreview,
   McpPreviewServer,
   McpServerDefinition,
@@ -695,59 +694,6 @@ function mcpEnvNames(server: McpServerDefinition): string[] {
   return server.transport === "stdio" ? server.envNames : server.headerNames;
 }
 
-export function CuratedMcpsSection({
-  catalog,
-  busy,
-  onInstall,
-}: {
-  catalog: McpCatalogEntry[];
-  busy: boolean;
-  onInstall: (id: string) => void;
-}) {
-  return (
-    <section
-      className={styles.subSection}
-      aria-label="Curated MCP servers"
-      data-mcp-section="curated"
-    >
-      <div className={styles.sectionLabel}>Curated MCP servers</div>
-      {catalog.length === 0 ? (
-        <p className={styles.empty}>No curated MCP servers</p>
-      ) : (
-        <ul className={styles.list}>
-          {catalog.map((entry) => (
-            <li key={entry.id} className={styles.row} data-mcp-catalog={entry.id}>
-              <div className={styles.rowMain}>
-                <span className={styles.rowName}>{entry.name}</span>
-                {entry.description && (
-                  <span className={styles.rowDetail}>{entry.description}</span>
-                )}
-              </div>
-              <div className={styles.rowSide}>
-                {entry.installed ? (
-                  <span className={`${styles.badge} ${styles.badgeBuiltin}`}>
-                    Installed
-                  </span>
-                ) : (
-                  <button
-                    type="button"
-                    className={styles.ghostBtn}
-                    disabled={busy}
-                    aria-label={`Install ${entry.name}`}
-                    onClick={() => onInstall(entry.id)}
-                  >
-                    Install
-                  </button>
-                )}
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
-  );
-}
-
 const XCODE_SERVER_LABEL = { mobilebuildmcp: "MobileBuildMCP", xcode: "Xcode MCP" } as const;
 
 /** Doctor card for an Apple project (#488): what is installed, one Add button. */
@@ -842,12 +788,12 @@ export function AddedMcpsSection({
   return (
     <section
       className={styles.subSection}
-      aria-label="Added MCP servers"
+      aria-label="Installed MCP servers"
       data-mcp-section="added"
     >
-      <div className={styles.sectionLabel}>Added MCP servers</div>
+      <div className={styles.sectionLabel}>Installed MCP servers</div>
       {servers.length === 0 ? (
-        <p className={styles.empty}>No added MCP servers</p>
+        <p className={styles.empty}>No MCP servers installed</p>
       ) : (
         <ul className={styles.list}>
           {servers.map((s) => {

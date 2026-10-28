@@ -26,7 +26,6 @@ import type {
 import {
   AddSkillSection,
   AddedMcpsSection,
-  CuratedMcpsSection,
   XcodeMcpCard,
   CuratedSkillsSection,
   HarnessImportPreviewPanel,
@@ -49,6 +48,7 @@ import {
 import styles from "./SkillsTab.module.css";
 import { parseMcpArgv } from "../parseMcpArgv";
 import { InspectorBanner } from "./InspectorSection";
+import { McpMarketplace } from "./McpMarketplace";
 
 export { formatSkillTokens };
 
@@ -278,6 +278,7 @@ export function SkillsManager({
   const [mcpUrl, setMcpUrl] = useState("");
   const [mcpToken, setMcpToken] = useState("");
   const [mcpCatalog, setMcpCatalog] = useState<McpCatalogEntry[]>([]);
+  const [marketError, setMarketError] = useState<string | null>(null);
   const [xcode, setXcode] = useState<XcodeMcpStatus | null>(null);
   const [mcpCommand, setMcpCommand] = useState("");
   const [mcpArgs, setMcpArgs] = useState("");
@@ -644,18 +645,32 @@ export function SkillsManager({
     });
   };
 
-  const handleMcpCatalogInstall = async (id: string) => {
-    setMcpImportError(null);
+  // Marketplace install (#1720): preview + install in one click. The row
+  // already shows the command or URL, so clicking Install is the trust.
+  const handleMcpCatalogInstall = async (
+    id: string,
+    secrets: Record<string, string>,
+  ) => {
+    setMarketError(null);
     setMcpBusy(true);
     try {
-      const next = await previewMcpImport({ kind: "catalog", id });
-      if (!mountedRef.current) {
-        discardMcpOnce(next.previewId);
-        return;
-      }
-      showMcpPreview(next);
+      const preview = await previewMcpImport({ kind: "catalog", id });
+      const result = await installMcpImport({
+        previewId: preview.previewId,
+        selected: preview.servers.map((s) => s.name),
+        replace: false,
+        trustLocal: true,
+        trustLocalCommands: true,
+        secrets,
+      });
+      if (!mountedRef.current) return;
+      const names = (result.installed || []).map((s) =>
+        typeof s === "string" ? s : s.name,
+      );
+      setStatusMessage(`Installed ${names.join(", ")}`);
+      await reloadMcp();
     } catch (err) {
-      if (mountedRef.current) setMcpImportError(errorMessage(err));
+      if (mountedRef.current) setMarketError(errorMessage(err));
     } finally {
       if (mountedRef.current) setMcpBusy(false);
     }
@@ -1041,7 +1056,8 @@ export function SkillsManager({
         onToggle={(name, enabled) => void handleToggleMcp(name, enabled)}
         onRemove={(name) => void handleRemoveMcp(name)}
         onTrust={(server) => void handleTrustMcp(server)}
-        onCatalogInstall={(id) => void handleMcpCatalogInstall(id)}
+        marketError={marketError}
+        onCatalogInstall={(id, secrets) => void handleMcpCatalogInstall(id, secrets)}
         onImportFile={() => void handleMcpImportFile()}
         onPreviewJson={() => void handleMcpPreviewJson()}
         onPreviewGithub={() => void handleMcpPreviewGithub()}
@@ -1529,6 +1545,7 @@ function McpServersSection({
   onToggle,
   onRemove,
   onTrust,
+  marketError,
   onCatalogInstall,
   onImportFile,
   onPreviewJson,
@@ -1563,12 +1580,12 @@ function McpServersSection({
   onToggle: (name: string, enabled: boolean) => void;
   onRemove: (name: string) => void;
   onTrust: (server: McpServerDefinition) => void;
-  onCatalogInstall: (id: string) => void;
+  marketError: string | null;
+  onCatalogInstall: (id: string, secrets: Record<string, string>) => void;
   onImportFile: () => void;
   onPreviewJson: () => void;
   onPreviewGithub: () => void;
 }) {
-  const added = mcpServers.filter((s) => s.provenance !== "curated");
   return (
     <section className={styles.section} aria-label="MCP servers">
       <div
@@ -1588,13 +1605,15 @@ function McpServersSection({
       {xcode && (
         <XcodeMcpCard status={xcode} busy={mcpBusy} onPair={onPairXcode} />
       )}
-      <CuratedMcpsSection
+      <McpMarketplace
         catalog={mcpCatalog}
         busy={mcpBusy}
+        error={marketError}
         onInstall={onCatalogInstall}
+        onUninstall={onRemove}
       />
       <AddedMcpsSection
-        servers={added}
+        servers={mcpServers}
         busy={mcpBusy}
         onToggle={onToggle}
         onRemove={onRemove}

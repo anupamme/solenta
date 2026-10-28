@@ -4281,6 +4281,14 @@ export interface McpCatalogEntry {
   risk?: string;
   requiredSecrets?: Array<{ id: string; label: string }>;
   installed: boolean;
+  /** Marketplace filter group, e.g. "Developer tools". */
+  category?: string;
+  /** "oauth": sign in after install; "key": the install form asks for one. */
+  auth?: "oauth" | "key" | "none";
+  /** Name of the installed server row, for Uninstall. */
+  installedName?: string;
+  /** The URL or command line that will be registered. */
+  summary?: string;
 }
 
 /** One-click Xcode MCP pairing (#488). */

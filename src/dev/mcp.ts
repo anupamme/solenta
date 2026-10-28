@@ -17,99 +17,55 @@ import {
   upsertMcpServer,
 } from "../shared/mcpModel.ts";
 import type { DevCtx } from "./context.ts";
+import { DEV_MCP_CATALOG_DATA } from "./mcpCatalogData.ts";
 
-/**
- * Browser-twin mirror of the main-process curated catalog
- * (electron/mcpCatalog.js). Keep ids/definitions in sync with it.
- */
+/** Browser-twin row of the main-process catalog (electron/mcpCatalog.js). */
 export interface DevMcpCatalogEntry {
   id: string;
   name: string;
   description: string;
+  category: string;
   publisher: string;
   homepage: string;
   sourceUrl: string;
   transport: "http" | "sse" | "stdio";
+  auth: "oauth" | "key" | "none";
   risk: string;
+  requiredSecrets: Array<{ id: string; label: string }>;
   definition: Record<string, unknown>;
 }
 
-export const DEV_MCP_CATALOG: readonly DevMcpCatalogEntry[] = [
-  {
-    id: "context7",
-    name: "Context7",
-    description:
-      "Up-to-date library documentation and code examples for LLMs over a remote MCP endpoint.",
-    publisher: "Upstash",
-    homepage: "https://context7.com",
-    sourceUrl: "https://context7.com",
-    transport: "http",
-    risk: "Remote HTTP endpoint. Review the vendor before sending repository context.",
-    definition: {
-      name: "context7",
-      transport: "http",
-      url: "https://mcp.context7.com/mcp",
-      enabled: true,
-    },
-  },
-  {
-    id: "linear",
-    name: "Linear",
-    description:
-      "Linear issue tracking and project management over a remote MCP endpoint.",
-    publisher: "Linear",
-    homepage: "https://linear.app",
-    sourceUrl: "https://linear.app",
-    transport: "http",
-    risk: "Remote HTTP with OAuth. No static secret is stored; complete Linear's OAuth flow.",
-    definition: {
-      name: "linear",
-      transport: "http",
-      url: "https://mcp.linear.app/mcp",
-      enabled: true,
-    },
-  },
-  {
-    id: "playwright",
-    name: "Playwright",
-    description:
-      "Browser automation via the Playwright MCP server. Runs a local npx command.",
-    publisher: "Microsoft",
-    homepage: "https://playwright.dev",
-    sourceUrl: "https://playwright.dev",
-    transport: "stdio",
-    risk: "Local stdio via npx. Explicit trust is required before the command can run.",
-    definition: {
-      name: "playwright",
-      transport: "stdio",
-      command: "npx",
-      args: ["-y", "@playwright/mcp@latest"],
-      enabled: false,
-      trusted: false,
-    },
-  },
-];
+export const DEV_MCP_CATALOG: readonly DevMcpCatalogEntry[] = DEV_MCP_CATALOG_DATA;
+
+function summaryOf(def: Record<string, unknown>): string {
+  return def.transport === "stdio"
+    ? [def.command, ...((def.args as string[]) || [])].join(" ")
+    : String(def.url);
+}
 
 /** Public catalog rows with `installed` derived from the curated servers. */
 export function devMcpCatalogRows(
-  servers: ReadonlyArray<{ provenance?: string; catalogId?: string }>,
+  servers: ReadonlyArray<{ name?: string; provenance?: string; catalogId?: string }>,
 ): McpCatalogEntry[] {
-  const installedIds = new Set(
-    servers
-      .filter((s) => s.provenance === "curated" && s.catalogId)
-      .map((s) => s.catalogId as string),
-  );
+  const installed = new Map<string, string>();
+  for (const s of servers) {
+    if (s.provenance === "curated" && s.catalogId) installed.set(s.catalogId, s.name ?? "");
+  }
   return DEV_MCP_CATALOG.map((entry) => ({
     id: entry.id,
     name: entry.name,
     description: entry.description,
+    category: entry.category,
     publisher: entry.publisher,
-    sourceUrl: entry.sourceUrl,
     homepage: entry.homepage,
+    sourceUrl: entry.sourceUrl,
     transport: entry.transport,
+    auth: entry.auth,
     risk: entry.risk,
-    requiredSecrets: [],
-    installed: installedIds.has(entry.id),
+    summary: summaryOf(entry.definition),
+    requiredSecrets: entry.requiredSecrets.map((r) => ({ ...r })),
+    installed: installed.has(entry.id),
+    ...(installed.get(entry.id) ? { installedName: installed.get(entry.id) } : {}),
   }));
 }
 

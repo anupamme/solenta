@@ -1,0 +1,118 @@
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 6px 0 2px;
+}
+
+.pill {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.pill:hover {
+  background: var(--card-hover);
+}
+
+.pill[aria-pressed="true"] {
+  border-color: var(--blue-border);
+  background: var(--blue-soft);
+  color: var(--text);
+}
+
+.pill:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.installed {
+  margin-left: 8px;
+  color: var(--green);
+}
+
+.meta {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.summary {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-basis: 100%;
+  padding: 4px 0 2px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.status {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.status[data-state="connected"] {
+  color: var(--green);
+}
+
+.status[data-state="error"] {
+  color: var(--amber);
+}
+
+.tools {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex-basis: 100%;
+  margin: 2px 0 4px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--overlay-soft);
+}
+
+.toolRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.toolName {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+}
+
+.toolSelect {
+  flex: 0 0 auto;
+  font: inherit;
+  font-size: 12px;
+  padding: 1px 4px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+}

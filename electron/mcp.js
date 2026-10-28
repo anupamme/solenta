@@ -920,12 +920,18 @@ function buildFromConfigDef(name, def, warnings) {
   if (transport === "stdio") {
     const env = copyStringMap(def.env);
     const envNames = Object.keys(env);
-    const requiredSecrets = extractTemplateSecrets(env, `${slug}:env`);
+    const args = Array.isArray(def.args) ? def.args : [];
+    // `${NAME}` in args (a folder for the filesystem server) is asked for
+    // at install like an env secret.
+    const requiredSecrets = [
+      ...extractTemplateSecrets(env, `${slug}:env`),
+      ...extractTemplateSecrets({ ...args }, `${slug}:arg`),
+    ];
     const stored = {
       name: slug,
       transport: "stdio",
       command: def.command,
-      args: Array.isArray(def.args) ? def.args : [],
+      args,
       env,
       enabled: false,
       trusted: false,
