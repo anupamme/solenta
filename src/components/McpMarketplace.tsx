@@ -31,7 +31,10 @@ function matches(entry: McpCatalogEntry, query: string): boolean {
 
 function authLabel(entry: McpCatalogEntry): string | null {
   if (entry.auth === "oauth") return "Sign-in";
-  if (entry.auth === "key") return "API key";
+  if (entry.auth === "key") {
+    const all = entry.requiredSecrets ?? [];
+    return all.length && all.every((s) => s.id.includes(":arg:")) ? "Asks for a folder" : "API key";
+  }
   return null;
 }
 
