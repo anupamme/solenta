@@ -1276,6 +1276,32 @@ export function createFakeCoder(opts: FakeOptions = {}): FakeCoder {
         if (pendingMcpImport?.previewId === input.previewId) pendingMcpImport = null;
         return rec("mcp.discardImport", [input], undefined);
       },
+      oauthConnect: (input: { name: string }) => {
+        const next = settingsState.mcpServers.map((s) =>
+          s.name === input.name && s.transport !== "stdio"
+            ? { ...s, oauth: { accessToken: "fake", refreshToken: "fake", expiresAt: Date.now() + 3_600_000 } }
+            : s,
+        ) as McpServerInfo[];
+        settingsState = { ...settingsState, mcpServers: next };
+        const saved = next.find((s) => s.name === input.name);
+        if (!saved) {
+          calls.push({ channel: "mcp.oauthConnect", args: [input] });
+          return Promise.reject(new Error(`Unknown MCP server: ${input.name}`));
+        }
+        return rec("mcp.oauthConnect", [input], redactMcpServer(saved) as McpServerDefinition);
+      },
+      oauthCancel: (input: { name: string }) =>
+        rec("mcp.oauthCancel", [input], { cancelled: false }),
+      oauthDisconnect: (input: { name: string }) => {
+        const next = settingsState.mcpServers.map((s) => {
+          if (s.name !== input.name) return s;
+          const { oauth: _drop, ...rest } = s as McpServerInfo & { oauth?: unknown };
+          return rest;
+        }) as McpServerInfo[];
+        settingsState = { ...settingsState, mcpServers: next };
+        const saved = next.find((s) => s.name === input.name);
+        return rec("mcp.oauthDisconnect", [input], redactMcpServer(saved) as McpServerDefinition);
+      },
     },
     skills: {
       list: (input: unknown) =>

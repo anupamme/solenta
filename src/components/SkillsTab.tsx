@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { resolveCoderApi } from "../coderApi";
 import type {
+  CoderApi,
   McpCatalogEntry,
   XcodeMcpStatus,
   McpImportPreview,
@@ -26,6 +28,7 @@ import type {
 import {
   AddSkillSection,
   AddedMcpsSection,
+  type McpAuthState,
   XcodeMcpCard,
   CuratedSkillsSection,
   HarnessImportPreviewPanel,
@@ -103,6 +106,19 @@ export interface SkillsManagerProps {
     input: HarnessInstallRequest,
   ) => Promise<HarnessInstallResult>;
   discardHarnessImport: (input: { previewId: string }) => Promise<void>;
+  /**
+   * Sign-in and tool methods (#1720). Defaults to the app bridge so the
+   * Settings wiring stays as is; tests pass their own.
+   */
+  mcpApi?: Pick<CoderApi["mcp"], "oauthConnect" | "oauthCancel" | "oauthDisconnect">;
+}
+
+function bridgeMcp(): SkillsManagerProps["mcpApi"] {
+  try {
+    return resolveCoderApi().mcp;
+  } catch {
+    return undefined;
+  }
 }
 
 function errorMessage(err: unknown): string {
@@ -262,7 +278,10 @@ export function SkillsManager({
   previewHarnessImport,
   installHarnessImport,
   discardHarnessImport,
+  mcpApi,
 }: SkillsManagerProps) {
+  const mcpCalls = mcpApi ?? bridgeMcp();
+  const [mcpAuth, setMcpAuth] = useState<Record<string, McpAuthState>>({});
   const [mcpServers, setMcpServers] = useState<McpServerDefinition[]>([]);
 
   const [skills, setSkills] = useState<SkillInfo[]>([]);
@@ -508,6 +527,40 @@ export function SkillsManager({
     await runMcp(async () => {
       await setMcpEnabled({ name, enabled });
     });
+  };
+
+  const setAuth = (name: string, state: McpAuthState | null) =>
+    setMcpAuth((prev) => {
+      const next = { ...prev };
+      if (state) next[name] = state;
+      else delete next[name];
+      return next;
+    });
+
+  const handleMcpConnect = async (name: string) => {
+    if (!mcpCalls) return;
+    setAuth(name, { pending: true });
+    try {
+      await mcpCalls.oauthConnect({ name });
+      if (!mountedRef.current) return;
+      setAuth(name, null);
+      setStatusMessage(`Signed in to ${name}`);
+      await reloadMcp();
+    } catch (err) {
+      if (mountedRef.current) setAuth(name, { error: errorMessage(err) });
+    }
+  };
+
+  const handleMcpCancelConnect = (name: string) => {
+    void mcpCalls?.oauthCancel({ name });
+  };
+
+  const handleMcpDisconnect = async (name: string) => {
+    if (!mcpCalls) return;
+    await runMcp(async () => {
+      await mcpCalls.oauthDisconnect({ name });
+    });
+    if (mountedRef.current) setAuth(name, null);
   };
 
   const handleRemoveMcp = async (name: string) => {
@@ -1057,6 +1110,10 @@ export function SkillsManager({
         onRemove={(name) => void handleRemoveMcp(name)}
         onTrust={(server) => void handleTrustMcp(server)}
         marketError={marketError}
+        mcpAuth={mcpCalls ? mcpAuth : undefined}
+        onMcpConnect={(name) => void handleMcpConnect(name)}
+        onMcpCancelConnect={handleMcpCancelConnect}
+        onMcpDisconnect={(name) => void handleMcpDisconnect(name)}
         onCatalogInstall={(id, secrets) => void handleMcpCatalogInstall(id, secrets)}
         onImportFile={() => void handleMcpImportFile()}
         onPreviewJson={() => void handleMcpPreviewJson()}
@@ -1546,6 +1603,10 @@ function McpServersSection({
   onRemove,
   onTrust,
   marketError,
+  mcpAuth,
+  onMcpConnect,
+  onMcpCancelConnect,
+  onMcpDisconnect,
   onCatalogInstall,
   onImportFile,
   onPreviewJson,
@@ -1581,6 +1642,11 @@ function McpServersSection({
   onRemove: (name: string) => void;
   onTrust: (server: McpServerDefinition) => void;
   marketError: string | null;
+  /** Undefined hides sign-in controls (no bridge). */
+  mcpAuth: Record<string, McpAuthState> | undefined;
+  onMcpConnect: (name: string) => void;
+  onMcpCancelConnect: (name: string) => void;
+  onMcpDisconnect: (name: string) => void;
   onCatalogInstall: (id: string, secrets: Record<string, string>) => void;
   onImportFile: () => void;
   onPreviewJson: () => void;
@@ -1615,6 +1681,17 @@ function McpServersSection({
       <AddedMcpsSection
         servers={mcpServers}
         busy={mcpBusy}
+        signInNames={
+          new Set(
+            mcpCatalog
+              .filter((e) => e.auth === "oauth" && e.installedName)
+              .map((e) => e.installedName as string),
+          )
+        }
+        auth={mcpAuth}
+        onConnect={mcpAuth ? onMcpConnect : undefined}
+        onCancelConnect={onMcpCancelConnect}
+        onDisconnect={onMcpDisconnect}
         onToggle={onToggle}
         onRemove={onRemove}
         onTrust={onTrust}

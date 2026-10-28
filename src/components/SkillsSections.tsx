@@ -18,6 +18,7 @@ import type {
   XcodeMcpStatus,
 } from "../shared/ipc";
 import styles from "./SkillsTab.module.css";
+import market from "./McpMarketplace.module.css";
 
 const TARGET_LABEL: Record<SkillTarget, string> = {
   claude: "Claude",
@@ -772,18 +773,113 @@ export function XcodeMcpCard({
   );
 }
 
+/** Sign-in state of one remote server row (#1720). */
+export interface McpAuthState {
+  pending?: boolean;
+  error?: string;
+}
+
+/**
+ * Status + Sign in / Cancel / Sign out for a remote server. Shown when the
+ * catalog says it signs in, it already has a sign-in, or it is a hand-added
+ * remote server (which may or may not use OAuth).
+ */
+function McpAuthControls({
+  server,
+  wantsSignIn,
+  optional,
+  state,
+  busy,
+  onConnect,
+  onCancel,
+  onDisconnect,
+}: {
+  server: McpServerDefinition;
+  wantsSignIn: boolean;
+  /** Hand-added remote server: offer Sign in without claiming it needs one. */
+  optional: boolean;
+  state: McpAuthState | undefined;
+  busy: boolean;
+  onConnect: (name: string) => void;
+  onCancel: (name: string) => void;
+  onDisconnect: (name: string) => void;
+}) {
+  if (server.transport === "stdio" || server.hasToken) return null;
+  const oauth = server.oauth;
+  if (!oauth && !wantsSignIn && !optional && !state?.pending && !state?.error) return null;
+  const expired =
+    Boolean(oauth) && !oauth?.refreshable && oauth?.expiresAt != null && oauth.expiresAt < Date.now();
+  let label: string;
+  let kind: string;
+  if (state?.pending) {
+    label = "Waiting for the browser…";
+    kind = "pending";
+  } else if (oauth && !expired) {
+    label = "Signed in";
+    kind = "connected";
+  } else if (state?.error) {
+    label = state.error;
+    kind = "error";
+  } else if (expired || wantsSignIn) {
+    label = expired ? "Sign-in expired" : "Needs sign-in";
+    kind = "needs";
+  } else {
+    label = "";
+    kind = "optional";
+  }
+  const btn = (text: string, onClick: () => void, disabled = busy) => (
+    <button
+      type="button"
+      className={styles.ghostBtn}
+      disabled={disabled}
+      aria-label={`${text} ${server.name}`}
+      onClick={onClick}
+    >
+      {text}
+    </button>
+  );
+  return (
+    <span className={styles.chipRow} data-mcp-auth={kind}>
+      {label && (
+        <span className={market.status} data-state={kind} role={kind === "error" ? "alert" : undefined}>
+          {label}
+        </span>
+      )}
+      {state?.pending
+        ? btn("Cancel", () => onCancel(server.name), false)
+        : oauth && !expired
+          ? btn("Sign out", () => onDisconnect(server.name))
+          : btn("Sign in", () => onConnect(server.name))}
+    </span>
+  );
+}
+
 export function AddedMcpsSection({
   servers,
   busy,
   onToggle,
   onRemove,
   onTrust,
+  signInNames,
+  auth,
+  onConnect,
+  onCancelConnect,
+  onDisconnect,
+  renderExtra,
 }: {
   servers: McpServerDefinition[];
   busy: boolean;
   onToggle: (name: string, enabled: boolean) => void;
   onRemove: (name: string) => void;
   onTrust: (server: McpServerDefinition) => void;
+  /** Remote servers the catalog marks as OAuth sign-in. */
+  signInNames?: ReadonlySet<string>;
+  auth?: Record<string, McpAuthState>;
+  onConnect?: (name: string) => void;
+  onCancelConnect?: (name: string) => void;
+  onDisconnect?: (name: string) => void;
+  /** Extra controls under a row (the tool list, #1720). */
+  renderExtra?: (server: McpServerDefinition) => ReactNode;
 }) {
   return (
     <section
@@ -814,6 +910,18 @@ export function AddedMcpsSection({
                         </span>
                       ))}
                     </span>
+                  )}
+                  {onConnect && onCancelConnect && onDisconnect && (
+                    <McpAuthControls
+                      server={s}
+                      wantsSignIn={Boolean(signInNames?.has(s.name))}
+                      optional={s.provenance !== "curated"}
+                      state={auth?.[s.name]}
+                      busy={busy}
+                      onConnect={onConnect}
+                      onCancel={onCancelConnect}
+                      onDisconnect={onDisconnect}
+                    />
                   )}
                 </div>
                 <div className={styles.rowSide}>
@@ -853,6 +961,7 @@ export function AddedMcpsSection({
                     Remove
                   </button>
                 </div>
+                {renderExtra?.(s)}
               </li>
             );
           })}

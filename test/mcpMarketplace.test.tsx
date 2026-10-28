@@ -8,8 +8,13 @@ import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { mount, unmountAll } from "./support/dom.ts";
 import { McpMarketplace } from "../src/components/McpMarketplace";
+import { AddedMcpsSection, type McpAuthState } from "../src/components/SkillsSections";
 import { devMcpCatalogRows } from "../src/devCoder.ts";
-import type { McpCatalogEntry } from "../src/shared/ipc";
+import type {
+  McpCatalogEntry,
+  McpServerDefinition,
+  McpServerRemoteDefinition,
+} from "../src/shared/ipc";
 
 afterEach(() => unmountAll());
 
@@ -135,5 +140,103 @@ describe("McpMarketplace", () => {
       linear?.querySelector("a")?.getAttribute("href"),
       "https://linear.app/docs/mcp",
     );
+  });
+});
+
+describe("MCP sign-in controls", () => {
+  const remote = (over: Partial<McpServerRemoteDefinition> = {}): McpServerRemoteDefinition => ({
+    name: "linear",
+    transport: "http",
+    url: "https://mcp.linear.app/mcp",
+    headerNames: [],
+    hasToken: false,
+    enabled: true,
+    provenance: "curated",
+    catalogId: "linear",
+    ...over,
+  });
+
+  function section(
+    servers: McpServerDefinition[],
+    calls: string[],
+    auth: Record<string, McpAuthState> = {},
+    signIn = new Set(["linear"]),
+  ) {
+    return (
+      <AddedMcpsSection
+        servers={servers}
+        busy={false}
+        onToggle={() => {}}
+        onRemove={() => {}}
+        onTrust={() => {}}
+        signInNames={signIn}
+        auth={auth}
+        onConnect={(n) => calls.push(`connect:${n}`)}
+        onCancelConnect={(n) => calls.push(`cancel:${n}`)}
+        onDisconnect={(n) => calls.push(`disconnect:${n}`)}
+      />
+    );
+  }
+
+  it("walks needs sign-in → waiting (Cancel) → signed in (Sign out) → error", async () => {
+    const calls: string[] = [];
+    const m = await mount(section([remote()], calls));
+    assert.equal(m.query("[data-mcp-auth]")?.getAttribute("data-mcp-auth"), "needs");
+    assert.ok(m.text().includes("Needs sign-in"));
+    await m.click(m.query('button[aria-label="Sign in linear"]'));
+    assert.deepEqual(calls, ["connect:linear"]);
+
+    await m.rerender(section([remote()], calls, { linear: { pending: true } }));
+    assert.ok(m.text().includes("Waiting for the browser"));
+    await m.click(m.query('button[aria-label="Cancel linear"]'));
+    assert.deepEqual(calls, ["connect:linear", "cancel:linear"]);
+
+    await m.rerender(
+      section([remote({ oauth: { refreshable: true, expiresAt: Date.now() + 60_000 } })], calls),
+    );
+    assert.equal(m.query("[data-mcp-auth]")?.getAttribute("data-mcp-auth"), "connected");
+    await m.click(m.query('button[aria-label="Sign out linear"]'));
+    assert.deepEqual(calls.at(-1), "disconnect:linear");
+
+    await m.rerender(section([remote()], calls, { linear: { error: "Sign-in failed: denied" } }));
+    assert.equal(m.query('[role="alert"]')?.textContent, "Sign-in failed: denied");
+    assert.ok(m.query('button[aria-label="Sign in linear"]'), "retry from the error");
+
+    // Expired without a refresh token reads as expired, not signed in.
+    await m.rerender(
+      section([remote({ oauth: { refreshable: false, expiresAt: Date.now() - 1 } })], calls),
+    );
+    assert.ok(m.text().includes("Sign-in expired"));
+  });
+
+  it("hides sign-in for local servers, static-token servers and keyless catalog servers", async () => {
+    const m = await mount(
+      section(
+        [
+          remote({ name: "context7", url: "https://mcp.context7.com/mcp", catalogId: "context7" }),
+          remote({ name: "github", hasToken: true, catalogId: "github" }),
+          {
+            name: "memory",
+            transport: "stdio",
+            command: "npx",
+            args: [],
+            envNames: [],
+            hasSecrets: false,
+            enabled: true,
+            trusted: true,
+          },
+        ],
+        [],
+        {},
+        new Set(),
+      ),
+    );
+    assert.equal(m.query("[data-mcp-auth]"), null);
+    // A hand-added remote server offers Sign in without claiming it needs it.
+    await m.rerender(
+      section([remote({ name: "team", provenance: "added", catalogId: undefined })], [], {}, new Set()),
+    );
+    assert.equal(m.query("[data-mcp-auth]")?.getAttribute("data-mcp-auth"), "optional");
+    assert.equal(m.text().includes("Needs sign-in"), false);
   });
 });

@@ -212,6 +212,47 @@ describe("electron vs shared MCP model", () => {
     );
   });
 
+  it("oauth and toolRules (#1720) parse, redact and survive upserts the same", () => {
+    const rows = [
+      {
+        ...HTTP,
+        oauth: {
+          accessToken: "at",
+          refreshToken: "rt",
+          clientId: "c",
+          expiresAt: 123,
+          junk: "x",
+          scope: "a\nb",
+        },
+        toolRules: { search: "allow", "write_file": "deny", bad: "maybe", "x y": "ask" },
+      },
+      { ...STDIO, oauth: { accessToken: "ignored" }, toolRules: { run: "ask" } },
+      { name: "no-token", url: "https://n.example.com/mcp", oauth: { refreshToken: "r" } },
+    ];
+    same(
+      "normalize",
+      capture(() => electron.normalizeMcpServers(rows)),
+      capture(() => shared.normalizeMcpServers(rows)),
+    );
+    const stored = electron.normalizeMcpServers(rows);
+    same(
+      "redact",
+      capture(() => electron.redactMcpServers(stored)),
+      capture(() => shared.redactMcpServers(stored)),
+    );
+    for (const [label, input] of [
+      ["same url keeps both", { name: "team-tools", url: "https://tools.example.com/mcp" }],
+      ["new url drops oauth", { name: "team-tools", url: "https://new.example.com/mcp" }],
+      ["explicit toolRules replace", { name: "team-tools", toolRules: { only: "deny" } }],
+    ] as const) {
+      same(
+        label,
+        capture(() => electron.upsertMcpServer(stored, input)),
+        capture(() => shared.upsertMcpServer(stored, input)),
+      );
+    }
+  });
+
   it("validate accepts the same valid rows and rejects the same invalid ones", () => {
     const valid = [
       { name: "legacy", url: "https://old.example.com/mcp", enabled: true },

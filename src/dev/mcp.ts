@@ -244,6 +244,30 @@ export function createMcp(ctx: DevCtx): Pick<CoderApi, "mcp"> {
       async discardImport(input: { previewId: string }): Promise<void> {
         if (pendingMcpImport?.previewId === input.previewId) pendingMcpImport = null;
       },
+      // Browser dev has no loopback or shell: pretend the sign-in succeeded.
+      async oauthConnect(input: { name: string }): Promise<McpServerDefinition> {
+        ctx.mcpServers = ctx.mcpServers.map((s) =>
+          s.name === input.name && s.transport !== "stdio"
+            ? { ...s, oauth: { accessToken: "dev", refreshToken: "dev", expiresAt: Date.now() + 3_600_000 } }
+            : s,
+        ) as McpServerInfo[];
+        const saved = ctx.mcpServers.find((s) => s.name === input.name);
+        if (!saved) throw new Error(`Unknown MCP server: ${input.name}`);
+        return redactMcpServer(saved) as unknown as McpServerDefinition;
+      },
+      async oauthCancel(): Promise<{ cancelled: boolean }> {
+        return { cancelled: false };
+      },
+      async oauthDisconnect(input: { name: string }): Promise<McpServerDefinition> {
+        ctx.mcpServers = ctx.mcpServers.map((s) => {
+          if (s.name !== input.name) return s;
+          const { oauth: _drop, ...rest } = s as McpServerInfo & { oauth?: unknown };
+          return rest;
+        }) as McpServerInfo[];
+        const saved = ctx.mcpServers.find((s) => s.name === input.name);
+        if (!saved) throw new Error(`Unknown MCP server: ${input.name}`);
+        return redactMcpServer(saved) as unknown as McpServerDefinition;
+      },
     },
   };
 }

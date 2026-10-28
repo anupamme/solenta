@@ -26,6 +26,7 @@ const { pathToFileURL } = require("node:url");
 const { Store } = require("./store.js");
 const { createRunner } = require("./runner.js");
 const { registerIpc } = require("./ipc.js");
+const { refreshMcpTokens } = require("./ipc-mcp.js");
 const {
   shouldNotify,
   isNotifyTransition,
@@ -1222,6 +1223,17 @@ app.whenReady().then(async () => {
       err && err.message ? err.message : err,
     );
   }
+
+  // #1720: refresh MCP OAuth tokens before they expire, so a run never
+  // starts with a dead bearer. Each refresh re-syncs the providers.
+  const refreshMcpOauth = () =>
+    refreshMcpTokens({
+      store,
+      userDataPath: userData,
+      log: (msg) => console.warn(msg),
+    }).catch(() => {});
+  void refreshMcpOauth();
+  setInterval(refreshMcpOauth, 60_000);
 });
 
 shutdown = installShutdown({

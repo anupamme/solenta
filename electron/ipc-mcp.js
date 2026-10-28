@@ -13,10 +13,80 @@ const mcpImports = require("./mcpImports.js");
 const xcodeMcp = require("./xcodeMcp.js");
 const pairing = require("./pairing.js");
 const oauth = require("./mcpOauth.js");
+const oauthClient = require("./mcpOauthClient.js");
 
 function requireDesktopPairing(ctx) {
   if (ctx.transport !== "desktop") {
     throw new Error("MCP public access and OAuth consent require the desktop app.");
+  }
+}
+
+function inputName(input) {
+  return input && typeof input.name === "string" ? input.name.trim() : "";
+}
+
+function remoteServer(ctx, name) {
+  const row = services.getSettings(ctx.store).mcpServers.find((s) => s.name === name);
+  if (!row) throw new Error(`Unknown MCP server: ${name}`);
+  if (row.transport === "stdio") throw new Error("Only remote MCP servers sign in");
+  return row;
+}
+
+/**
+ * Rewrite one stored row (secrets included, so replace, not merge) and
+ * re-sync every provider so a new token reaches the next run.
+ * @param {(row: object) => object} patch
+ */
+function saveServerRow(ctx, name, patch) {
+  const current = services.getSettings(ctx.store).mcpServers;
+  if (!current.some((s) => s.name === name)) throw new Error(`Unknown MCP server: ${name}`);
+  const next = services.setSettings(
+    ctx.store,
+    { mcpServers: current.map((s) => (s.name === name ? patch(s) : s)) },
+    { replaceMcpServers: true },
+  );
+  try {
+    syncUserMcpServers(next.mcpServers, { userDataPath: ctx.userDataPath });
+  } catch {
+    // ignore
+  }
+  return redactMcpServer(next.mcpServers.find((s) => s.name === name));
+}
+
+function defaultOpenExternal(url) {
+  const { shell } = require("electron");
+  return shell.openExternal(url);
+}
+
+/**
+ * Refresh every OAuth token close to expiry (#1720). main.js runs this on a
+ * timer; mcp:listTools runs it first. A token the server rejects outright
+ * loses its refresh token (shows "Sign-in expired"); a network blip keeps
+ * it for the next pass.
+ */
+async function refreshMcpTokens(ctx, opts = {}) {
+  const now = opts.now || Date.now;
+  const due = services
+    .getSettings(ctx.store)
+    .mcpServers.filter((s) => s.oauth && oauthClient.needsRefresh(s.oauth, now()));
+  for (const s of due) {
+    try {
+      const record = await oauthClient.refresh(s.oauth, {
+        serverUrl: s.url,
+        fetchFn: opts.fetchFn,
+        now,
+      });
+      saveServerRow(ctx, s.name, (row) => (row.url === s.url ? { ...row, oauth: record } : row));
+    } catch (err) {
+      if (ctx.log) ctx.log(`mcp: token refresh for ${s.name} failed: ${err && err.message}`);
+      if (err && (err.errorCode || /connect again/.test(String(err.message)))) {
+        saveServerRow(ctx, s.name, (row) => {
+          if (!row.oauth) return row;
+          const { refreshToken: _drop, ...rest } = row.oauth;
+          return { ...row, oauth: rest };
+        });
+      }
+    }
   }
 }
 
@@ -40,7 +110,7 @@ async function listWithPublic(ctx) {
 }
 
 /** IPC_HANDLERS rows for mcp:*, pairing:*; ipc.js spreads them in. */
-module.exports = {
+const handlers = {
   "mcp:list": async (ctx) => {
     const settings = services.getSettings(ctx.store);
     return redactMcpServers(settings.mcpServers);
@@ -106,6 +176,35 @@ module.exports = {
   "mcp:catalog": async (ctx) => {
     const settings = services.getSettings(ctx.store);
     return mcpCatalog.listCatalog({ servers: settings.mcpServers });
+  },
+  // #1720: MCP authorization flow for a remote server. Resolves once the
+  // browser comes back (or Cancel / 5 min timeout rejects it).
+  "mcp:oauthConnect": async (ctx, input) => {
+    requireDesktopPairing(ctx);
+    const name = inputName(input);
+    const row = remoteServer(ctx, name);
+    const record = await oauthClient.connect({
+      name,
+      serverUrl: row.url,
+      transport: row.transport,
+      openExternal: ctx.openExternal || defaultOpenExternal,
+      fetchFn: ctx.fetchFn,
+    });
+    return saveServerRow(ctx, name, (s) => {
+      if (s.url !== row.url) throw new Error("The server URL changed during sign-in");
+      return { ...s, oauth: record };
+    });
+  },
+  "mcp:oauthCancel": async (_ctx, input) => {
+    return { cancelled: oauthClient.cancel(inputName(input)) };
+  },
+  "mcp:oauthDisconnect": async (ctx, input) => {
+    const name = inputName(input);
+    remoteServer(ctx, name);
+    return saveServerRow(ctx, name, (s) => {
+      const { oauth: _drop, ...rest } = s;
+      return rest;
+    });
   },
   "mcp:xcodeStatus": async (ctx, input) => {
     const projectPath = input && typeof input.projectPath === "string" ? input.projectPath : "";
@@ -260,3 +359,7 @@ module.exports = {
     return oauth.denyConsent(id);
   },
 };
+
+module.exports = handlers;
+// Not a channel: ipc.js spreads the enumerable keys into IPC_HANDLERS.
+Object.defineProperty(module.exports, "refreshMcpTokens", { value: refreshMcpTokens });

@@ -4080,7 +4080,14 @@ export interface McpServerRemoteDefinition {
   enabled: boolean;
   provenance?: McpServerProvenance;
   catalogId?: string;
+  /** Present when signed in through MCP OAuth (#1720). Never the token. */
+  oauth?: { refreshable: boolean; expiresAt?: number };
+  toolRules?: McpToolRules;
 }
+
+/** Per-tool allow/ask/deny for one MCP server (#1720). */
+export type McpToolAction = "allow" | "ask" | "deny";
+export type McpToolRules = Record<string, McpToolAction>;
 
 /** Public stdio MCP definition: env names only, never values. */
 export interface McpServerStdioDefinition {
@@ -4095,6 +4102,7 @@ export interface McpServerStdioDefinition {
   trusted: boolean;
   provenance?: McpServerProvenance;
   catalogId?: string;
+  toolRules?: McpToolRules;
 }
 
 /** Redacted MCP definition returned by mcp.* methods. */
@@ -5053,6 +5061,15 @@ export interface CoderApi {
     previewImport(input: McpPreviewImportInput): Promise<McpImportPreview>;
     installImport(input: McpInstallRequest): Promise<McpInstallResult>;
     discardImport(input: { previewId: string }): Promise<void>;
+    /**
+     * MCP OAuth sign-in for a remote server (#1720): opens the browser and
+     * resolves when it redirects back. Desktop only.
+     */
+    oauthConnect(input: { name: string }): Promise<McpServerDefinition>;
+    /** Stop a sign-in that is waiting on the browser. */
+    oauthCancel(input: { name: string }): Promise<{ cancelled: boolean }>;
+    /** Forget the stored sign-in tokens. */
+    oauthDisconnect(input: { name: string }): Promise<McpServerDefinition>;
   };
   /**
    * External MCP pairing (#157). Mint a scoped, expiring token so Claude

@@ -248,6 +248,14 @@ function unregisterMcpServer(name, opts = {}) {
  * @param {(msg: string) => void} [opts.log]
  * @param {NodeJS.ProcessEnv} [opts.env]
  */
+function userServerToken(s) {
+  if (typeof s.token === "string" && s.token) return s.token;
+  // MCP OAuth sign-in (#1720). Every provider turns `token` into an
+  // `Authorization: Bearer` header (or codex's bearer_token_env_var).
+  const oauth = s.oauth && typeof s.oauth === "object" ? s.oauth : null;
+  return oauth && typeof oauth.accessToken === "string" ? oauth.accessToken : "";
+}
+
 function syncUserMcpServers(servers, opts = {}) {
   const log = opts.log || ((msg) => console.warn(msg));
   /** @type {Map<string, object>} */
@@ -273,7 +281,7 @@ function syncUserMcpServers(servers, opts = {}) {
         name: s.name,
         transport: s.transport,
         url: typeof s.url === "string" ? s.url : "",
-        token: typeof s.token === "string" ? s.token : "",
+        token: userServerToken(s),
         headers: s.headers,
         command: s.command,
         args: s.args,
