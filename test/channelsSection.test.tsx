@@ -50,7 +50,6 @@ describe("ChannelsSection", () => {
     const [set] = fake.of("settings.set");
     assert.deepEqual(set.args[0], {
       telegram: {
-        enabled: false,
         allowedSenderIds: ["111", "222"],
         projectId: "p2",
         agentProfileId: null,

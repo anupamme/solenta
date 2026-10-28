@@ -67,8 +67,9 @@ export function ChannelsSection({
     setProfileId(tg?.agentProfileId ?? "");
     setToken("");
     setError(null);
-    channelApi()
-      .channelStatus()
+    // Inside the chain: a client without the method just shows no status.
+    Promise.resolve()
+      .then(() => channelApi().channelStatus())
       .then((s) => setStatus(s.telegram))
       .catch(() => setStatus(null));
     // Re-seed only when the pane opens, not on every settings echo.
@@ -76,8 +77,8 @@ export function ChannelsSection({
 
   const save = async () => {
     await onSaveSettings({
+      // No `enabled`: Connect / Disconnect own it, and these props can be stale.
       telegram: {
-        enabled: tg?.enabled ?? false,
         allowedSenderIds: parseIds(ids),
         projectId: projectId || null,
         agentProfileId: profileId || null,

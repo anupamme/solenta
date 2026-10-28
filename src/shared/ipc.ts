@@ -3850,8 +3850,8 @@ export interface WebhookSettings {
 
 /** Telegram chat channel config (issue #1718). */
 export interface TelegramSettings {
-  /** Connected on the last Connect; reconnects at launch. */
-  enabled: boolean;
+  /** Connected on the last Connect; reconnects at launch. Set by Connect/Disconnect only. */
+  enabled?: boolean;
   /** Write-only: never sent to the renderer. */
   botToken?: string | null;
   /** Read-only: a token is saved. */
