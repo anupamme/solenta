@@ -107,7 +107,7 @@ function runAcpAgent(opts) {
       opts.onError(
         new Error(
           `No ACP handshake within ${Math.round((opts.handshakeTimeoutMs ?? HANDSHAKE_TIMEOUT_MS) / 1000)}s. ` +
-            "Is this command an Agent Client Protocol agent? Check its flags in Settings › Agents.",
+            "Is this command an Agent Client Protocol agent? Check its flags in Settings › Providers.",
         ),
       ),
     );

@@ -111,6 +111,14 @@ const LOGIN_ARGS = {
   muse: ["login"],
 };
 
+/** What Sign out types (no Enter), checked against each CLI's --help (#1714). */
+const LOGOUT_ARGS = {
+  claude: ["auth", "logout"],
+  codex: ["logout"],
+  cursor: ["logout"],
+  opencode: ["auth", "logout"],
+};
+
 /**
  * What the Install button types (without Enter) into a terminal. Same
  * strings as the onboarding copy hints in src/components/onboarding/installHints.ts.
@@ -225,11 +233,14 @@ function refresh(opts = {}) {
   }
   const env = opts.env || process.env;
   probedAt = now;
+  // A base overlay (#1714, ref === provider) is the base row's own env: an
+  // API key there is part of the base probe, not a second probe.
+  const baseEnv = new Map(instances.filter((i) => i.ref === i.provider).map((i) => [i.ref, i.env]));
   inflight = Promise.all([
     ...Object.keys(PROBES).map(async (id) => {
-      remember(id, await probeOne(id, env));
+      remember(id, await probeOne(id, { ...env, ...(baseEnv.get(id) || {}) }));
     }),
-    ...instances.map(async (i) => {
+    ...instances.filter((i) => i.ref !== i.provider).map(async (i) => {
       remember(i.ref, await probeOne(i.provider, { ...env, ...i.env }));
     }),
   ]).finally(() => {
@@ -274,12 +285,15 @@ function account(id) {
  * goes on the line: instance env may hold keys, and a terminal echoes.
  *
  * @param {string} id
- * @param {{ env?: NodeJS.ProcessEnv, platform?: NodeJS.Platform, configEnv?: Record<string, string> }} [opts]
+ * `logout` picks the CLI's logout command instead (#1714).
+ *
+ * @param {{ env?: NodeJS.ProcessEnv, platform?: NodeJS.Platform, configEnv?: Record<string, string>, logout?: boolean }} [opts]
  * @returns {string | null}
  */
 function loginCommand(id, opts = {}) {
   const entry = getProvider(id);
-  const args = LOGIN_ARGS[/** @type {keyof typeof LOGIN_ARGS} */ (id)];
+  const table = opts.logout ? LOGOUT_ARGS : LOGIN_ARGS;
+  const args = table[/** @type {keyof typeof LOGOUT_ARGS} */ (id)];
   if (!entry || !args) return null;
   const bin = resolveBin(entry, opts.env || process.env);
   if (!bin) return null;

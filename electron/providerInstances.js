@@ -32,6 +32,38 @@ const CONFIG_DIR_ENV = Object.freeze({
 const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const ID_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const NAME_MAX = 40;
+const HEADER_RE = /^[A-Za-z0-9-]{1,64}$/;
+
+/**
+ * Providers whose base row can carry its own env (#1714): an instance whose
+ * id equals the provider id, e.g. `{ id: "claude", provider: "claude" }`.
+ * It is never a picker row; its env (an API key, a base URL) rides every
+ * local run of the base provider. Only providers whose runner applies it.
+ */
+const BASE_ENV_PROVIDERS = Object.freeze(["claude", "codex", "cursor", "grok"]);
+
+/**
+ * Env var an OpenAI-compatible provider's key is stored under (#1714). The
+ * opencode config references it as `{env:...}`, so the key stays in the
+ * sealed instance env and never lands in the config JSON.
+ */
+const OPENAI_COMPAT_KEY_ENV = "SOLENTA_OPENAI_COMPAT_API_KEY";
+
+/** @param {{ id: string, provider: string }} inst */
+function isBaseOverlay(inst) {
+  return inst.id === inst.provider;
+}
+
+/** @param {unknown} v */
+function isHttpUrl(v) {
+  if (typeof v !== "string") return false;
+  try {
+    const u = new URL(v);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
 
 /**
  * @typedef {object} ProviderInstance
@@ -48,11 +80,73 @@ const NAME_MAX = 40;
  * @property {"stdout" | "pty" | "acp"} [transcript] - generic only: plain
  *   pipes, a pseudo-terminal for CLIs that need a TTY, or an Agent Client
  *   Protocol agent over stdio (#272)
+ * @property {OpenAiCompat} [openaiCompatible] - opencode only (#1714): a
+ *   custom OpenAI-compatible endpoint run through opencode's config
  */
 
-/** @param {string} id */
+/**
+ * @typedef {object} OpenAiCompat
+ * @property {string} baseUrl
+ * @property {string | null} modelsUrl
+ * @property {string[]} models
+ * @property {string | null} defaultModel
+ * @property {Record<string, string>} headers
+ */
+
+/**
+ * Named instances: claude/codex config dirs, custom CLIs, and opencode
+ * OpenAI-compatible endpoints (#1714).
+ * @param {string} id
+ */
 function supportsInstances(id) {
-  return id === "generic" || Object.prototype.hasOwnProperty.call(CONFIG_DIR_ENV, id);
+  return (
+    id === "generic" ||
+    id === "opencode" ||
+    Object.prototype.hasOwnProperty.call(CONFIG_DIR_ENV, id)
+  );
+}
+
+/**
+ * @param {unknown} raw
+ * @param {(msg: string) => null} fail
+ * @returns {OpenAiCompat | null}
+ */
+function parseOpenAiCompat(raw, fail) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return fail("An OpenAI-compatible provider needs a base URL");
+  }
+  const rec = /** @type {Record<string, unknown>} */ (raw);
+  const baseUrl = typeof rec.baseUrl === "string" ? rec.baseUrl.trim() : "";
+  if (!isHttpUrl(baseUrl)) return fail("Base URL must be an http(s) URL");
+  const modelsUrlRaw = typeof rec.modelsUrl === "string" ? rec.modelsUrl.trim() : "";
+  if (modelsUrlRaw && !isHttpUrl(modelsUrlRaw)) {
+    return fail("Models URL must be an http(s) URL");
+  }
+  const models = argvList(rec.models);
+  if (!models) return fail("Models must be a list of ids");
+  const ids = [...new Set(models.map((m) => m.trim()).filter(Boolean))];
+  if (ids.some((m) => m.length > 100)) return fail("Model ids must be at most 100 characters");
+  if (ids.length === 0 && !modelsUrlRaw) {
+    return fail("Add at least one model or a models URL");
+  }
+  const defaultModel =
+    typeof rec.defaultModel === "string" && ids.includes(rec.defaultModel.trim())
+      ? rec.defaultModel.trim()
+      : (ids[0] ?? null);
+  /** @type {Record<string, string>} */
+  const headers = {};
+  if (rec.headers != null) {
+    if (typeof rec.headers !== "object" || Array.isArray(rec.headers)) {
+      return fail("Headers must be an object");
+    }
+    for (const [k, v] of Object.entries(rec.headers)) {
+      if (!HEADER_RE.test(k) || typeof v !== "string") {
+        return fail(`Invalid header: ${k}`);
+      }
+      headers[k] = v;
+    }
+  }
+  return { baseUrl, modelsUrl: modelsUrlRaw || null, models: ids, defaultModel, headers };
 }
 
 /**
@@ -125,14 +219,20 @@ function parseInstance(item, strict) {
   if (!name) return fail("Instance name cannot be empty");
   if (name.length > NAME_MAX) return fail(`Instance name must be at most ${NAME_MAX} characters`);
   const provider = typeof rec.provider === "string" ? rec.provider.trim() : "";
-  if (!supportsInstances(provider)) {
+  const overlay = id === provider;
+  if (overlay ? !BASE_ENV_PROVIDERS.includes(provider) : !supportsInstances(provider)) {
     return fail(`Instances are not supported for provider "${provider}"`);
   }
-  if (provider === "generic" && isReservedProviderName(name)) {
+  if ((provider === "generic" || provider === "opencode") && isReservedProviderName(name)) {
     return fail(`"${name}" is reserved for a built-in provider`);
   }
   let configDir = null;
-  if (provider !== "generic" && rec.configDir != null && rec.configDir !== "") {
+  if (
+    !overlay &&
+    CONFIG_DIR_ENV[/** @type {"claude"} */ (provider)] &&
+    rec.configDir != null &&
+    rec.configDir !== ""
+  ) {
     if (typeof rec.configDir !== "string") return fail("Config folder must be a path");
     const dir = rec.configDir.trim();
     if (dir && !path.isAbsolute(dir) && !dir.startsWith("~/")) {
@@ -163,6 +263,11 @@ function parseInstance(item, strict) {
       }
       env[k] = v;
     }
+  }
+  if (provider === "opencode") {
+    const openaiCompatible = parseOpenAiCompat(rec.openaiCompatible, fail);
+    if (!openaiCompatible) return null;
+    return { id, name, provider, configDir: null, env, openaiCompatible };
   }
   if (provider !== "generic") return { id, name, provider, configDir, env };
   const command = argvList(rec.command);
@@ -274,13 +379,22 @@ function instanceEnv(inst, home = require("node:os").homedir()) {
  * Throws when the thread names an instance that no longer exists: running
  * on the default account instead would spend the wrong subscription.
  *
+ * A thread on the base provider gets the base overlay's env (#1714), but
+ * only when the caller says the run is local (`opts.local`): across ssh/WSL
+ * env travels as `env KEY=value` on the command line, and keys must not.
+ *
  * @param {{ providerInstances?: unknown } | null | undefined} settings
  * @param {{ provider?: string, providerInstance?: string | null }} thread
+ * @param {{ local?: boolean }} [opts]
  * @returns {Record<string, string> | undefined}
  */
-function threadInstanceEnv(settings, thread) {
+function threadInstanceEnv(settings, thread, opts = {}) {
   const id = thread && thread.providerInstance;
-  if (!id) return undefined;
+  if (!id) {
+    const provider = String((thread && thread.provider) || "");
+    const base = opts.local === true ? findInstance(settings, provider, provider) : null;
+    return base && Object.keys(base.env).length > 0 ? { ...base.env } : undefined;
+  }
   const inst = findInstance(settings, String(thread.provider || ""), id);
   if (!inst) {
     throw new Error(
@@ -296,11 +410,85 @@ function threadInstanceEnv(settings, thread) {
  * @param {ProviderInstance} inst
  */
 function instanceDisplayName(baseName, inst) {
-  return inst.provider === "generic" ? inst.name : `${baseName} (${inst.name})`;
+  return inst.provider === "generic" || inst.openaiCompatible
+    ? inst.name
+    : `${baseName} (${inst.name})`;
+}
+
+/**
+ * The `provider` block of OPENCODE_CONFIG_CONTENT for an OpenAI-compatible
+ * instance (#1714). Shape from opencode.ai/docs/providers "Custom provider":
+ * npm @ai-sdk/openai-compatible, options.baseURL/apiKey/headers, models by id.
+ * The key is `{env:...}`, substituted by opencode from the run's env.
+ * `extraModels` (custom ids, the thread's pick) join the configured list so
+ * any id the picker offers resolves.
+ *
+ * @param {ProviderInstance} inst
+ * @param {string[]} [extraModels]
+ * @returns {Record<string, object>}
+ */
+function opencodeProviderConfig(inst, extraModels = []) {
+  const oc = inst.openaiCompatible;
+  if (!oc) return {};
+  /** @type {Record<string, object>} */
+  const models = {};
+  for (const id of [...oc.models, ...extraModels]) {
+    if (id && !models[id]) models[id] = { name: id };
+  }
+  /** @type {Record<string, unknown>} */
+  const options = { baseURL: oc.baseUrl };
+  if (inst.env[OPENAI_COMPAT_KEY_ENV]) options.apiKey = `{env:${OPENAI_COMPAT_KEY_ENV}}`;
+  if (Object.keys(oc.headers).length > 0) options.headers = { ...oc.headers };
+  return {
+    [inst.id]: { npm: "@ai-sdk/openai-compatible", name: inst.name, options, models },
+  };
+}
+
+/**
+ * Per-provider model favourites and custom ids (#1714), keyed by provider
+ * ref. Plain settings: ids are not secrets. Lenient drops junk; strict throws.
+ *
+ * @param {unknown} raw
+ * @param {boolean} strict
+ * @returns {Record<string, { favorites: string[], custom: string[] }>}
+ */
+function parseProviderModels(raw, strict) {
+  /** @type {Record<string, { favorites: string[], custom: string[] }>} */
+  const out = {};
+  if (raw == null) return out;
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    if (strict) throw new Error("providerModels must be an object");
+    return out;
+  }
+  /** @param {unknown} list @param {string} what */
+  const ids = (list, what) => {
+    if (list == null) return [];
+    if (!Array.isArray(list) || !list.every((m) => typeof m === "string" && m.trim() && m.length <= 100)) {
+      if (strict) throw new Error(`${what} must be a list of model ids`);
+      return [];
+    }
+    return [...new Set(list.map((m) => m.trim()))].slice(0, 200);
+  };
+  for (const [ref, v] of Object.entries(raw)) {
+    if (!v || typeof v !== "object" || Array.isArray(v)) {
+      if (strict) throw new Error(`providerModels.${ref} must be an object`);
+      continue;
+    }
+    const rec = /** @type {Record<string, unknown>} */ (v);
+    const favorites = ids(rec.favorites, "favorites");
+    const custom = ids(rec.custom, "custom");
+    if (favorites.length || custom.length) out[ref] = { favorites, custom };
+  }
+  return out;
 }
 
 module.exports = {
   CONFIG_DIR_ENV,
+  BASE_ENV_PROVIDERS,
+  OPENAI_COMPAT_KEY_ENV,
+  isBaseOverlay,
+  opencodeProviderConfig,
+  parseProviderModels,
   supportsInstances,
   parseProviderRef,
   providerRef,

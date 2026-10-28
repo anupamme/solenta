@@ -579,7 +579,7 @@ function assertCustomCliRunnable(settings, thread, project) {
   }
   const bin = (inst.command || [])[0];
   if (!isBinAvailable(bin)) {
-    throw new Error(`Custom CLI binary not found: ${bin}. Fix the command in Settings › Agents.`);
+    throw new Error(`Custom CLI binary not found: ${bin}. Fix the command in Settings › Providers.`);
   }
 }
 

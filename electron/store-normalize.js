@@ -5,7 +5,7 @@ const { normalizeSubagentPool } = require("./subagentPool");
 const { clampUiScale, UI_SCALE_DEFAULT } = require("./zoom.js");
 const { getProvider, honouredEfforts } = require("./providers.js");
 const { normalizeMcpServers } = require("./mcp.js");
-const { normalizeProviderInstances } = require("./providerInstances.js");
+const { normalizeProviderInstances, parseProviderModels } = require("./providerInstances.js");
 const { normalizeModelPrices } = require("./modelPrices.js");
 const { normalizePrivacyGateway } = require("./privacyGateway.js");
 const { parsePolicy } = require("./governance.js");
@@ -433,6 +433,7 @@ function normalizeSettings(raw) {
     maxConcurrentRuns: DEFAULT_MAX_CONCURRENT_RUNS,
     agentProfiles: [],
     providerInstances: [],
+    providerModels: {},
     defaultOrchestratorProfileId: null,
     promptSnippets: [],
     subagentPool: { defaultAlias: null, force: false, entries: [] },
@@ -517,6 +518,10 @@ function normalizeSettings(raw) {
   );
   settings.providerInstances = normalizeProviderInstances(
     /** @type {{ providerInstances?: unknown }} */ (obj).providerInstances,
+  );
+  settings.providerModels = parseProviderModels(
+    /** @type {{ providerModels?: unknown }} */ (obj).providerModels,
+    false,
   );
   settings.defaultOrchestratorProfileId = matchingProfileId(
     /** @type {{ defaultOrchestratorProfileId?: unknown }} */ (obj)

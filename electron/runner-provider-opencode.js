@@ -20,6 +20,11 @@ const {
   REPLY_ONCE,
 } = require("./opencodeApprovals.js");
 const { opencodeMcpConfigForRun } = require("./memory-sup.js");
+const {
+  findInstance,
+  instanceEnv,
+  opencodeProviderConfig,
+} = require("./providerInstances.js");
 const { guardrailNotice } = require("./guardrail-hook-core.js");
 
 /**
@@ -170,21 +175,42 @@ function createOpencodeRun(ctx) {
       }
     }
     opencodeEnv = { ...opencodeEnv, ...OPENCODE_CLIENT_ENV };
+    // OpenAI-compatible provider (#1714): its key env plus a `provider`
+    // block in the config layer. runner.js already refused a removed
+    // instance and a remote project.
+    const compat = thread.providerInstance
+      ? findInstance(store.getSettings(), "opencode", thread.providerInstance)
+      : null;
+    /** @type {Record<string, object>} */
+    let compatProvider = {};
+    if (compat && compat.openaiCompatible) {
+      opencodeEnv = { ...opencodeEnv, ...instanceEnv(compat) };
+      const prefs = (store.getSettings().providerModels || {})[`opencode:${compat.id}`];
+      const prefix = `${compat.id}/`;
+      const extra = [...((prefs && prefs.custom) || []), thread.model || ""]
+        .filter((m) => m.startsWith(prefix))
+        .map((m) => m.slice(prefix.length));
+      compatProvider = opencodeProviderConfig(compat, extra);
+    }
     if (useServe) {
       try {
-        opencodeEnv.OPENCODE_CONFIG_CONTENT = JSON.stringify(
-          opencodeMcpConfigForRun({
+        opencodeEnv.OPENCODE_CONFIG_CONTENT = JSON.stringify({
+          ...opencodeMcpConfigForRun({
             projectId: thread.projectId,
             projectPath: localCwd || project.path,
             threadId,
           }),
-        );
+          ...(Object.keys(compatProvider).length ? { provider: compatProvider } : {}),
+        });
       } catch {
         // No Solenta MCP this turn; the run itself still works.
       }
       if (!opencodeAuto(thread.permissionMode)) {
         opencodeEnv.OPENCODE_PERMISSION = OPENCODE_DEFAULT_PERMISSION;
       }
+    } else if (Object.keys(compatProvider).length) {
+      // `opencode run` reads the same config layer.
+      opencodeEnv.OPENCODE_CONFIG_CONTENT = JSON.stringify({ provider: compatProvider });
     }
     const spawn = resolveSpawn(project, binary, args, localCwd, opencodeEnv, threadId);
 

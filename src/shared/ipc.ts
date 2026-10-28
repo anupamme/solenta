@@ -3256,7 +3256,7 @@ export interface ProviderInfo {
    * Sign-in state from the CLI's own status command (#1501). "unknown" when
    * the CLI has no such command; absent before the first probe or when the
    * CLI is not installed. Probed after boot, re-probed (rate-limited) when
-   * the picker or Settings › Agents opens.
+   * the picker or Settings › Providers opens.
    */
   auth?: "signedIn" | "signedOut" | "unknown";
   /** Who `auth: "signedIn"` is signed in as, when the CLI says (claude, codex via ChatGPT). */
@@ -3301,6 +3301,37 @@ export interface ProviderInstance {
    * or an Agent Client Protocol agent over stdio (#272).
    */
   transcript?: "stdout" | "pty" | "acp";
+  /**
+   * opencode only (#1714): a custom OpenAI-compatible endpoint, run through
+   * opencode's config. The key lives in `env` as SOLENTA_OPENAI_COMPAT_API_KEY.
+   */
+  openaiCompatible?: OpenAiCompatConfig;
+}
+
+/** A custom OpenAI-compatible provider (#1714). */
+export interface OpenAiCompatConfig {
+  baseUrl: string;
+  /** Where Refresh lists models; null = `{baseUrl}/models`. */
+  modelsUrl: string | null;
+  models: string[];
+  defaultModel: string | null;
+  /** Sent with every request. Plain settings: put secrets in the API key. */
+  headers: Record<string, string>;
+}
+
+/** Per-provider model list edits (#1714), keyed by provider ref. */
+export interface ProviderModelPrefs {
+  /** Starred ids, sorted first in Settings and the composer picker. */
+  favorites: string[];
+  /** Ids added by hand; listed and selectable like catalog models. */
+  custom: string[];
+}
+
+/** One row of a live models-endpoint listing (#1714). */
+export interface FetchedModel {
+  id: string;
+  label: string;
+  contextTokens?: number;
 }
 
 /** A checkout found by first-run discovery (#1501). */
@@ -3709,6 +3740,8 @@ export interface AppSettings {
   agentProfiles: AgentProfile[];
   /** Named provider instances (#453). */
   providerInstances: ProviderInstance[];
+  /** Model favourites and custom ids per provider ref (#1714). */
+  providerModels?: Record<string, ProviderModelPrefs>;
   /**
    * Agent profile the Planboard's Orchestrator: Default option applies
    * (issue #725). null = inherit the currently selected thread, which is
@@ -3760,6 +3793,16 @@ export interface AppSettings {
    * junk heals to everything off. Merged on set.
    */
   privacyGateway?: PrivacyGatewaySettings;
+  /**
+   * At-rest encryption of stored secrets (#1715), read-only. "unavailable"
+   * means a packaged build found no OS keychain and writes plaintext;
+   * `locked` lists sealed values this machine cannot open, kept on disk
+   * until replaced.
+   */
+  secretStorage?: {
+    encryption: "on" | "off" | "unavailable";
+    locked: string[];
+  };
 }
 
 export type PrivacyLevel = "off" | "secrets" | "strict";
@@ -5074,6 +5117,12 @@ export interface CoderApi {
   };
   providers: {
     list(): Promise<ProviderInfo[]>;
+    /**
+     * List models live from the provider's API (#1714), with the key and
+     * base URL saved for that provider ref. Throws a readable message on a
+     * missing key, a timeout or an HTTP error.
+     */
+    fetchModels(input: { provider: string }): Promise<FetchedModel[]>;
   };
   /**
    * Forge CLI probe (issue #608). Cached until `{ rescan: true }` or a
@@ -6689,6 +6738,8 @@ export interface CoderApi {
       provider: string;
       threadId?: string | null;
       install?: boolean;
+      /** Type the CLI's logout command (no Enter) instead (#1714). */
+      logout?: boolean;
     }): Promise<{ threadId: string; termId: string }>;
   };
   /**

@@ -2831,7 +2831,7 @@ describe("SettingsModal Skills & MCP pane (moved from the Skills tab)", () => {
   });
 });
 
-describe("SettingsModal Agents › Providers sign-in (#1501)", () => {
+describe("SettingsModal Providers pane (#1714, sign-in #1501)", () => {
   afterEach(() => unmountAll());
 
   const CLAUDE: ProviderInfo = { ...KIMI, id: "claude", name: "Claude Code", auth: "signedIn" };
@@ -2839,33 +2839,84 @@ describe("SettingsModal Agents › Providers sign-in (#1501)", () => {
   const GROK: ProviderInfo = { ...KIMI, id: "grok", name: "Grok", auth: "unknown" };
   const MUSE: ProviderInfo = { ...KIMI, id: "muse", name: "Muse", available: false };
 
-  function withSignIn(onSignIn: (id: string) => Promise<void>, onRefresh = () => {}) {
+  function withSignIn(
+    onSignIn: (id: string, opts?: { install?: boolean; logout?: boolean }) => Promise<void>,
+    onRefresh = () => {},
+  ) {
     return cloneElement(
-      modal({ initialPane: "agents", providers: [CLAUDE, CODEX, GROK, MUSE] }),
+      modal({ initialPane: "providers", providers: [CLAUDE, CODEX, GROK, MUSE] }),
       { onProviderSignIn: onSignIn, onRefreshProviders: onRefresh },
     );
   }
+  const group = (m: Awaited<ReturnType<typeof mount>>, id: string) =>
+    m.queryAll(`[data-provider-group="${id}"] [data-provider-row]`).map((r) => r.getAttribute("data-provider-row"));
 
-  it("re-probes on open and shows each provider's state", async () => {
+  it("re-probes on open and groups providers by state", async () => {
     let refreshes = 0;
     const m = await mount(withSignIn(async () => {}, () => refreshes++));
-    assert.equal(refreshes, 1, "opening Agents re-lists providers");
-    const state = (id: string) =>
-      m.query(`[data-provider-row="${id}"] [data-auth-state]`)?.textContent;
-    assert.equal(state("claude"), "Signed in");
-    assert.equal(state("codex"), "Signed out");
-    assert.equal(state("grok"), "Sign-in unknown");
-    assert.equal(state("muse"), "Not installed");
-    assert.equal(m.query('[data-provider-signin="claude"]'), null, "signed in: no button");
-    assert.equal(m.query('[data-provider-signin="muse"]'), null, "not installed: no button");
-    assert.ok(m.query('[data-provider-signin="grok"]'), "unknown still offers Sign in");
+    assert.equal(refreshes, 1, "opening Providers re-lists providers");
+    assert.ok(m.query('[data-settings-nav="providers"]'));
+    assert.deepEqual(group(m, "configured"), ["claude", "grok"]);
+    assert.deepEqual(group(m, "available"), ["codex", "muse"]);
+    assert.equal(m.query("[data-provider-count]")?.textContent, "2 configured · 2 available");
+    const hint = (id: string) => m.query(`[data-provider-row="${id}"] [data-auth-state]`)?.textContent;
+    assert.equal(hint("claude"), "Configured");
+    assert.equal(hint("codex"), "Sign in");
+    assert.equal(hint("muse"), "Not installed");
   });
 
-  it("Sign in hands the provider id to the app", async () => {
+  it("searches by name or id, and collapses a group", async () => {
+    const m = await mount(withSignIn(async () => {}));
+    await m.type(m.query("[data-provider-search]"), "codex");
+    assert.deepEqual(m.queryAll("[data-provider-row]").map((r) => r.getAttribute("data-provider-row")), ["codex"]);
+    await m.type(m.query("[data-provider-search]"), "");
+    await m.click(m.query('[data-provider-group="configured"] button[aria-expanded]'));
+    assert.equal(
+      (m.query('[data-provider-group="configured"] [hidden]') as HTMLElement | null) != null,
+      true,
+    );
+  });
+
+  it("detail: Sign in hands the provider id to the app, Back returns", async () => {
     const calls: string[] = [];
     const m = await mount(withSignIn(async (id) => void calls.push(id)));
+    await m.click(m.query('[data-provider-row="codex"]'));
+    assert.equal(m.query("[data-provider-badge]")?.textContent, "Not configured");
     await m.click(m.query('[data-provider-signin="codex"]'));
     assert.deepEqual(calls, ["codex"]);
+    await m.click(m.query("[data-provider-back]"));
+    assert.ok(m.query("[data-providers-list]"));
+  });
+
+  it("detail: signed in shows the account and Sign out types the logout command", async () => {
+    const calls: Array<[string, unknown]> = [];
+    const m = await mount(
+      cloneElement(
+        modal({
+          initialPane: "providers",
+          providers: [{ ...CLAUDE, account: { email: "dev@example.com", plan: "max" } }],
+        }),
+        { onProviderSignIn: async (id: string, opts?: unknown) => void calls.push([id, opts]) },
+      ),
+    );
+    await m.click(m.query('[data-provider-row="claude"]'));
+    assert.match(m.text(), /Signed in via claude/);
+    assert.match(m.text(), /Signed in as dev@example\.com · Max/);
+    await m.click(m.query("[data-provider-signout]"));
+    assert.deepEqual(calls, [["claude", { logout: true }]]);
+  });
+
+  it("detail: a missing CLI offers Install", async () => {
+    const calls: Array<[string, unknown]> = [];
+    const m = await mount(
+      cloneElement(
+        modal({ initialPane: "providers", providers: [{ ...CODEX, available: false, auth: undefined }] }),
+        { onProviderSignIn: async (id: string, opts?: unknown) => void calls.push([id, opts]) },
+      ),
+    );
+    await m.click(m.query('[data-provider-row="codex"]'));
+    await m.click(m.query('[data-provider-install="codex"]'));
+    assert.deepEqual(calls, [["codex", { install: true }]]);
   });
 
   it("a failed Sign in shows the error", async () => {
@@ -2874,15 +2925,145 @@ describe("SettingsModal Agents › Providers sign-in (#1501)", () => {
         throw new Error("No sign-in command for codex");
       }),
     );
+    await m.click(m.query('[data-provider-row="codex"]'));
     await m.click(m.query('[data-provider-signin="codex"]'));
     assert.ok(m.text().includes("No sign-in command for codex"), m.text());
   });
 });
 
-describe("SettingsModal Agents › named provider instances (#453)", () => {
+describe("SettingsModal Providers › API keys and models (#1714)", () => {
+  afterEach(() => unmountAll());
+
+  const CODEX: ProviderInfo = { ...KIMI, id: "codex", name: "Codex", auth: "signedOut" };
+  const CLAUDE: ProviderInfo = {
+    ...KIMI,
+    id: "claude",
+    name: "Claude Code",
+    auth: "signedOut",
+    models: ["opus", "sonnet"],
+    modelInfo: [
+      { id: "opus", label: "Opus", description: "Best", vendor: "Anthropic", contextTokens: 1_000_000, efforts: ["low", "high"] },
+      { id: "sonnet", label: "Sonnet", description: "Fast", vendor: "Anthropic", inputModalities: ["text", "image"] },
+    ],
+  };
+  const blur = (el: Element | null) =>
+    act(async () => {
+      el!.dispatchEvent(new el!.ownerDocument.defaultView!.FocusEvent("focusout", { bubbles: true }));
+    });
+
+  function saving(initial: Partial<AppSettings>) {
+    const saved: Array<Partial<AppSettings>> = [];
+    let current = { providerInstances: [], ...initial } as Partial<AppSettings> as AppSettings;
+    return {
+      saved,
+      onSaveSettings: async (patch: Partial<AppSettings>) => {
+        saved.push(patch);
+        current = { ...current, ...patch };
+        return current;
+      },
+    };
+  }
+
+  it("a typed key saves on blur into the base provider's own instance env", async () => {
+    const s = saving({});
+    const m = await mount(modal({ initialPane: "providers", providers: [CODEX], settings: { providerInstances: [] } as Partial<AppSettings> as AppSettings, onSaveSettings: s.onSaveSettings }));
+    await m.click(m.query('[data-provider-row="codex"]'));
+    assert.equal(m.query('[data-provider-field="OPENAI_API_KEY"]'), null, "collapsed until asked");
+    await m.click(m.query("[data-use-api-key]"));
+    const input = m.query('[data-provider-field="OPENAI_API_KEY"]') as HTMLInputElement;
+    assert.equal(input.type, "password");
+    assert.ok(m.query("[data-key-link]")?.getAttribute("href")?.includes("platform.openai.com"));
+    await m.type(input, " sk-test ");
+    await blur(input);
+    assert.deepEqual(s.saved.at(-1), {
+      providerInstances: [
+        { id: "codex", name: "Codex", provider: "codex", configDir: null, env: { OPENAI_API_KEY: "sk-test" } },
+      ],
+    });
+    await m.click(m.query("[data-secret-toggle]"));
+    assert.equal((m.query('[data-provider-field="OPENAI_API_KEY"]') as HTMLInputElement).type, "text");
+  });
+
+  it("Disconnect drops the key and the empty overlay", async () => {
+    const overlay = { id: "claude", name: "Claude Code", provider: "claude", configDir: null, env: { ANTHROPIC_API_KEY: "sk-ant", ANTHROPIC_BASE_URL: "https://proxy" } };
+    const s = saving({ providerInstances: [overlay] });
+    const m = await mount(modal({ initialPane: "providers", providers: [CLAUDE], settings: { providerInstances: [overlay] } as Partial<AppSettings> as AppSettings, onSaveSettings: s.onSaveSettings }));
+    assert.equal(m.query('[data-provider-row="claude"] [data-auth-state]')?.textContent, "Configured", "a key configures it");
+    await m.click(m.query('[data-provider-row="claude"]'));
+    assert.equal((m.query('[data-provider-field="ANTHROPIC_BASE_URL"]') as HTMLInputElement).value, "https://proxy");
+    await m.click(m.query("[data-provider-disconnect]"));
+    assert.deepEqual(s.saved.at(-1), { providerInstances: [] });
+  });
+
+  it("models: capability marks, favourite persists, custom id adds, copy id", async () => {
+    const s = saving({});
+    const m = await mount(modal({ initialPane: "providers", providers: [CLAUDE], settings: { providerInstances: [], providerModels: {} } as Partial<AppSettings> as AppSettings, onSaveSettings: s.onSaveSettings }));
+    await m.click(m.query('[data-provider-row="claude"]'));
+    const opus = m.query('[data-model-row="opus"]');
+    assert.match(opus?.textContent ?? "", /1M/);
+    assert.ok(opus?.querySelector('[aria-label^="Reasoning effort"]'));
+    assert.ok(m.query('[data-model-row="sonnet"] [aria-label="Image input"]'));
+    await m.click(m.query('[data-model-fav="sonnet"]'));
+    assert.deepEqual(s.saved.at(-1), { providerModels: { claude: { favorites: ["sonnet"], custom: [] } } });
+    await m.click(m.query("[data-model-add]"));
+    await m.type(m.query("[data-model-add-input]"), "claude-next");
+    await m.click(m.queryAll("[data-models] button").find((b) => b.textContent === "Add"));
+    // The modal's settings prop is fixed here, so each save starts from it.
+    assert.deepEqual(s.saved.at(-1), { providerModels: { claude: { favorites: [], custom: ["claude-next"] } } });
+    await m.type(m.query("[data-models-search]"), "son");
+    assert.deepEqual(m.queryAll("[data-model-row]").map((r) => r.getAttribute("data-model-row")), ["sonnet"]);
+  });
+
+  it("models: Refresh without a key explains, with a key lists live", async () => {
+    const fake = createFakeCoder({ fetchedModels: [{ id: "claude-live", label: "Live", contextTokens: 200000 }] });
+    const shell = await mount(<div />);
+    installFakeCoder(fake);
+    shell.unmount();
+    const m = await mount(modal({ initialPane: "providers", providers: [CLAUDE], settings: { providerInstances: [] } as Partial<AppSettings> as AppSettings }));
+    await m.click(m.query('[data-provider-row="claude"]'));
+    await m.click(m.query("[data-models-refresh]"));
+    assert.match(m.query("[data-models-error]")?.textContent ?? "", /Add an API key/);
+    unmountAll();
+
+    const overlay = { id: "claude", name: "Claude Code", provider: "claude", configDir: null, env: { ANTHROPIC_API_KEY: "k" } };
+    const m2 = await mount(modal({ initialPane: "providers", providers: [CLAUDE], settings: { providerInstances: [overlay] } as Partial<AppSettings> as AppSettings }));
+    await m2.click(m2.query('[data-provider-row="claude"]'));
+    await m2.click(m2.query("[data-models-refresh]"));
+    await m2.flush();
+    assert.ok(m2.query('[data-model-row="claude-live"]'), m2.text());
+    assert.equal(m2.query('[data-model-row="opus"]'), null, "live replaces the catalog");
+    assert.deepEqual(
+      fake.calls.filter((c) => c.channel === "providers.fetchModels").map((c) => c.args[0]),
+      [{ provider: "claude" }],
+      "the renderer names the provider; main reads the key",
+    );
+  });
+
+  it("models: saved favourites sort first", async () => {
+    const m = await mount(modal({ initialPane: "providers", providers: [CLAUDE], settings: { providerInstances: [], providerModels: { claude: { favorites: ["sonnet"], custom: [] } } } as Partial<AppSettings> as AppSettings }));
+    await m.click(m.query('[data-provider-row="claude"]'));
+    assert.deepEqual(m.queryAll("[data-model-row]").map((r) => r.getAttribute("data-model-row")), ["sonnet", "opus"]);
+    assert.equal(m.query('[data-model-fav="sonnet"]')?.getAttribute("aria-pressed"), "true");
+  });
+
+  it("Environment keeps arbitrary rows beside the typed fields", async () => {
+    const overlay = { id: "claude", name: "Claude Code", provider: "claude", configDir: null, env: { ANTHROPIC_API_KEY: "k", HTTPS_PROXY: "http://p" } };
+    const s = saving({ providerInstances: [overlay] });
+    const m = await mount(modal({ initialPane: "providers", providers: [CLAUDE], settings: { providerInstances: [overlay] } as Partial<AppSettings> as AppSettings, onSaveSettings: s.onSaveSettings }));
+    await m.click(m.query('[data-provider-row="claude"]'));
+    await m.click(m.query("[data-provider-env] button[aria-expanded]"));
+    assert.equal(m.queryAll("[data-provider-env-row]").length, 1, "typed keys are not repeated");
+    await m.type(m.query('[data-provider-env-row] input[aria-label="Variable name"]'), "NO_PROXY");
+    await m.click(m.query("[data-provider-env-save]"));
+    assert.deepEqual(s.saved.at(-1)?.providerInstances?.[0]?.env, { ANTHROPIC_API_KEY: "k", NO_PROXY: "http://p" });
+  });
+});
+
+describe("SettingsModal Providers › add and custom providers (#453, #458, #1714)", () => {
   afterEach(() => unmountAll());
 
   const CLAUDE: ProviderInfo = { ...KIMI, id: "claude", name: "Claude Code", auth: "signedIn" };
+  const OPENCODE: ProviderInfo = { ...KIMI, id: "opencode", name: "OpenCode", auth: "unknown" };
   const WORK: ProviderInfo = {
     ...CLAUDE,
     id: "claude:w1",
@@ -2898,21 +3079,57 @@ describe("SettingsModal Agents › named provider instances (#453)", () => {
     configDir: "~/.claude-work",
     env: { ANTHROPIC_BASE_URL: "https://router.example" },
   };
+  function recorder() {
+    const saved: Array<Partial<AppSettings>> = [];
+    return {
+      saved,
+      onSaveSettings: async (patch: Partial<AppSettings>) => {
+        saved.push(patch);
+        return patch as AppSettings;
+      },
+    };
+  }
+
+  it("adds an OpenAI-compatible provider run through opencode", async () => {
+    const r = recorder();
+    const m = await mount(modal({ initialPane: "providers", providers: [CLAUDE, OPENCODE], settings: { providerInstances: [] } as Partial<AppSettings> as AppSettings, onSaveSettings: r.onSaveSettings }));
+    await m.click(m.query("[data-add-provider]"));
+    assert.ok(m.query("[data-compat-form]"), "OpenAI-compatible is the default kind");
+    assert.equal((m.query("[data-compat-save]") as HTMLButtonElement).disabled, true);
+    await m.type(m.query("#compat-name"), "My Gateway");
+    await m.type(m.query("#compat-base"), "https://gw.example/v1");
+    await m.type(m.query("#compat-models"), "llama-4, qwen-3");
+    await m.change(m.query("#compat-default"), "qwen-3");
+    await m.type(m.query("#compat-key"), "sk-gw");
+    await m.click(m.query("[data-compat-add-header]"));
+    await m.type(m.query('[data-compat-header] input[aria-label="Header name"]'), "X-Team");
+    await m.type(m.query('[data-compat-header] input[aria-label="Value of X-Team"]'), "core");
+    await m.click(m.query("[data-compat-save]"));
+    assert.deepEqual(r.saved.at(-1), {
+      providerInstances: [
+        {
+          id: "my-gateway",
+          name: "My Gateway",
+          provider: "opencode",
+          configDir: null,
+          env: { SOLENTA_OPENAI_COMPAT_API_KEY: "sk-gw" },
+          openaiCompatible: {
+            baseUrl: "https://gw.example/v1",
+            modelsUrl: null,
+            models: ["llama-4", "qwen-3"],
+            defaultModel: "qwen-3",
+            headers: { "X-Team": "core" },
+          },
+        },
+      ],
+    });
+  });
 
   it("adds an instance with a config folder and env", async () => {
-    const saved: Array<Partial<AppSettings>> = [];
-    const m = await mount(
-      modal({
-        initialPane: "agents",
-        providers: [CLAUDE],
-        settings: { providerInstances: [] } as Partial<AppSettings> as AppSettings,
-        onSaveSettings: async (patch) => {
-          saved.push(patch);
-          return patch as AppSettings;
-        },
-      }),
-    );
-    await m.click(m.query("[data-add-instance]"));
+    const r = recorder();
+    const m = await mount(modal({ initialPane: "providers", providers: [CLAUDE], settings: { providerInstances: [] } as Partial<AppSettings> as AppSettings, onSaveSettings: r.onSaveSettings }));
+    await m.click(m.query("[data-add-provider]"));
+    await m.click(m.query('[data-add-kind="instance"]'));
     await m.type(m.query("#instance-name"), "work");
     await m.type(m.query("#instance-dir"), "~/.claude-work");
     await m.click(m.query("[data-instance-add-env]"));
@@ -2921,59 +3138,38 @@ describe("SettingsModal Agents › named provider instances (#453)", () => {
     assert.ok(value, "env values are masked");
     await m.type(value, "https://router.example");
     await m.click(m.queryAll("[data-instance-form] button").find((b) => b.textContent === "Add"));
-    const list = saved.at(-1)?.providerInstances;
+    const list = r.saved.at(-1)?.providerInstances;
     assert.equal(list?.length, 1);
     assert.match(list![0]!.id, /^[0-9a-f]{8}$/);
     assert.deepEqual({ ...list![0], id: "x" }, { ...INSTANCE, id: "x" });
   });
 
   it("an instance row signs in under its ref, and edits or deletes", async () => {
-    const saved: Array<Partial<AppSettings>> = [];
+    const r = recorder();
     const signIns: string[] = [];
     const m = await mount(
       cloneElement(
-        modal({
-          initialPane: "agents",
-          providers: [CLAUDE, WORK],
-          settings: { providerInstances: [INSTANCE] } as Partial<AppSettings> as AppSettings,
-          onSaveSettings: async (patch) => {
-            saved.push(patch);
-            return patch as AppSettings;
-          },
-        }),
+        modal({ initialPane: "providers", providers: [CLAUDE, WORK], settings: { providerInstances: [INSTANCE] } as Partial<AppSettings> as AppSettings, onSaveSettings: r.onSaveSettings }),
         { onProviderSignIn: async (id: string) => void signIns.push(id) },
       ),
     );
-    assert.equal(
-      m.query('[data-provider-row="claude:w1"] [data-auth-state]')?.textContent,
-      "Signed out",
-    );
+    await m.click(m.query('[data-provider-row="claude:w1"]'));
+    assert.equal(m.query("[data-provider-badge]")?.textContent, "Not configured");
     await m.click(m.query('[data-provider-signin="claude:w1"]'));
     assert.deepEqual(signIns, ["claude:w1"]);
-
     await m.click(m.query('[data-instance-edit="w1"]'));
     assert.equal((m.query("#instance-dir") as HTMLInputElement).value, "~/.claude-work");
-    assert.equal((m.query("#instance-provider") as HTMLSelectElement).disabled, true);
-
+    assert.equal(m.query("#instance-provider"), null, "an instance cannot move to another CLI");
+    await m.click(m.queryAll("[data-instance-form] button").find((b) => b.textContent === "Cancel"));
     await m.click(m.query('[data-instance-delete="w1"]'));
-    assert.deepEqual(saved.at(-1), { providerInstances: [] });
+    assert.deepEqual(r.saved.at(-1), { providerInstances: [] });
   });
 
   it("adds a custom CLI (#458): argv parsed, no config folder", async () => {
-    const saved: Array<Partial<AppSettings>> = [];
-    const m = await mount(
-      modal({
-        initialPane: "agents",
-        providers: [CLAUDE],
-        settings: { providerInstances: [] } as Partial<AppSettings> as AppSettings,
-        onSaveSettings: async (patch) => {
-          saved.push(patch);
-          return patch as AppSettings;
-        },
-      }),
-    );
-    await m.click(m.query("[data-add-instance]"));
-    await m.change(m.query("#instance-provider"), "generic");
+    const r = recorder();
+    const m = await mount(modal({ initialPane: "providers", providers: [CLAUDE], settings: { providerInstances: [] } as Partial<AppSettings> as AppSettings, onSaveSettings: r.onSaveSettings }));
+    await m.click(m.query("[data-add-provider]"));
+    await m.click(m.query('[data-add-kind="generic"]'));
     assert.equal(m.query("#instance-dir"), null, "a custom CLI has no config folder");
     await m.type(m.query("#instance-name"), "Goose");
     await m.type(m.query("#instance-command"), `"/opt/my tools/goose" run -t`);
@@ -2981,7 +3177,7 @@ describe("SettingsModal Agents › named provider instances (#453)", () => {
     await m.type(m.query("#instance-cwd"), "packages/app");
     await m.change(m.query("#instance-transcript"), "pty");
     await m.click(m.queryAll("[data-instance-form] button").find((b) => b.textContent === "Add"));
-    const row = saved.at(-1)?.providerInstances?.[0];
+    const row = r.saved.at(-1)?.providerInstances?.[0];
     assert.deepEqual({ ...row, id: "x" }, {
       id: "x",
       name: "Goose",
@@ -2995,7 +3191,7 @@ describe("SettingsModal Agents › named provider instances (#453)", () => {
     });
   });
 
-  it("a custom CLI row says best effort, never sign-in state, and edits back to its argv", async () => {
+  it("a custom CLI sits under Custom, says best effort, and edits back to its argv", async () => {
     const GOOSE = {
       id: "g1",
       name: "Goose",
@@ -3007,7 +3203,7 @@ describe("SettingsModal Agents › named provider instances (#453)", () => {
     };
     const m = await mount(
       modal({
-        initialPane: "agents",
+        initialPane: "providers",
         providers: [
           CLAUDE,
           { ...KIMI, id: "generic:g1", name: "Goose", baseProvider: "generic", instanceId: "g1", bestEffort: true },
@@ -3015,10 +3211,10 @@ describe("SettingsModal Agents › named provider instances (#453)", () => {
         settings: { providerInstances: [GOOSE] } as Partial<AppSettings> as AppSettings,
       }),
     );
-    assert.match(
-      m.query('[data-provider-row="generic:g1"] [data-auth-state]')?.textContent ?? "",
-      /Best effort/,
-    );
+    assert.ok(m.query('[data-provider-group="custom"] [data-provider-row="generic:g1"]'));
+    await m.click(m.query('[data-provider-row="generic:g1"]'));
+    assert.match(m.query('[data-auth-state="bestEffort"]')?.textContent ?? "", /Best effort/);
+    assert.equal(m.query("[data-models]"), null, "a custom CLI takes no model id");
     await m.click(m.query('[data-instance-edit="g1"]'));
     assert.equal(
       (m.query("#instance-command") as HTMLInputElement).value,
@@ -3028,7 +3224,7 @@ describe("SettingsModal Agents › named provider instances (#453)", () => {
   });
 
   it("Connect ChatGPT account adds a codex instance with its own CODEX_HOME and signs in", async () => {
-    const saved: Array<Partial<AppSettings>> = [];
+    const r = recorder();
     const signIns: Array<[string, { name?: string } | undefined]> = [];
     const CODEX: ProviderInfo = {
       ...KIMI,
@@ -3039,27 +3235,17 @@ describe("SettingsModal Agents › named provider instances (#453)", () => {
     };
     const m = await mount(
       cloneElement(
-        modal({
-          initialPane: "agents",
-          providers: [CLAUDE, CODEX],
-          settings: { providerInstances: [INSTANCE] } as Partial<AppSettings> as AppSettings,
-          onSaveSettings: async (patch) => {
-            saved.push(patch);
-            return patch as AppSettings;
-          },
-        }),
+        modal({ initialPane: "providers", providers: [CLAUDE, CODEX], settings: { providerInstances: [INSTANCE] } as Partial<AppSettings> as AppSettings, onSaveSettings: r.onSaveSettings }),
         {
           onProviderSignIn: async (id: string, opts?: { name?: string }) =>
             void signIns.push([id, opts]),
         },
       ),
     );
-    assert.equal(
-      m.query('[data-provider-row="codex"] [data-auth-state]')?.textContent,
-      "Signed in as dev@example.com · Pro",
-    );
+    await m.click(m.query("[data-add-provider]"));
+    await m.click(m.query('[data-add-kind="instance"]'));
     await m.click(m.query("[data-connect-chatgpt]"));
-    const list = saved.at(-1)?.providerInstances;
+    const list = r.saved.at(-1)?.providerInstances;
     assert.equal(list?.length, 2, "keeps the existing instance");
     const added = list![1]!;
     assert.deepEqual(
@@ -3067,6 +3253,13 @@ describe("SettingsModal Agents › named provider instances (#453)", () => {
       { id: "x", name: "ChatGPT 2", provider: "codex", configDir: "~/.codex-x", env: {} },
     );
     assert.deepEqual(signIns, [[`codex:${added.id}`, { name: "Codex (ChatGPT 2)" }]]);
+  });
+
+  it("Agents keeps profiles and the pool, without the provider list", async () => {
+    const m = await mount(modal({ initialPane: "agents", providers: [CLAUDE] }));
+    assert.ok(m.query("[data-agent-profiles]"));
+    assert.ok(m.query("[data-subagent-pool]"));
+    assert.equal(m.query("[data-provider-row]"), null);
   });
 });
 

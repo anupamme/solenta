@@ -1363,7 +1363,10 @@ function createClaudeRun(ctx) {
     // Named instance (#453): its config dir and env ride this child only.
     // Joins the reuse key through spawnEnv, so switching instance respawns.
     const claudeOtel = {
-      ...(threadInstanceEnv(store.getSettings(), thread) || {}),
+      // A base-provider key (#1714) rides local runs only.
+      ...(threadInstanceEnv(store.getSettings(), thread, {
+        local: !crossesBoundary(project),
+      }) || {}),
       ...otel.claudeEnv(),
     };
     const otelEnv = Object.keys(claudeOtel).length > 0 ? claudeOtel : undefined;

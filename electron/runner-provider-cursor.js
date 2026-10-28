@@ -21,6 +21,7 @@ const {
 } = require("./guardrail-hook-core.js");
 const path = require("node:path");
 const threadSecrets = require("./threadSecrets.js");
+const { threadInstanceEnv } = require("./providerInstances.js");
 const cursorParse = require("./cursor.js");
 const { materializeCursorHome, runCursor } = cursorParse;
 const {
@@ -341,6 +342,11 @@ function createCursorRun(ctx) {
 
     completeWorkLogStep(threadId, startingId);
 
+    // Settings › Providers key (#1714): local runs only, like the overlay.
+    const keyEnv = threadInstanceEnv(store.getSettings(), thread, {
+      local: !crossesBoundary(project),
+    });
+    if (keyEnv) cursorEnv = { ...cursorEnv, ...keyEnv };
     if (abortIfCancelled(threadId, runId)) return { runId };
     const handle = runCursor({
       binary: spawn.binary,

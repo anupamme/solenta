@@ -1386,13 +1386,14 @@ export default function App({ rendererSha: rendererShaOverride }: AppProps = {})
       providerId: string,
       // `shell`: always the dedicated sign-in shell, never a thread's
       // terminal (onboarding covers the thread view).
-      opts?: { install?: boolean; shell?: boolean; name?: string },
+      opts?: { install?: boolean; shell?: boolean; name?: string; logout?: boolean },
     ) => {
       const install = opts?.install === true;
       const res = await terminal.signIn({
         provider: providerId,
         threadId: opts?.shell ? null : signInThreadId,
         ...(install ? { install } : {}),
+        ...(opts?.logout ? { logout: true } : {}),
       });
       // Either way Settings closes: two modal focus traps fight each other.
       setSettingsOpen(false);

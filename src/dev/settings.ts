@@ -5,6 +5,7 @@ import type {
   AgentProfile,
   PromptSnippet,
   ProviderInstance,
+  ProviderModelPrefs,
   McpServerInfo,
   PairingCreated,
   PairingCreateInput,
@@ -83,6 +84,7 @@ export function createSettings(ctx: DevCtx): Pick<CoderApi, "settings" | "stayAw
   /** Saved agent profiles (Settings tab), in-memory. */
   let agentProfiles: AgentProfile[] = [];
   let providerInstances: ProviderInstance[] = [];
+  let providerModels: Record<string, ProviderModelPrefs> = {};
   /** Planboard Orchestrator: Default (#725). */
   let defaultOrchestratorProfileId: string | null = null;
   /** Prompt snippets (#189), in-memory. */
@@ -176,6 +178,7 @@ export function createSettings(ctx: DevCtx): Pick<CoderApi, "settings" | "stayAw
           guardrailsEnabled,
           agentProfiles: agentProfiles.map((p) => ({ ...p })),
           providerInstances: providerInstances.map((p) => ({ ...p, env: { ...p.env } })),
+          providerModels: structuredClone(providerModels),
           defaultOrchestratorProfileId,
           promptSnippets: promptSnippets.map((sn) => ({ ...sn })),
           subagentPool: {
@@ -405,6 +408,7 @@ export function createSettings(ctx: DevCtx): Pick<CoderApi, "settings" | "stayAw
             defaultOrchestratorProfileId = null;
           }
         }
+        if (patch.providerModels) providerModels = structuredClone(patch.providerModels);
         if (Object.prototype.hasOwnProperty.call(patch, "providerInstances")) {
           if (!Array.isArray(patch.providerInstances)) {
             throw new Error("providerInstances must be an array");
@@ -529,6 +533,7 @@ export function createSettings(ctx: DevCtx): Pick<CoderApi, "settings" | "stayAw
           guardrailsEnabled,
           agentProfiles: agentProfiles.map((p) => ({ ...p })),
           providerInstances: providerInstances.map((p) => ({ ...p, env: { ...p.env } })),
+          providerModels: structuredClone(providerModels),
           defaultOrchestratorProfileId,
           promptSnippets: promptSnippets.map((sn) => ({ ...sn })),
           subagentPool: {

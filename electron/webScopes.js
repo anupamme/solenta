@@ -265,6 +265,7 @@ const BY_SCOPE = {
     "devserver:stop",
   ],
   settings: [
+    "providers:fetchModels",
     "settings:set",
     "settings:testWebhook",
     "memory:store",

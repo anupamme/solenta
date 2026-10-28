@@ -449,15 +449,23 @@ function buildDevCoder(): CoderApi {
         return DEV_PROVIDERS.flatMap((p) => [
           { ...p, models: [...p.models] },
           ...providerInstances
-            .filter((i) => i.provider === p.id)
-            .map((i) => ({
-              ...p,
-              models: [...p.models],
-              id: `${p.id}:${i.id}`,
-              name: `${p.name} (${i.name})`,
-              baseProvider: p.id,
-              instanceId: i.id,
-            })),
+            // A base overlay (#1714, id === provider) is never its own row.
+            .filter((i) => i.provider === p.id && i.id !== p.id)
+            .map((i) => {
+              const oc = i.openaiCompatible;
+              const models = oc ? oc.models.map((m) => `${i.id}/${m}`) : [...p.models];
+              return {
+                ...p,
+                models,
+                modelInfo: oc
+                  ? models.map((id) => ({ id, label: id.slice(i.id.length + 1), description: "", vendor: i.name }))
+                  : p.modelInfo,
+                id: `${p.id}:${i.id}`,
+                name: oc ? i.name : `${p.name} (${i.name})`,
+                baseProvider: p.id,
+                instanceId: i.id,
+              };
+            }),
         ]).concat(
           // Custom CLIs (#458) have no base row; they trail the list.
           providerInstances
@@ -478,6 +486,13 @@ function buildDevCoder(): CoderApi {
               bestEffort: true,
             })),
         );
+      },
+      // No network in the dev fake (#1714): a canned live list.
+      async fetchModels(input: { provider: string }) {
+        return [
+          { id: `${input.provider}-live-large`, label: "Live large", contextTokens: 200000 },
+          { id: `${input.provider}-live-small`, label: "Live small" },
+        ];
       },
     },
     ...createSourceControl(),

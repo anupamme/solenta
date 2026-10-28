@@ -38,6 +38,7 @@ import {
   type ProfileDraft,
 } from "./settings/AgentsPane";
 import { GeneralPane } from "./settings/GeneralPane";
+import { ProvidersPane } from "./settings/ProvidersPane";
 import { KeyboardPane } from "./settings/KeyboardPane";
 
 export { formatOtelHeaders, parseOtelHeaders } from "./settings/AdvancedPane";
@@ -48,6 +49,7 @@ export const SETTINGS_PANES = [
   "threads",
   "spending",
   "git",
+  "providers",
   "agents",
   "memory",
   "skills",
@@ -90,9 +92,15 @@ const PANE_META: Record<
     keywords:
       "github gitlab bitbucket azure source control pr pull request worktree gc disk cleanup linear ticket api key sentry spotlight lanes preview",
   },
+  providers: {
+    label: "Providers",
+    hint: "Sign in, API keys, base URLs and models for each agent CLI, plus custom OpenAI-compatible providers.",
+    keywords:
+      "provider sign in login logout api key base url anthropic openai xai cursor claude codex grok opencode kimi muse install instance account chatgpt config folder custom cli openai-compatible models favourite favorite environment env",
+  },
   agents: {
     label: "Agents",
-    hint: "Named profiles and prompt snippets for the composer, and the worker pool.",
+    hint: "Named profiles and prompt snippets for the composer, and the worker pool. Sign-in and keys live in Providers.",
     keywords:
       "profile provider model effort permission pool worker alias candidate orchestrator default snippet prompt text boilerplate template",
   },
@@ -140,10 +148,16 @@ export interface SettingsModalProps {
   settings: AppSettings | null;
   /** Provider catalogue for the profiles form. Unavailable CLIs stay listed. */
   providers?: ProviderInfo[];
-  /** Re-list providers (re-probes sign-in) when Settings › Agents opens. */
+  /** Re-list providers (re-probes sign-in) when Settings › Providers or Agents opens. */
   onRefreshProviders?: () => void;
-  /** Start a provider's login command in a terminal (#1501). */
-  onProviderSignIn?: (providerId: string, opts?: { name?: string }) => Promise<void>;
+  /**
+   * Start a provider's login command in a terminal (#1501). `install` and
+   * `logout` type the install or logout command instead (#1714).
+   */
+  onProviderSignIn?: (
+    providerId: string,
+    opts?: { name?: string; install?: boolean; logout?: boolean },
+  ) => Promise<void>;
   /** Live app status for the memory section. */
   status: AppStatus | null;
   /** Auto-update check result for the build section. */
@@ -784,6 +798,17 @@ export function SettingsModal({
             setPoolDraft={setPoolDraft}
             persistProfiles={persistProfiles}
             persistPool={persistPool}
+            onSaveSettings={onSaveSettings}
+            onRefreshProviders={onRefreshProviders}
+          />
+          )}
+
+          {pane === "providers" && (
+          <ProvidersPane
+            settings={settings}
+            providers={providers}
+            saving={saving}
+            setError={setError}
             onSaveSettings={onSaveSettings}
             onRefreshProviders={onRefreshProviders}
             onProviderSignIn={onProviderSignIn}
