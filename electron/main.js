@@ -233,6 +233,10 @@ let wedgedLaneWatchdog = null;
 /** @type {ReturnType<typeof startScheduler> | null} */
 let automationScheduler = null;
 
+/** #1720: MCP OAuth token refresh, every minute. */
+/** @type {ReturnType<typeof setInterval> | null} */
+let mcpOauthRefreshTimer = null;
+
 /** @type {ReturnType<typeof startAutoDispatch> | null} */
 let autoDispatch = null;
 
@@ -1233,7 +1237,7 @@ app.whenReady().then(async () => {
       log: (msg) => console.warn(msg),
     }).catch(() => {});
   void refreshMcpOauth();
-  setInterval(refreshMcpOauth, 60_000);
+  mcpOauthRefreshTimer = setInterval(refreshMcpOauth, 60_000);
 });
 
 shutdown = installShutdown({
@@ -1270,6 +1274,11 @@ shutdown = installShutdown({
 /** Servers, schedulers, and child processes: last, after runs and the device. */
 function teardownServices() {
   closeRemoteConnections();
+  // No token refresh (and store write) mid-shutdown.
+  if (mcpOauthRefreshTimer) {
+    clearInterval(mcpOauthRefreshTimer);
+    mcpOauthRefreshTimer = null;
+  }
   if (webAccess) {
     void webAccess.stop().catch(() => {});
     webAccess = null;
