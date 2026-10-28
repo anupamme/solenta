@@ -332,6 +332,10 @@ function createThread(store, input) {
     ...(input.memoryConsolidate === true
       ? { memoryConsolidate: true }
       : {}),
+    // Chat channel origin (#1718), e.g. { kind: "telegram", chatId }.
+    ...(input.channel && input.channel.kind
+      ? { channel: { kind: String(input.channel.kind), chatId: String(input.channel.chatId) } }
+      : {}),
     ...(groupSource
       ? { taskGroupId: groupSource.taskGroupId || groupSource.id }
       : {}),
