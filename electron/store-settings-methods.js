@@ -5,7 +5,7 @@ const path = require("node:path");
 const { validateSubagentPool } = require("./subagentPool");
 const { clampUiScale } = require("./zoom.js");
 const { validateMcpServers, mergeMcpSettingsPatch } = require("./mcp.js");
-const { validateProviderInstances } = require("./providerInstances.js");
+const { validateProviderInstances, parseProviderModels } = require("./providerInstances.js");
 const { validateModelPrices } = require("./modelPrices.js");
 const { normalizePrivacyGateway } = require("./privacyGateway.js");
 const {
@@ -98,6 +98,7 @@ class StoreSettingsMethods {
       maxConcurrentRuns: n.maxConcurrentRuns,
       agentProfiles: n.agentProfiles,
       providerInstances: n.providerInstances,
+      providerModels: n.providerModels,
       defaultOrchestratorProfileId: n.defaultOrchestratorProfileId,
       promptSnippets: n.promptSnippets,
       subagentPool: n.subagentPool,
@@ -110,6 +111,11 @@ class StoreSettingsMethods {
       worktreeRoot: n.worktreeRoot,
       privacyGateway: n.privacyGateway,
     };
+  }
+
+  /** At-rest encryption state and locked secrets for the settings UI (#1715). */
+  secretStorage() {
+    return this._secrets.status();
   }
 
   /**
@@ -242,6 +248,9 @@ class StoreSettingsMethods {
       this.data.settings.providerInstances = validateProviderInstances(
         patch.providerInstances,
       );
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "providerModels")) {
+      this.data.settings.providerModels = parseProviderModels(patch.providerModels, true);
     }
     if (Object.prototype.hasOwnProperty.call(patch, "defaultOrchestratorProfileId")) {
       const v = patch.defaultOrchestratorProfileId;

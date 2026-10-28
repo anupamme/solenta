@@ -22,6 +22,7 @@ const {
   findInstance,
   instanceEnv,
   instanceDisplayName,
+  isBaseOverlay,
 } = require("./providerInstances.js");
 const { resolveSandbox } = require("./sandbox.js");
 const { normalizeRoute } = require("./routing.js");
@@ -1203,10 +1204,12 @@ async function listProvidersForApi(store, opts) {
     }
   }
   const base = listProviders(opts);
-  const instances =
-    store && typeof store.getSettings === "function"
-      ? store.getSettings().providerInstances || []
-      : [];
+  const settings =
+    store && typeof store.getSettings === "function" ? store.getSettings() : null;
+  // Base overlays (#1714) are the base row's own env, never a picker row.
+  const instances = ((settings && settings.providerInstances) || []).filter(
+    (inst) => !isBaseOverlay(inst),
+  );
   // Each instance sits right after its base, so the picker groups them.
   /** @type {import('../src/shared/ipc').ProviderInfo[]} */
   const list = [];
@@ -1218,6 +1221,10 @@ async function listProvidersForApi(store, opts) {
     list.push(p);
     for (const inst of instances) {
       if (inst.provider !== p.id) continue;
+      if (inst.openaiCompatible) {
+        list.push(openAiCompatProviderInfo(p, inst));
+        continue;
+      }
       list.push({
         ...p,
         id: providerRef(p.id, inst.id),
@@ -1228,13 +1235,66 @@ async function listProvidersForApi(store, opts) {
     }
   }
   list.push(...generic);
+  const prefs = (settings && settings.providerModels) || {};
   for (const p of list) {
+    if (prefs[p.id]) applyModelPrefs(p, prefs[p.id]);
     const auth = providerAuth.get(p.id);
     if (auth && p.available) p.auth = auth;
     const account = p.auth === "signedIn" ? providerAuth.account(p.id) : undefined;
     if (account) p.account = account;
   }
   return list;
+}
+
+/**
+ * Picker row for an OpenAI-compatible endpoint run through opencode (#1714).
+ * opencode addresses its models as `<provider id>/<model id>`.
+ * @param {import('../src/shared/ipc').ProviderInfo} opencode
+ * @param {import('./providerInstances').ProviderInstance} inst
+ * @returns {import('../src/shared/ipc').ProviderInfo}
+ */
+function openAiCompatProviderInfo(opencode, inst) {
+  const oc = /** @type {import('./providerInstances').OpenAiCompat} */ (inst.openaiCompatible);
+  const ids = oc.models.map((m) => `${inst.id}/${m}`);
+  return {
+    ...opencode,
+    id: providerRef(opencode.id, inst.id),
+    name: instanceDisplayName(opencode.name, inst),
+    models: ids,
+    modelInfo: ids.map((id, i) => ({
+      id,
+      label: oc.models[i],
+      description: "",
+      vendor: inst.name,
+      ...(oc.models[i] === oc.defaultModel ? { recommended: true } : {}),
+    })),
+    efforts: [],
+    baseProvider: opencode.id,
+    instanceId: inst.id,
+  };
+}
+
+/**
+ * Custom ids join the list (#1714), then favourites move first, so the
+ * composer picker and Settings show the same order. Mutates `p`.
+ * @param {import('../src/shared/ipc').ProviderInfo} p
+ * @param {{ favorites: string[], custom: string[] }} pref
+ */
+function applyModelPrefs(p, pref) {
+  // Instance rows spread their base, so the arrays are shared: copy first.
+  p.models = [...p.models];
+  p.modelInfo = [...p.modelInfo];
+  for (const id of pref.custom) {
+    if (p.models.includes(id)) continue;
+    p.models.push(id);
+    p.modelInfo.push({ id, label: id, description: "Custom model", vendor: "" });
+  }
+  const fav = new Set(pref.favorites);
+  if (fav.size === 0) return;
+  const rank = (/** @type {string} */ id) => (fav.has(id) ? 0 : 1);
+  // Array#sort is stable, so the catalog order holds within each group.
+  p.models.sort((a, b) => rank(a) - rank(b));
+  p.modelInfo.sort((a, b) => rank(a.id) - rank(b.id));
 }
 
 /**
@@ -1274,12 +1334,13 @@ function genericProviderInfo(inst) {
  * @returns {Array<{ ref: string, provider: string, env: Record<string, string> }>}
  */
 function instanceAuthProbes(store) {
-  // Custom CLIs (#458) have no sign-in command to probe.
+  // Custom CLIs (#458) and OpenAI-compatible endpoints (#1714) have no
+  // sign-in command to probe. A base overlay probes as its base (ref = id).
   const instances = (store.getSettings().providerInstances || []).filter(
-    (inst) => inst.provider !== "generic",
+    (inst) => inst.provider !== "generic" && !inst.openaiCompatible,
   );
   return instances.map((inst) => ({
-    ref: providerRef(inst.provider, inst.id),
+    ref: isBaseOverlay(inst) ? inst.provider : providerRef(inst.provider, inst.id),
     provider: inst.provider,
     env: instanceEnv(inst),
   }));

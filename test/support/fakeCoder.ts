@@ -66,6 +66,7 @@ import type {
   ProjectInfo,
   FsBrowseResult,
   ProviderInfo,
+  FetchedModel,
   SourceControlDiscovery,
   CliSlashCommand,
   SkillCatalogEntry,
@@ -235,6 +236,8 @@ export interface FakeOptions {
   spaces?: SpaceInfo[];
   threads?: ThreadInfo[];
   providers?: ProviderInfo[];
+  /** providers.fetchModels result (#1714). */
+  fetchedModels?: FetchedModel[];
   /** threads.listAgents rows (#172); empty by default. */
   agents?: Array<{ name: string; description: string; source: "builtin" | "project" | "user" }>;
   workflows?: WorkflowTemplateInfo[];
@@ -1508,7 +1511,11 @@ export function createFakeCoder(opts: FakeOptions = {}): FakeCoder {
         return rec("harness.discardImport", [input], undefined);
       },
     },
-    providers: { list: () => rec("providers.list", [], providers) },
+    providers: {
+      list: () => rec("providers.list", [], providers),
+      fetchModels: (input: { provider: string }) =>
+        rec("providers.fetchModels", [input], opts.fetchedModels ?? []),
+    },
     sourceControl: {
       discover: (input?: { rescan?: boolean }) =>
         rec("sourceControl.discover", [input], {

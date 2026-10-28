@@ -142,6 +142,44 @@ describe("createSecrets", () => {
     }
   });
 
+  it("packaged builds default ON; =0 forces off, unpackaged stays off (#1715)", () => {
+    const prev = process.env.SOLENTA_ENABLE_SAFE_STORAGE;
+    delete process.env.SOLENTA_ENABLE_SAFE_STORAGE;
+    try {
+      const logs = [];
+      const packaged = createSecrets({
+        packaged: true,
+        inElectron: true,
+        log: (m) => logs.push(String(m)),
+      });
+      // node has no Electron backend: on-but-missing reports unavailable, loudly.
+      assert.equal(packaged.seal("tok"), "tok");
+      assert.equal(packaged.status().encryption, "unavailable");
+      assert.ok(logs.some((l) => /unavailable/i.test(l)));
+
+      assert.equal(createSecrets({ packaged: false, inElectron: true }).status().encryption, "off");
+      process.env.SOLENTA_ENABLE_SAFE_STORAGE = "0";
+      assert.equal(createSecrets({ packaged: true, inElectron: true }).status().encryption, "off");
+    } finally {
+      if (prev === undefined) delete process.env.SOLENTA_ENABLE_SAFE_STORAGE;
+      else process.env.SOLENTA_ENABLE_SAFE_STORAGE = prev;
+    }
+  });
+
+  it("Linux basic_text counts as unencrypted: writes plaintext, still opens old blobs", () => {
+    const real = fakeSafeStorage();
+    const blob = createSecrets({ safeStorage: real }).seal("old-secret");
+    const s = createSecrets({
+      safeStorage: { ...real, getSelectedStorageBackend: () => "basic_text" },
+      inElectron: true,
+      log: () => {},
+    });
+    assert.equal(s.isEncryptionAvailable(), false);
+    assert.equal(s.status().encryption, "unavailable");
+    assert.equal(s.seal("new-secret"), "new-secret");
+    assert.equal(s.open(blob), "old-secret");
+  });
+
   it("returns null and logs when ciphertext is corrupt, without echoing the blob", () => {
     const logs = [];
     const s = createSecrets({
@@ -311,6 +349,38 @@ describe("Store conceals secrets on disk", () => {
     assert.ok(
       String(parsed.settings.linearApiKey).startsWith("enc:v1:"),
       "disk payload must be the enc:v1 envelope",
+    );
+  });
+
+  it("writes OpenAI-compatible provider headers encrypted, keeps memory plaintext (#1714)", () => {
+    const store = new Store(filePath, { secrets });
+    store.setSettings({
+      providerInstances: [
+        {
+          id: "gateway",
+          name: "Gateway",
+          provider: "opencode",
+          env: {},
+          openaiCompatible: {
+            baseUrl: "https://gw.example.com/v1",
+            models: ["m1"],
+            headers: { Authorization: "Bearer compat-header-unique" },
+          },
+        },
+      ],
+    });
+    store.saveNow();
+    const inst = store.getSettings().providerInstances[0];
+    assert.equal(inst.openaiCompatible.headers.Authorization, "Bearer compat-header-unique");
+    const disk = fs.readFileSync(filePath, "utf8");
+    assert.ok(!disk.includes("compat-header-unique"));
+    const onDisk = JSON.parse(disk).settings.providerInstances[0].openaiCompatible;
+    assert.ok(String(onDisk.headers.Authorization).startsWith("enc:v1:"));
+    assert.equal(onDisk.baseUrl, "https://gw.example.com/v1", "non-secret fields stay plain");
+    const back = new Store(filePath, { secrets });
+    assert.equal(
+      back.getSettings().providerInstances[0].openaiCompatible.headers.Authorization,
+      "Bearer compat-header-unique",
     );
   });
 
@@ -585,6 +655,119 @@ describe("Store conceals secrets on disk", () => {
     assert.equal(stdio.env.GOOD, "good-env");
     assert.equal(stdio.env.BAD, undefined);
     assert.ok(!JSON.stringify(stdio.env).includes(PREFIX));
+  });
+
+  it("keeps locked ciphertext byte-for-byte through a settings save (#1715)", () => {
+    const instCipher = secrets.seal("sk-instance-unique");
+    const mcpCipher = secrets.seal("mcp-token-unique");
+    const linearCipher = secrets.seal("lin-unique");
+    const corrupt = `${PREFIX}not-valid-cipher`;
+    fs.writeFileSync(
+      filePath,
+      JSON.stringify({
+        projects: [],
+        threads: [],
+        settings: {
+          linearApiKey: linearCipher,
+          mcpServers: [
+            { name: "team", url: "https://t.example.com/mcp", enabled: true, token: mcpCipher },
+          ],
+          providerInstances: [
+            {
+              id: "work",
+              name: "Claude (work)",
+              provider: "claude",
+              configDir: path.join(tmpDir, "claude-work"),
+              env: { ANTHROPIC_API_KEY: instCipher, BROKEN: corrupt, PLAIN: "visible" },
+            },
+          ],
+        },
+      }),
+      "utf8",
+    );
+    // Backend off (dev run / keychain refused): nothing can open.
+    const off = createSecrets({ safeStorage: null, inElectron: true, log: () => {} });
+    const store = new Store(filePath, { secrets: off });
+    const s = store.getSettings();
+    assert.equal(s.linearApiKey, null);
+    assert.equal(s.mcpServers[0].token, undefined);
+    assert.deepEqual(s.providerInstances[0].env, { PLAIN: "visible" });
+    assert.ok(!JSON.stringify(s).includes(PREFIX), "ciphertext must never reach memory");
+    assert.deepEqual(store.secretStorage().locked.sort(), [
+      "instance:work:env:ANTHROPIC_API_KEY",
+      "instance:work:env:BROKEN",
+      "mcp:team:token",
+      "settings:linearApiKey",
+    ]);
+
+    // The UI echoes the instance back with what it saw, plus one edit.
+    store.setSettings({
+      providerInstances: [{ ...s.providerInstances[0], env: { PLAIN: "edited" } }],
+      mcpServers: s.mcpServers,
+    });
+    store.saveNow();
+    let disk = JSON.parse(fs.readFileSync(filePath, "utf8")).settings;
+    assert.equal(disk.linearApiKey, linearCipher);
+    assert.equal(disk.mcpServers[0].token, mcpCipher);
+    assert.deepEqual(disk.providerInstances[0].env, {
+      PLAIN: "edited",
+      ANTHROPIC_API_KEY: instCipher,
+      BROKEN: corrupt,
+    });
+
+    // Reload with the real backend: the kept values open again.
+    const back = new Store(filePath, { secrets });
+    assert.equal(back.getSettings().providerInstances[0].env.ANTHROPIC_API_KEY, "sk-instance-unique");
+    assert.equal(back.getSettings().mcpServers[0].token, "mcp-token-unique");
+    assert.equal(back.getSettings().linearApiKey, "lin-unique");
+
+    // A new value the user types replaces a locked one, and it stays replaced.
+    const again = new Store(filePath, { secrets: off });
+    again.setSettings({ linearApiKey: "typed-new" });
+    again.saveNow();
+    again.setSettings({ linearApiKey: null });
+    again.saveNow();
+    disk = JSON.parse(fs.readFileSync(filePath, "utf8")).settings;
+    assert.equal(disk.linearApiKey, null);
+    assert.equal(disk.providerInstances[0].env.ANTHROPIC_API_KEY, instCipher);
+  });
+
+  it("keeps a value whose decryptString throws (keychain denied) instead of dropping it", () => {
+    const cipher = secrets.seal("denied-unique");
+    fs.writeFileSync(
+      filePath,
+      JSON.stringify({ projects: [], threads: [], settings: { sentryAuthToken: cipher } }),
+      "utf8",
+    );
+    const denied = createSecrets({
+      safeStorage: {
+        ...fakeSafeStorage(),
+        decryptString() {
+          throw new Error("user denied keychain access");
+        },
+      },
+      inElectron: true,
+      log: () => {},
+    });
+    const store = new Store(filePath, { secrets: denied });
+    assert.equal(store.getSettings().sentryAuthToken, null);
+    store.setSettings({ dailyBudgetUsd: 5 });
+    store.saveNow();
+    assert.equal(JSON.parse(fs.readFileSync(filePath, "utf8")).settings.sentryAuthToken, cipher);
+  });
+
+  it("persists the migration on load without an explicit save", async () => {
+    fs.writeFileSync(
+      filePath,
+      JSON.stringify({ projects: [], threads: [], settings: { linearApiKey: "lin-plain-unique" } }),
+      "utf8",
+    );
+    const store = new Store(filePath, { secrets });
+    await new Promise((r) => setTimeout(r, SAVE_DEBOUNCE_MS + 100));
+    const disk = fs.readFileSync(filePath, "utf8");
+    assert.ok(!disk.includes("lin-plain-unique"));
+    assert.ok(JSON.parse(disk).settings.linearApiKey.startsWith(PREFIX));
+    store.flushPending();
   });
 
   it("reloads agreeing stdio env values when ciphertext is non-deterministic", () => {

@@ -161,7 +161,9 @@ function createCodexRun(ctx) {
     if (codexExecConfig.length) args.push(...codexExecConfig);
     /** @type {Record<string, string>} */
     // Named instance (#453): its CODEX_HOME and env ride this child only.
-    const instEnv = threadInstanceEnv(store.getSettings(), thread) || {};
+    // A base-provider key (#1714) rides local runs only.
+    const instEnv =
+      threadInstanceEnv(store.getSettings(), thread, { local: !crossesBoundary(project) }) || {};
     const codexMcpEnv = { ...instEnv, ...getCodexMcpEnv() };
     // #813: isolated CODEX_HOME PreToolUse. Local overlay stays on this
     // host. ssh/WSL deploys a remote overlay (#835) and prefixes

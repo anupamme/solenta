@@ -98,6 +98,7 @@ export const IPC_CHANNELS = [
   { ns: "harness", method: "installImport" },
   { ns: "harness", method: "discardImport" },
   { ns: "providers", method: "list" },
+  { ns: "providers", method: "fetchModels" },
   { ns: "sourceControl", method: "discover" },
   { ns: "workflows", method: "list" },
   { ns: "workflows", method: "save" },

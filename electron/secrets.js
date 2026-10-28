@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * At-rest encryption for stored secrets (issue #543) — DISABLED by default.
+ * At-rest encryption for stored secrets (issues #543, #1715).
  *
  * Disk payload is Electron `safeStorage.encryptString` (Keychain / DPAPI /
  * libsecret). Memory stays plaintext so existing getSettings / spawn paths
@@ -12,12 +12,15 @@
  * we write plaintext and shout about it — never a silent fallback that
  * looks encrypted.
  *
- * DISABLED: on macOS the safeStorage keychain item's ACL pins the creating
- * binary's code signature, so every unsigned or freshly rebuilt binary made
- * app startup nag for the login-keychain password. The default (non-injected)
- * backend is therefore off and secrets are stored plaintext, exactly as
- * before #543. Already-sealed `enc:v1:` values can no longer be opened and
- * are dropped on load. Set SOLENTA_ENABLE_SAFE_STORAGE=1 to re-enable.
+ * ON for packaged builds, OFF for unpackaged dev runs: on macOS the
+ * safeStorage keychain item's ACL pins the creating binary's code
+ * signature, so unsigned or freshly rebuilt binaries made startup nag for
+ * the login-keychain password (371f1045). SOLENTA_ENABLE_SAFE_STORAGE=1/0
+ * forces it either way.
+ *
+ * A sealed `enc:v1:` value that will not open (backend off, keychain
+ * denied, corrupt) is never dropped: it stays out of memory, is reported
+ * as locked, and goes back to disk byte-for-byte until the user replaces it.
  */
 
 const fs = require("node:fs");
@@ -44,18 +47,83 @@ const AUDIT_CAP = 1000;
  * @property {() => boolean} isEncryptionAvailable
  * @property {(settings: object) => object} concealSettings
  * @property {(settings: object) => { settings: object, migrated: number }} revealSettings
+ * @property {() => string[]} lockedKeys
+ * @property {() => { encryption: "on" | "off" | "unavailable", locked: string[] }} status
  * @property {(evt: SecretUse) => void} recordUse
  * @property {() => object[]} getAuditEvents
  * @property {(msg: string) => void} emit
  */
 
 /**
- * The default backend is opt-IN while the keychain-prompt problem stands:
- * only an explicit SOLENTA_ENABLE_SAFE_STORAGE=1 turns safeStorage on.
- * Injected safeStorage (tests) is never affected by this gate.
+ * Whether the default (non-injected) backend runs. SOLENTA_ENABLE_SAFE_STORAGE
+ * =1 forces it on and =0 off; otherwise only packaged builds use it, since
+ * unsigned dev binaries (`electron .`) trip the keychain ACL prompt.
+ * @param {boolean | undefined} packaged
  */
-function safeStorageDisabled() {
-  return process.env.SOLENTA_ENABLE_SAFE_STORAGE !== "1";
+function safeStorageEnabled(packaged) {
+  const flag = process.env.SOLENTA_ENABLE_SAFE_STORAGE;
+  if (flag === "1") return true;
+  if (flag === "0") return false;
+  if (packaged != null) return Boolean(packaged);
+  if (!process.versions.electron) return false;
+  try {
+    return require("electron").app.isPackaged === true;
+  } catch {
+    return false;
+  }
+}
+
+/** @param {unknown} v */
+function isPlainObject(v) {
+  return Boolean(v) && typeof v === "object" && !Array.isArray(v);
+}
+
+/**
+ * @typedef {object} SecretGroup
+ * @property {string} name stable label for one holder, e.g. `mcp:team:env`
+ * @property {object} parent
+ * @property {string} [prop] set for maps: the holder is parent[prop]
+ * @property {string[] | null} fields named fields, or null for every map key
+ * @property {boolean} [nullable] a dropped value becomes null, not deleted
+ * @property {() => object} holder
+ */
+
+/**
+ * Every secret-bearing spot in settings. Groups are named by row identity
+ * (MCP name, host, instance id) so a locked value finds its row again after
+ * the UI rewrote the list.
+ * @param {object} settings
+ * @returns {SecretGroup[]}
+ */
+function secretGroups(settings) {
+  /** @type {SecretGroup[]} */
+  const groups = [];
+  const field = (name, parent, fields, nullable = false) =>
+    groups.push({ name, parent, fields, nullable, holder: () => parent });
+  const map = (name, parent, prop) =>
+    groups.push({ name, parent, prop, fields: null, holder: () => parent[prop] });
+  const rows = (v) => (Array.isArray(v) ? v.filter(isPlainObject) : []);
+  for (const s of rows(settings.mcpServers)) {
+    const n = `mcp:${s.name || "?"}`;
+    field(n, s, ["token"]);
+    map(`${n}:header`, s, "headers");
+    map(`${n}:env`, s, "env");
+  }
+  if (isPlainObject(settings.otel)) map("otel", settings.otel, "headers");
+  field("settings", settings, ["linearApiKey", "sentryAuthToken"], true);
+  for (const r of rows(settings.githubHosts)) {
+    field(`github:${r.host || "?"}`, r, ["token"], true);
+  }
+  if (isPlainObject(settings.webhook)) field("webhook", settings.webhook, ["url"], true);
+  // Provider instance env (#453): every value may be a key or token.
+  for (const inst of rows(settings.providerInstances)) {
+    map(`instance:${inst.id || "?"}:env`, inst, "env");
+    // OpenAI-compatible endpoint headers (#1714) often carry a bearer token.
+    if (isPlainObject(inst.openaiCompatible)) {
+      map(`instance:${inst.id || "?"}:header`, inst.openaiCompatible, "headers");
+    }
+  }
+  return groups;
 }
 
 /**
@@ -85,6 +153,7 @@ function loadElectronSafeStorage() {
  * @param {object} [opts]
  * @param {{ isEncryptionAvailable?: () => boolean, encryptString?: Function, decryptString?: Function } | null} [opts.safeStorage]
  * @param {boolean} [opts.inElectron]
+ * @param {boolean} [opts.packaged] stands in for app.isPackaged (tests)
  * @param {(msg: string) => void} [opts.log]
  * @param {string | null} [opts.auditPath]
  * @param {() => number} [opts.now]
@@ -98,7 +167,7 @@ function createSecrets(opts = {}) {
   let deliberatelyDisabled = false;
   if (injected) {
     storage = opts.safeStorage || null;
-  } else if (safeStorageDisabled()) {
+  } else if (!safeStorageEnabled(opts.packaged)) {
     storage = null;
     deliberatelyDisabled = true;
   }
@@ -127,7 +196,8 @@ function createSecrets(opts = {}) {
     return storage;
   }
 
-  function isEncryptionAvailable() {
+  /** The backend can decrypt, possibly with Linux's hardcoded basic_text key. */
+  function canOpen() {
     const ss = backend();
     if (!ss || typeof ss.isEncryptionAvailable !== "function") return false;
     try {
@@ -135,6 +205,35 @@ function createSecrets(opts = {}) {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Real at-rest encryption. Linux without libsecret falls back to
+   * basic_text, which "encrypts" with a key baked into Chromium; we treat
+   * that as unavailable rather than write blobs that only look encrypted.
+   */
+  function isEncryptionAvailable() {
+    if (!canOpen()) return false;
+    try {
+      return backend().getSelectedStorageBackend?.() !== "basic_text";
+    } catch {
+      return true;
+    }
+  }
+
+  /**
+   * For the settings UI: "on", "off" (deliberately, e.g. dev runs) or
+   * "unavailable" (no OS keychain), plus `group:field` of locked values.
+   */
+  function status() {
+    return {
+      encryption: isEncryptionAvailable()
+        ? "on"
+        : deliberatelyDisabled
+          ? "off"
+          : "unavailable",
+      locked: lockedKeys(),
+    };
   }
 
   function warnUnavailable() {
@@ -180,11 +279,11 @@ function createSecrets(opts = {}) {
     if (value == null || value === "") return value;
     if (typeof value !== "string") return null;
     if (!isSealed(value)) return value;
-    if (!isEncryptionAvailable()) {
+    if (!canOpen()) {
       warnUnavailable();
       emit(
         deliberatelyDisabled
-          ? `[secrets] dropping sealed credential ${openOpts.key || "credential"}: safeStorage encryption is disabled`
+          ? `[secrets] keeping sealed credential ${openOpts.key || "credential"} locked: safeStorage encryption is disabled`
           : `[secrets] failed to decrypt ${openOpts.key || "credential"}: OS encryption unavailable`,
       );
       return null;
@@ -200,375 +299,103 @@ function createSecrets(opts = {}) {
   }
 
   /**
-   * Clone settings with secret fields sealed. Returns the same object when
-   * nothing changed (node tests / encryption off) so stringify of the live
-   * store is byte-identical to today's payload.
+   * Sealed values this load could not open (backend off, keychain refused,
+   * corrupt blob), by group name then field. They are kept out of memory so
+   * nothing injects ciphertext, and written back verbatim on every save
+   * until the user enters a new value. Never dropped.
+   * @type {Map<string, Map<string, string>>}
+   */
+  const locked = new Map();
+
+  /**
+   * Clone settings with secret fields sealed and locked values restored.
+   * Returns the same object when nothing changed (node tests / encryption
+   * off) so stringify of the live store is byte-identical to today's payload.
    * @param {object} settings
    */
   function concealSettings(settings) {
     if (!settings || typeof settings !== "object") return settings;
+    const next = structuredClone(settings);
     let changed = false;
-    const servers = Array.isArray(settings.mcpServers) ? settings.mcpServers : [];
-    const nextServers = servers.map((s) => {
-      if (!s || typeof s !== "object") return s;
-      let row = s;
-      let rowChanged = false;
-      if (s.token) {
-        const sealed = seal(s.token);
-        if (sealed !== s.token) {
-          row = { ...row, token: sealed };
-          rowChanged = true;
+    for (const g of secretGroups(next)) {
+      const keep = locked.get(g.name);
+      if (!isPlainObject(g.holder())) {
+        if (!keep || !keep.size) continue;
+        g.parent[g.prop] = {};
+      }
+      const holder = g.holder();
+      for (const k of g.fields || Object.keys(holder)) {
+        const v = holder[k];
+        if (typeof v !== "string" || !v) continue;
+        // The user typed a replacement, so the locked one is gone for good.
+        if (keep) keep.delete(k);
+        const sealed = seal(v);
+        if (sealed !== v) {
+          holder[k] = sealed;
+          changed = true;
         }
       }
-      if (s.headers && typeof s.headers === "object" && !Array.isArray(s.headers)) {
-        /** @type {Record<string, string>} */
-        const out = {};
-        for (const [k, v] of Object.entries(s.headers)) {
-          if (typeof v === "string" && v) {
-            const sealed = seal(v);
-            out[k] = sealed;
-            if (sealed !== v) rowChanged = true;
-          } else {
-            out[k] = v;
-          }
-        }
-        if (rowChanged) row = { ...row, headers: out };
-      }
-      if (s.env && typeof s.env === "object" && !Array.isArray(s.env)) {
-        /** @type {Record<string, string>} */
-        const out = {};
-        for (const [k, v] of Object.entries(s.env)) {
-          if (typeof v === "string" && v) {
-            const sealed = seal(v);
-            out[k] = sealed;
-            if (sealed !== v) rowChanged = true;
-          } else {
-            out[k] = v;
-          }
-        }
-        if (rowChanged) row = { ...row, env: out };
-      }
-      if (rowChanged) changed = true;
-      return row;
-    });
-    let nextOtel = settings.otel;
-    const headers =
-      settings.otel &&
-      settings.otel.headers &&
-      typeof settings.otel.headers === "object" &&
-      !Array.isArray(settings.otel.headers)
-        ? settings.otel.headers
-        : null;
-    if (headers) {
-      /** @type {Record<string, string>} */
-      const out = {};
-      for (const [k, v] of Object.entries(headers)) {
-        if (typeof v === "string" && v) {
-          const sealed = seal(v);
-          out[k] = sealed;
-          if (sealed !== v) changed = true;
-        } else {
-          out[k] = v;
+      if (keep) {
+        for (const [k, cipher] of keep) {
+          holder[k] = cipher;
+          changed = true;
         }
       }
-      if (changed) nextOtel = { ...settings.otel, headers: out };
     }
-    let nextLinearKey = settings.linearApiKey;
-    if (typeof settings.linearApiKey === "string" && settings.linearApiKey) {
-      const sealed = seal(settings.linearApiKey);
-      if (sealed !== settings.linearApiKey) {
-        changed = true;
-        nextLinearKey = sealed;
-      }
-    }
-    let nextSentryTok = settings.sentryAuthToken;
-    if (typeof settings.sentryAuthToken === "string" && settings.sentryAuthToken) {
-      const sealed = seal(settings.sentryAuthToken);
-      if (sealed !== settings.sentryAuthToken) {
-        changed = true;
-        nextSentryTok = sealed;
-      }
-    }
-    let nextGithubHosts = settings.githubHosts;
-    if (Array.isArray(settings.githubHosts)) {
-      nextGithubHosts = settings.githubHosts.map((row) => {
-        if (!row || typeof row.token !== "string" || !row.token) return row;
-        const sealed = seal(row.token);
-        if (sealed === row.token) return row;
-        changed = true;
-        return { ...row, token: sealed };
-      });
-    }
-    let nextWebhook = settings.webhook;
-    const webhookUrl =
-      settings.webhook &&
-      typeof settings.webhook === "object" &&
-      typeof settings.webhook.url === "string"
-        ? settings.webhook.url
-        : "";
-    if (webhookUrl) {
-      const sealed = seal(webhookUrl);
-      if (sealed !== webhookUrl) {
-        changed = true;
-        nextWebhook = { ...settings.webhook, url: sealed };
-      }
-    }
-    // Provider instance env (#453): every value may be a key or token.
-    const instances = Array.isArray(settings.providerInstances)
-      ? settings.providerInstances
-      : [];
-    const nextInstances = instances.map((inst) => {
-      if (!inst || !inst.env || typeof inst.env !== "object") return inst;
-      /** @type {Record<string, string>} */
-      const out = {};
-      let rowChanged = false;
-      for (const [k, v] of Object.entries(inst.env)) {
-        const sealed = typeof v === "string" && v ? seal(v) : v;
-        if (sealed !== v) rowChanged = true;
-        out[k] = sealed;
-      }
-      if (!rowChanged) return inst;
-      changed = true;
-      return { ...inst, env: out };
-    });
-    if (!changed) return settings;
-    return {
-      ...settings,
-      mcpServers: nextServers,
-      otel: nextOtel,
-      linearApiKey: nextLinearKey,
-      sentryAuthToken: nextSentryTok,
-      githubHosts: nextGithubHosts,
-      webhook: nextWebhook,
-      providerInstances: nextInstances,
-    };
+    return changed ? next : settings;
   }
 
   /**
    * Decrypt secret fields into plaintext. `migrated` is the number of
    * plaintext secrets that will become ciphertext on the next save, when
-   * encryption is available.
+   * encryption is available. Sealed values that will not open are removed
+   * from the returned settings and parked in `locked` (see concealSettings).
    * @param {object} settings
    */
   function revealSettings(settings) {
     if (!settings || typeof settings !== "object") {
       return { settings, migrated: 0 };
     }
+    locked.clear();
     const available = isEncryptionAvailable();
+    const next = structuredClone(settings);
     let migrated = 0;
     let changed = false;
     let hasSecret = false;
-
-    const servers = Array.isArray(settings.mcpServers) ? settings.mcpServers : [];
-    const nextServers = servers.map((s) => {
-      if (!s || typeof s !== "object") return s;
-      let row = s;
-      if (s.token) {
+    for (const g of secretGroups(next)) {
+      const holder = g.holder();
+      if (!isPlainObject(holder)) continue;
+      for (const k of g.fields || Object.keys(holder)) {
+        const v = holder[k];
+        if (typeof v !== "string" || !v) continue;
         hasSecret = true;
-        if (isSealed(s.token)) {
-          const plain = open(s.token, { key: `mcp:${s.name || "?"}` });
-          changed = true;
-          if (plain == null || plain === "") {
-            row = { ...row };
-            delete row.token;
-          } else {
-            row = { ...row, token: plain };
-          }
-        } else if (available) {
-          migrated += 1;
-        }
-      }
-      if (s.headers && typeof s.headers === "object" && !Array.isArray(s.headers)) {
-        /** @type {Record<string, string>} */
-        const out = {};
-        let headersChanged = false;
-        for (const [k, v] of Object.entries(s.headers)) {
-          if (typeof v !== "string" || !v) {
-            out[k] = v;
-            continue;
-          }
-          hasSecret = true;
-          if (isSealed(v)) {
-            const plain = open(v, { key: `mcp:${s.name || "?"}:header:${k}` });
-            headersChanged = true;
-            if (plain == null || plain === "") continue;
-            out[k] = plain;
-          } else {
-            if (available) migrated += 1;
-            out[k] = v;
-          }
-        }
-        if (headersChanged) {
-          changed = true;
-          row = { ...row, headers: out };
-        }
-      }
-      if (s.env && typeof s.env === "object" && !Array.isArray(s.env)) {
-        /** @type {Record<string, string>} */
-        const out = {};
-        let envChanged = false;
-        for (const [k, v] of Object.entries(s.env)) {
-          if (typeof v !== "string" || !v) {
-            out[k] = v;
-            continue;
-          }
-          hasSecret = true;
-          if (isSealed(v)) {
-            const plain = open(v, { key: `mcp:${s.name || "?"}:env:${k}` });
-            envChanged = true;
-            if (plain == null || plain === "") continue;
-            out[k] = plain;
-          } else {
-            if (available) migrated += 1;
-            out[k] = v;
-          }
-        }
-        if (envChanged) {
-          changed = true;
-          row = { ...row, env: out };
-        }
-      }
-      return row;
-    });
-
-    let nextOtel = settings.otel;
-    const headers =
-      settings.otel &&
-      settings.otel.headers &&
-      typeof settings.otel.headers === "object" &&
-      !Array.isArray(settings.otel.headers)
-        ? settings.otel.headers
-        : null;
-    if (headers) {
-      /** @type {Record<string, string>} */
-      const out = {};
-      let headersChanged = false;
-      for (const [k, v] of Object.entries(headers)) {
-        if (typeof v !== "string" || !v) {
-          out[k] = v;
+        if (!isSealed(v)) {
+          if (available) migrated += 1;
           continue;
         }
-        hasSecret = true;
-        if (isSealed(v)) {
-          const plain = open(v, { key: `otel:${k}` });
-          headersChanged = true;
-          if (plain == null || plain === "") continue;
-          out[k] = plain;
-        } else {
-          if (available) migrated += 1;
-          out[k] = v;
-        }
-      }
-      if (headersChanged) {
         changed = true;
-        nextOtel = { ...settings.otel, headers: out };
-      }
-    }
-
-    let nextLinearKey = settings.linearApiKey;
-    if (typeof settings.linearApiKey === "string" && settings.linearApiKey) {
-      hasSecret = true;
-      if (isSealed(settings.linearApiKey)) {
-        const plain = open(settings.linearApiKey, { key: "linearApiKey" });
-        changed = true;
-        nextLinearKey = plain == null || plain === "" ? null : plain;
-      } else if (available) {
-        migrated += 1;
-      }
-    }
-
-    let nextSentryTok = settings.sentryAuthToken;
-    if (typeof settings.sentryAuthToken === "string" && settings.sentryAuthToken) {
-      hasSecret = true;
-      if (isSealed(settings.sentryAuthToken)) {
-        const plain = open(settings.sentryAuthToken, { key: "sentryAuthToken" });
-        changed = true;
-        nextSentryTok = plain == null || plain === "" ? null : plain;
-      } else if (available) {
-        migrated += 1;
-      }
-    }
-
-    let nextGithubHosts = settings.githubHosts;
-    if (Array.isArray(settings.githubHosts)) {
-      nextGithubHosts = settings.githubHosts.map((row) => {
-        if (!row || typeof row.token !== "string" || !row.token) return row;
-        hasSecret = true;
-        if (isSealed(row.token)) {
-          const plain = open(row.token, { key: `github:${row.host || "?"}` });
-          changed = true;
-          return { ...row, token: plain == null || plain === "" ? null : plain };
-        }
-        if (available) migrated += 1;
-        return row;
-      });
-    }
-
-    let nextWebhook = settings.webhook;
-    const webhookUrl =
-      settings.webhook &&
-      typeof settings.webhook === "object" &&
-      typeof settings.webhook.url === "string"
-        ? settings.webhook.url
-        : "";
-    if (webhookUrl) {
-      hasSecret = true;
-      if (isSealed(webhookUrl)) {
-        const plain = open(webhookUrl, { key: "webhook:url" });
-        changed = true;
-        nextWebhook = {
-          ...settings.webhook,
-          url: plain == null || plain === "" ? null : plain,
-        };
-      } else if (available) {
-        migrated += 1;
-      }
-    }
-
-    const instances = Array.isArray(settings.providerInstances)
-      ? settings.providerInstances
-      : [];
-    const nextInstances = instances.map((inst) => {
-      if (!inst || !inst.env || typeof inst.env !== "object") return inst;
-      /** @type {Record<string, string>} */
-      const out = {};
-      let envChanged = false;
-      for (const [k, v] of Object.entries(inst.env)) {
-        if (typeof v !== "string" || !v) {
-          out[k] = v;
+        const plain = open(v, { key: `${g.name}:${k}` });
+        if (plain) {
+          holder[k] = plain;
           continue;
         }
-        hasSecret = true;
-        if (isSealed(v)) {
-          const plain = open(v, { key: `instance:${inst.id || "?"}:env:${k}` });
-          envChanged = true;
-          if (plain == null || plain === "") continue;
-          out[k] = plain;
-        } else {
-          if (available) migrated += 1;
-          out[k] = v;
-        }
+        if (!locked.has(g.name)) locked.set(g.name, new Map());
+        locked.get(g.name).set(k, v);
+        if (g.nullable) holder[k] = null;
+        else delete holder[k];
       }
-      if (!envChanged) return inst;
-      changed = true;
-      return { ...inst, env: out };
-    });
-
+    }
     if (!available && hasSecret) warnUnavailable();
+    return { settings: changed ? next : settings, migrated };
+  }
 
-    const next = changed
-      ? {
-          ...settings,
-          mcpServers: nextServers,
-          otel: nextOtel,
-          linearApiKey: nextLinearKey,
-          sentryAuthToken: nextSentryTok,
-          githubHosts: nextGithubHosts,
-          webhook: nextWebhook,
-          providerInstances: nextInstances,
-        }
-      : settings;
-    return { settings: next, migrated };
+  /** `group:field` of every locked value, for the settings UI. */
+  function lockedKeys() {
+    const out = [];
+    for (const [name, fields] of locked) {
+      for (const k of fields.keys()) out.push(`${name}:${k}`);
+    }
+    return out;
   }
 
   /**
@@ -617,6 +444,8 @@ function createSecrets(opts = {}) {
     isEncryptionAvailable,
     concealSettings,
     revealSettings,
+    lockedKeys,
+    status,
     recordUse,
     getAuditEvents,
     emit,

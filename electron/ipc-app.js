@@ -10,6 +10,12 @@ const feedback = require("./feedback.js");
 const { discoverSourceControl } = require("./sourceControl.js");
 const { applyZoom } = require("./zoom.js");
 const { whenPathReady } = require("./pathEnv.js");
+
+// Read-only: setSettings ignores the key if the renderer echoes it back.
+function withSecretStorage(ctx, settings) {
+  if (typeof ctx.store.secretStorage !== "function") return settings;
+  return { ...settings, secretStorage: ctx.store.secretStorage() };
+}
 const providerAuth = require("./providerAuth.js");
 
 const { appVersion } = feedback;
@@ -117,11 +123,15 @@ module.exports = {
     return ctx.memory.resolve(input);
   },
   "settings:get": async (ctx) => {
-    return redactSettings(services.getSettings(ctx.store));
+    return withSecretStorage(ctx, redactSettings(services.getSettings(ctx.store)));
   },
   "settings:set": async (ctx, patch) => {
     const previousGuardrails = ctx.store.getSettings().guardrailsEnabled;
     const next = services.setSettings(ctx.store, patch);
+    // A saved or removed API key changes sign-in state now, not after the TTL.
+    if (patch && Object.prototype.hasOwnProperty.call(patch, "providerInstances")) {
+      providerAuth.invalidate();
+    }
     if (patch && Object.prototype.hasOwnProperty.call(patch, "guardrailsEnabled")) {
       try {
         require("./guardrails.js").setGuardrailsEnabled(next.guardrailsEnabled);
@@ -172,7 +182,7 @@ module.exports = {
     if (ctx.stayAwake) {
       ctx.stayAwake.evaluate();
     }
-    return redactSettings(next);
+    return withSecretStorage(ctx, redactSettings(next));
   },
   "stayAwake:status": async (ctx) => {
     if (ctx.stayAwake) {
@@ -210,6 +220,12 @@ module.exports = {
     });
     if (!first) await probing;
     return services.listProvidersForApi(ctx.store);
+  },
+  // Live model list (#1714): the key is read from the saved instance env
+  // here, never sent by the renderer.
+  "providers:fetchModels": async (ctx, input) => {
+    const { fetchProviderModels } = require("./providerModels.js");
+    return fetchProviderModels(ctx.store.getSettings(), String((input && input.provider) || ""));
   },
   "sourceControl:discover": async (_ctx, input) => {
     return discoverSourceControl({
