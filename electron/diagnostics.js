@@ -105,10 +105,36 @@ function redactSettings(settings, text) {
   if (isPlainObject(s.otel) && isPlainObject(s.otel.headers)) {
     for (const k of Object.keys(s.otel.headers)) s.otel.headers[k] = REDACTED;
   }
+  // MCP stdio args can carry keys or passwords in any position. Keep the
+  // first (usually the package) and bare flags; redact values and the rest.
+  for (const row of Array.isArray(s.mcpServers) ? s.mcpServers : []) {
+    if (!isPlainObject(row) || !Array.isArray(row.args)) continue;
+    row.args = row.args.map((/** @type {unknown} */ a, /** @type {number} */ i) => {
+      const arg = String(a);
+      if (i === 0) return arg;
+      const flag = /^(-{1,2}[A-Za-z0-9][\w.-]*)(=.*)?$/.exec(arg);
+      if (flag) return flag[2] ? `${flag[1]}=${REDACTED}` : arg;
+      return REDACTED;
+    });
+  }
   if (isPlainObject(s.telegram)) delete s.telegram.botToken;
   // Snippets are prompt text.
   if (Array.isArray(s.promptSnippets)) s.promptSnippets = { count: s.promptSnippets.length };
   return deepText(s, text);
+}
+
+/**
+ * The bug-report redactor knows token shapes, not URLs: drop the password in
+ * `scheme://user:pass@host` and secret-looking query values (`?api_key=…`).
+ * @param {string} s
+ */
+function scrubUrlSecrets(s) {
+  return s
+    .replace(/(\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]*):[^\s/@]+@/gi, `$1:${REDACTED}@`)
+    .replace(
+      /([?&][^=&\s#]*(?:key|token|secret|password|passwd|pass|auth|signature|sig)[^=&\s#]*=)[^&\s#]+/gi,
+      `$1${REDACTED}`,
+    );
 }
 
 /** @param {unknown} v @param {(s: unknown) => string} text @returns {any} */
@@ -150,7 +176,7 @@ async function buildDiagnostics(opts) {
   const probe = opts.probe || probeVersion;
   const authState = opts.authState || require("./providerAuth.js").get;
   const r = redactor("diagnostics", home);
-  const text = r.text;
+  const text = (/** @type {unknown} */ v) => scrubUrlSecrets(r.text(v));
   const json = (/** @type {unknown} */ v) => JSON.stringify(deepText(v, text), null, 2) + "\n";
   const stamp = buildStamp();
 
@@ -340,6 +366,7 @@ module.exports = {
   diagnosticsFileList,
   probeVersion,
   redactSettings,
+  scrubUrlSecrets,
   buildDiagnostics,
   zipFiles,
   defaultZipName,

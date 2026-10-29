@@ -20,6 +20,7 @@ const {
   diagnosticsFileList,
   probeVersion,
   redactSettings,
+  scrubUrlSecrets,
   zipFiles,
   exportDiagnostics,
   confirmAndExportDiagnostics,
@@ -215,6 +216,44 @@ describe("buildDiagnostics", () => {
     );
     assert.deepEqual(out.telegram, { enabled: true });
     assert.equal(out.webhook.url, "[redacted]");
+  });
+
+  it("redacts MCP stdio args except the package and bare flags", () => {
+    const out = redactSettings(
+      {
+        mcpServers: [
+          {
+            name: "db",
+            transport: "stdio",
+            command: "npx",
+            args: ["postgres-mcp", "--access-mode=restricted", "--readonly", "postgresql://admin:hunter2@db/prod", "--password", "hunter2"],
+          },
+        ],
+      },
+      (v) => String(v),
+    );
+    assert.deepEqual(out.mcpServers[0].args, [
+      "postgres-mcp",
+      "--access-mode=[redacted]",
+      "--readonly",
+      "[redacted]",
+      "--password",
+      "[redacted]",
+    ]);
+    assert.ok(!JSON.stringify(out).includes("hunter2"));
+  });
+
+  it("scrubs URL passwords and secret query values", () => {
+    assert.equal(
+      scrubUrlSecrets("postgresql://admin:hunter2pass@db.example.com/prod"),
+      "postgresql://admin:[redacted]@db.example.com/prod",
+    );
+    assert.equal(scrubUrlSecrets("https://user:pw@host/x"), "https://user:[redacted]@host/x");
+    assert.equal(
+      scrubUrlSecrets("https://api.example.com/mcp?api_key=abc123&region=eu&access_token=zzz"),
+      "https://api.example.com/mcp?api_key=[redacted]&region=eu&access_token=[redacted]",
+    );
+    assert.equal(scrubUrlSecrets("https://host:8443/path"), "https://host:8443/path");
   });
 });
 
