@@ -33,6 +33,9 @@ const {
   needsUser,
   notificationOptions,
   shouldPlayAlert,
+  notifyEventKey,
+  notifyEventEnabled,
+  ciFailedNotification,
   notifyEvent,
   notifyBody,
   dispatchWebhook,
@@ -579,6 +582,27 @@ function notifyThreadComplete(thread) {
   n.show();
 }
 
+/**
+ * "CI failed" desktop notification (#1725): PR watch saw a new failing
+ * check on this thread's PR. Off unless the user turned it on.
+ * @param {{ threadId: string, number: number, checks: Array<{ name: string }> }} info
+ */
+function notifyChecksFailed(info) {
+  if (!store || typeof Notification !== "function") return;
+  if (Notification.isSupported && !Notification.isSupported()) return;
+  const thread = store.getThread(info.threadId);
+  const opts = ciFailedNotification(
+    store.getSettings(),
+    thread,
+    isAnyWindowFocused(),
+    info,
+  );
+  if (!opts) return;
+  const n = new Notification(opts);
+  n.on("click", () => focusThread(info.threadId));
+  n.show();
+}
+
 let attentionBadge = 0;
 /**
  * Dock (macOS) / launcher (Linux Unity) badge: how many threads wait on
@@ -901,10 +925,16 @@ app.whenReady().then(async () => {
         ) {
           const settings = store.getSettings();
           const focused = isAnyWindowFocused();
-          if (shouldNotify(prev, next, focused) && settings.notifications) {
+          // Per-event switches (#1725) gate the desktop alert and the sound;
+          // the webhook keeps its own onDone/onFailed/onWaiting.
+          const eventOn = notifyEventEnabled(
+            settings.notifyEvents,
+            notifyEventKey(payload.thread, next),
+          );
+          if (eventOn && shouldNotify(prev, next, focused) && settings.notifications) {
             notifyThreadComplete(payload.thread);
           }
-          if (shouldPlayAlert(settings, focused)) shell.beep();
+          if (eventOn && shouldPlayAlert(settings, focused)) shell.beep();
           void dispatchWebhook({
             thread: payload.thread,
             prevStatus: prev,
@@ -1068,6 +1098,7 @@ app.whenReady().then(async () => {
       prWatch: {
         deliver: (input) => runner && runner.deliverNotice(input),
         isRunning: (id) => Boolean(runner && runner.isRunning(id)),
+        onChecksFailed: notifyChecksFailed,
       },
     },
   });

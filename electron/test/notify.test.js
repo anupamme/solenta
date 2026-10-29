@@ -12,7 +12,12 @@ const {
   shapeWebhookRequest,
   dispatchWebhook,
   testWebhook,
+  notifyEventKey,
+  notifyEventEnabled,
+  ciFailedNotification,
 } = require("../notify.js");
+const { normalizeSettings } = require("../store-normalize.js");
+const { observePr } = require("../prWatch.js");
 
 describe("needsUser (dock badge, #1506)", () => {
   const now = 1_000_000;
@@ -482,5 +487,124 @@ describe("testWebhook", () => {
       fetchImpl: async () => ({ ok: true, status: 200 }),
     });
     assert.equal(still.ok, true);
+  });
+});
+
+describe("per-event notification switches (#1725)", () => {
+  const STATES = [undefined, null, "idle", "working", "waiting", "done", "failed", "quota-wait"];
+  const THREADS = [{}, { automationId: "a1" }];
+  /** The full desktop + sound decision main.js makes for one transition. */
+  function decide(settings, thread, prev, next, focused) {
+    if (!isNotifyTransition(prev, next)) return { desktop: false, sound: false };
+    const on = notifyEventEnabled(settings.notifyEvents, notifyEventKey(thread, next));
+    return {
+      desktop: on && shouldNotify(prev, next, focused) && settings.notifications,
+      sound: on && shouldPlayAlert(settings, focused),
+    };
+  }
+  /** The decision as it was before notifyEvents existed. */
+  function legacy(settings, prev, next, focused) {
+    if (!isNotifyTransition(prev, next)) return { desktop: false, sound: false };
+    return {
+      desktop: shouldNotify(prev, next, focused) && settings.notifications,
+      sound: shouldPlayAlert(settings, focused),
+    };
+  }
+
+  it("old stored settings decide exactly as before", () => {
+    const stored = [
+      {},
+      { notifications: false },
+      { notificationSound: true },
+      { notifications: false, notificationSound: true },
+      { notifyEvents: "junk" },
+      { notifyEvents: { approval: "no", ciFailed: 1 } },
+    ];
+    let checked = 0;
+    for (const raw of stored) {
+      const settings = normalizeSettings(raw);
+      for (const thread of THREADS)
+        for (const prev of STATES)
+          for (const next of STATES)
+            for (const focused of [true, false]) {
+              assert.deepEqual(
+                decide(settings, thread, prev, next, focused),
+                legacy(settings, prev, next, focused),
+                JSON.stringify({ raw, thread, prev, next, focused }),
+              );
+              checked += 1;
+            }
+    }
+    assert.ok(checked > 1000);
+  });
+
+  it("classifies each transition into one switch", () => {
+    assert.equal(notifyEventKey({}, "waiting"), "approval");
+    assert.equal(notifyEventKey({ automationId: "a" }, "waiting"), "approval");
+    assert.equal(notifyEventKey({}, "done"), "turnFinished");
+    assert.equal(notifyEventKey({}, "failed"), "turnFailed");
+    assert.equal(notifyEventKey({ automationId: "a" }, "done"), "automationFinished");
+    assert.equal(notifyEventKey({ automationId: "a" }, "failed"), "automationFinished");
+  });
+
+  it("each switch silences only its own event", () => {
+    const cases = [
+      ["approval", {}, "working", "waiting"],
+      ["turnFinished", {}, "working", "done"],
+      ["turnFailed", {}, "working", "failed"],
+      ["automationFinished", { automationId: "a" }, "working", "done"],
+    ];
+    for (const [off] of cases) {
+      const settings = normalizeSettings({ notificationSound: true, notifyEvents: { [off]: false } });
+      for (const [key, thread, prev, next] of cases) {
+        const expect = key !== off;
+        assert.equal(decide(settings, thread, prev, next, false).desktop, expect, `${off} off → ${key} desktop`);
+        assert.equal(decide(settings, thread, prev, next, true).sound, expect, `${off} off → ${key} sound`);
+      }
+    }
+  });
+
+  it("CI failed is off by default and obeys focus, mute and the master switch", () => {
+    const info = { number: 7, checks: [{ name: "test (macos)" }] };
+    const on = normalizeSettings({ notifyEvents: { ciFailed: true } });
+    assert.equal(ciFailedNotification(normalizeSettings({}), { title: "t" }, false, info), null);
+    assert.deepEqual(ciFailedNotification(on, { title: "t" }, false, info), {
+      title: "t",
+      body: "PR #7 checks failed: test (macos)",
+    });
+    assert.equal(ciFailedNotification(on, { title: "t" }, true, info), null);
+    assert.equal(ciFailedNotification(on, { title: "t", muted: true }, false, info), null);
+    assert.equal(ciFailedNotification({ ...on, notifications: false }, { title: "t" }, false, info), null);
+  });
+
+  it("PR watch reports a newly failing check once, with the wake", async () => {
+    let thread = {
+      id: "t1",
+      title: "w",
+      prWatchState: { pr: 7, wakes: 0, lastWakeAt: null, checks: "", review: "", conflict: false },
+    };
+    const store = {
+      getThread: () => thread,
+      updateThread: (_id, patch) => { thread = { ...thread, ...patch }; },
+    };
+    const runGh = async (_cwd, args) =>
+      args[0] === "pr" && args[1] === "checks"
+        ? { ok: true, stdout: JSON.stringify([{ name: "test", bucket: "fail", link: "" }]) }
+        : { ok: false, stdout: "" };
+    const seen = [];
+    const run = () =>
+      observePr({
+        store,
+        threadId: "t1",
+        view: { number: 7, state: "OPEN", headRefOid: "abc", latestReviews: [] },
+        cwd: "/tmp",
+        runGh,
+        deliver: () => {},
+        onChecksFailed: (i) => seen.push(i),
+        now: 1,
+      });
+    await run();
+    await run();
+    assert.deepEqual(seen, [{ threadId: "t1", number: 7, checks: [{ name: "test", link: "" }] }]);
   });
 });

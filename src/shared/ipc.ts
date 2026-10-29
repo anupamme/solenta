@@ -1559,6 +1559,14 @@ export interface ChatMessage {
   commandResult?: CommandRunResult;
 }
 
+export interface NotifyEvents {
+  approval: boolean;
+  turnFinished: boolean;
+  turnFailed: boolean;
+  automationFinished: boolean;
+  ciFailed: boolean;
+}
+
 /** Cumulative session usage across turns of a thread. */
 export interface SessionUsage {
   model: string | null;
@@ -3648,6 +3656,13 @@ export interface AppSettings {
    * an explicit true plays it. Never changes the notifications' own sound.
    */
   notificationSound: boolean;
+  /**
+   * Per-event switches under `notifications` (#1725); they gate the desktop
+   * notification and the alert sound. Defaults: all on except ciFailed.
+   * automationFinished covers done/failed on automation threads; ciFailed
+   * fires when PR watch sees a new failing check.
+   */
+  notifyEvents: NotifyEvents;
   /**
    * Ask "how much time did this save you?" when a run finishes (issue #401).
    * Opt-in: absent/false means the card never appears and the felt-vs-actual

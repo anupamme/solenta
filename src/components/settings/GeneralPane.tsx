@@ -2,6 +2,7 @@ import type { RefObject } from "react";
 import type {
   AppSettings,
   AppStatus,
+  NotifyEvents,
   UpdateStatus,
   WebhookSettings,
   WebhookTestResult,
@@ -25,6 +26,14 @@ import type { SettingsDraftKey, SettingsModalProps } from "../SettingsModal";
 const UI_SCALE_MIN = 0.8;
 const UI_SCALE_MAX = 1.6;
 const UI_SCALE_STEP = 0.1;
+
+const NOTIFY_EVENT_ROWS: Array<[keyof NotifyEvents, string]> = [
+  ["approval", "Approval needed"],
+  ["turnFinished", "Turn finished"],
+  ["turnFailed", "Turn failed"],
+  ["automationFinished", "Automation finished"],
+  ["ciFailed", "CI failed on a watched PR"],
+];
 
 function formatUiScale(scale: number): string {
   return `${Math.round(scale * 100)}%`;
@@ -289,6 +298,41 @@ export function GeneralPane({
           <p className={styles.note}>
             Only fires while the window is in the background. Mute a
             single noisy thread from its snooze menu in the sidebar.
+          </p>
+          <div data-notify-events="">
+            {NOTIFY_EVENT_ROWS.map(([key, label]) => (
+              <label key={key} className={styles.fieldRow}>
+                <input
+                  type="checkbox"
+                  data-notify-event={key}
+                  checked={settings?.notifyEvents?.[key] ?? key !== "ciFailed"}
+                  disabled={
+                    saving || settings == null || settings.notifications === false
+                  }
+                  onChange={(e) => {
+                    if (!settings) return;
+                    setError(null);
+                    void onSaveSettings({
+                      notifyEvents: {
+                        ...settings.notifyEvents,
+                        [key]: e.target.checked,
+                      },
+                    }).catch((err) => {
+                      setError(
+                        err instanceof Error && err.message
+                          ? err.message
+                          : "Failed to save settings",
+                      );
+                    });
+                  }}
+                />
+                <span>{label}</span>
+              </label>
+            ))}
+          </div>
+          <p className={styles.note}>
+            These also decide when the sound below plays. CI failed needs PR
+            watch on the thread.
           </p>
         </div>
         <div className={styles.field}>

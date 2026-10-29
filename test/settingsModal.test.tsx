@@ -1688,6 +1688,42 @@ describe("SettingsModal notification sound (#1506)", () => {
   });
 });
 
+describe("SettingsModal per-event notifications (#1725)", () => {
+  it("defaults match today's behaviour and save one switch at a time", async () => {
+    const patches: Partial<AppSettings>[] = [];
+    const m = await mount(
+      modal({
+        initialPane: "general",
+        settings: { dailyBudgetUsd: null, autoSettleAfterDays: 3 } as AppSettings,
+        onSaveSettings: async (patch) => {
+          patches.push(patch);
+          return { dailyBudgetUsd: null, autoSettleAfterDays: 3, ...patch } as AppSettings;
+        },
+      }),
+    );
+    const box = (k: string) =>
+      m.query(`[data-notify-event="${k}"]`) as HTMLInputElement;
+    for (const k of ["approval", "turnFinished", "turnFailed", "automationFinished"]) {
+      assert.equal(box(k).checked, true, `${k} on by default`);
+    }
+    assert.equal(box("ciFailed").checked, false, "CI failed off by default");
+    await m.click(box("turnFinished"));
+    assert.deepEqual(patches, [{ notifyEvents: { turnFinished: false } }]);
+    m.unmount();
+  });
+
+  it("disables the event switches while notifications are off", async () => {
+    const m = await mount(
+      modal({
+        initialPane: "general",
+        settings: { dailyBudgetUsd: null, autoSettleAfterDays: 3, notifications: false } as AppSettings,
+      }),
+    );
+    assert.equal((m.query('[data-notify-event="approval"]') as HTMLInputElement).disabled, true);
+    m.unmount();
+  });
+});
+
 describe("SettingsModal quota-wait auto-resume (#462)", () => {
   it("saves the continue-at-usage-limit toggle", async () => {
     const patches: Partial<AppSettings>[] = [];

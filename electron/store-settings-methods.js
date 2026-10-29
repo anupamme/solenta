@@ -20,6 +20,7 @@ const {
   normalizeSettings,
   normalizeOtel,
   normalizeWebhook,
+  normalizeNotifyEvents,
   normalizeGithubHosts,
 } = require("./store-normalize.js");
 
@@ -82,6 +83,7 @@ class StoreSettingsMethods {
       updateChannel: n.updateChannel,
       notifications: n.notifications,
       notificationSound: n.notificationSound,
+      notifyEvents: n.notifyEvents,
       feltEstimatePrompt: n.feltEstimatePrompt,
       uiScale: n.uiScale,
       theme: n.theme,
@@ -475,6 +477,21 @@ class StoreSettingsMethods {
           })
         : patch.githubHosts;
       this.data.settings.githubHosts = normalizeGithubHosts(rows, true);
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "notifyEvents")) {
+      const v = patch.notifyEvents;
+      if (!v || typeof v !== "object" || Array.isArray(v)) {
+        throw new Error("notifyEvents must be an object");
+      }
+      for (const [key, val] of Object.entries(v)) {
+        if (typeof val !== "boolean") {
+          throw new Error(`notifyEvents.${key} must be a boolean`);
+        }
+      }
+      this.data.settings.notifyEvents = normalizeNotifyEvents({
+        ...this.data.settings.notifyEvents,
+        ...v,
+      });
     }
     if (Object.prototype.hasOwnProperty.call(patch, "webhook")) {
       const v = patch.webhook;

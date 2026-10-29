@@ -417,6 +417,7 @@ function normalizeSettings(raw) {
     updateChannel: null,
     notifications: true,
     notificationSound: false,
+    notifyEvents: normalizeNotifyEvents(null),
     feltEstimatePrompt: false,
     uiScale: UI_SCALE_DEFAULT,
     theme: "dark",
@@ -558,6 +559,9 @@ function normalizeSettings(raw) {
   settings.notificationSound =
     /** @type {{ notificationSound?: unknown }} */ (obj).notificationSound ===
     true;
+  settings.notifyEvents = normalizeNotifyEvents(
+    /** @type {{ notifyEvents?: unknown }} */ (obj).notifyEvents,
+  );
   settings.feltEstimatePrompt =
     /** @type {{ feltEstimatePrompt?: unknown }} */ (obj).feltEstimatePrompt ===
     true;
@@ -669,6 +673,26 @@ function normalizeOtel(raw) {
 }
 
 /**
+ * Per-event desktop notification switches (#1725). Absent/junk keys take
+ * NOTIFY_EVENT_DEFAULTS, so a store written before them notifies as it did.
+ *
+ * @param {unknown} raw
+ * @returns {{ approval: boolean, turnFinished: boolean, turnFailed: boolean, automationFinished: boolean, ciFailed: boolean }}
+ */
+function normalizeNotifyEvents(raw) {
+  const { NOTIFY_EVENT_DEFAULTS } = require("./notify.js");
+  const obj =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? /** @type {Record<string, unknown>} */ (raw)
+      : {};
+  const out = { ...NOTIFY_EVENT_DEFAULTS };
+  for (const key of Object.keys(out)) {
+    if (typeof obj[key] === "boolean") out[key] = obj[key];
+  }
+  return out;
+}
+
+/**
  * Heal the webhook slice (issue #167). Absent/junk → no URL, every event on.
  *
  * @param {unknown} raw
@@ -741,5 +765,6 @@ module.exports = {
   normalizeSettings,
   normalizeOtel,
   normalizeWebhook,
+  normalizeNotifyEvents,
   normalizeGithubHosts,
 };

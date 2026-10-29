@@ -1535,7 +1535,7 @@ function isPrRefreshCandidate(t) {
  * @param {number} [opts.timeoutMs] default PR_REFRESH_TIMEOUT_MS
  * @param {(cwd: string, args: string[], opts?: object) => Promise<object>} [opts.ghTryAsyncFn] test inject
  * @param {typeof import('./github.js').fetchPrStates} [opts.fetchPrStatesFn] test inject
- * @param {{ deliver: (input: { threadId: string, line: string }) => void, isRunning?: (threadId: string) => boolean }} [opts.prWatch]
+ * @param {{ deliver: (input: { threadId: string, line: string }) => void, isRunning?: (threadId: string) => boolean, onChecksFailed?: (info: { threadId: string, number: number, checks: Array<{ name: string }> }) => void }} [opts.prWatch]
  *   runner hooks for watch-and-wake (electron/prWatch.js); absent = refresh only
  * @returns {Promise<{ examined: number, changed: number, spawned: number }>}
  */
@@ -1737,6 +1737,7 @@ async function refreshPrStates(store, opts) {
           runGh,
           deliver: prWatchDeps.deliver,
           isRunning: prWatchDeps.isRunning,
+          onChecksFailed: prWatchDeps.onChecksFailed,
           relayTo: wakeTo,
           timeoutMs,
         });

@@ -378,6 +378,13 @@ export function createFakeCoder(opts: FakeOptions = {}): FakeCoder {
     updateChannel: null,
     notifications: true,
     notificationSound: false,
+    notifyEvents: {
+      approval: true,
+      turnFinished: true,
+      turnFailed: true,
+      automationFinished: true,
+      ciFailed: false,
+    },
     theme: "dark",
     agentsPanelDefault: "closed",
     agentsPanelRememberLast: false,
