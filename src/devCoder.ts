@@ -183,8 +183,10 @@ function buildDevCoder(): CoderApi {
               model: "claude-opus-4",
               inputTokens: 1200,
               outputTokens: 400,
-              costUsd: 0.0091,
-              turns: 1,
+              costUsd: 1.4291,
+              turns: 3,
+              // Header cost badge tooltip (#1725).
+              costByModel: { "claude-opus-4": 1.2, "claude-sonnet-4": 0.2291 },
             }
           : null,
       });
@@ -420,6 +422,12 @@ function buildDevCoder(): CoderApi {
         throw new Error("Remote Connections require the desktop app.");
       },
       async forgetRemoteConnection(): Promise<void> {},
+      async diagnosticsPreview(): Promise<string[]> {
+        throw new Error("Diagnostics export requires the desktop app.");
+      },
+      async exportDiagnostics(): Promise<string | null> {
+        throw new Error("Diagnostics export requires the desktop app.");
+      },
       async installRemoteSolenta(): Promise<RemoteInstallResult> {
         throw new Error("Remote Connections require the desktop app.");
       },

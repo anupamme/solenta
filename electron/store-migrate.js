@@ -148,12 +148,25 @@ function migrateTemplateKimiModels(tpl) {
  */
 function migrateAutomation(a) {
   if (!a || typeof a !== "object") return a;
+  // #1719: a cron row whose expression no longer parses heals to hourly,
+  // like any other unknown preset.
+  let cronOk = false;
+  if (a.preset === "cron") {
+    try {
+      require("./cron.js").parseCron(a.cron);
+      cronOk = true;
+    } catch {
+      // fall through to hourly
+    }
+  }
   const preset =
     a.preset === "daily" || a.preset === "weekly" || a.preset === "hourly"
       ? a.preset
-      : "hourly";
+      : cronOk
+        ? "cron"
+        : "hourly";
   let hour = null;
-  if (preset !== "hourly") {
+  if (preset === "daily" || preset === "weekly") {
     hour =
       typeof a.hour === "number" &&
       Number.isInteger(a.hour) &&

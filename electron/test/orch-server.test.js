@@ -1563,6 +1563,9 @@ describe("orch-server HTTP", () => {
     const forkSchema = list.body.result.tools.find((t) => t.name === "thread_fork").inputSchema;
     assert.equal(forkSchema.properties.title.type, "string");
     assert.ok(!forkSchema.required.includes("title"));
+    const autoSchema = list.body.result.tools.find((t) => t.name === "automation_create").inputSchema;
+    assert.equal(autoSchema.properties.cron.type, "string");
+    assert.ok(autoSchema.properties.preset.enum.includes("cron"));
     const names = list.body.result.tools.map((t) => t.name).sort();
     assert.deepEqual(names, [
       "ask_user",

@@ -654,3 +654,175 @@ describe("pinned production constants", () => {
     );
   });
 });
+
+describe("cloud speech provider (#1725)", () => {
+  /** Records calls; never reaches the network. */
+  function cloudFetch(respond) {
+    const calls = [];
+    const fetch = async (url, init) => {
+      calls.push({ url: String(url), init });
+      return respond(String(url), init);
+    };
+    return { fetch, calls };
+  }
+  const ok = (text) => async () => ({ ok: true, status: 200, json: async () => ({ text }) });
+  const cloudHarness = (speechSettings, fetch, extra = {}) =>
+    harness({ fetch, extra: { getSpeechSettings: () => speechSettings, ...extra } });
+  async function record(speech) {
+    const { sessionId } = await speech.start();
+    await speech.write({ sessionId, pcm: PCM, seq: 0 });
+    await speech.write({ sessionId, pcm: PCM, seq: 1 });
+    await speech.stop({ sessionId });
+  }
+
+  it("local stays the default: no key, or provider local, never fetches", async () => {
+    for (const settings of [
+      null,
+      { provider: "local", openaiApiKey: "sk-x", elevenlabsApiKey: null },
+      { provider: "openai", openaiApiKey: null, elevenlabsApiKey: null },
+    ]) {
+      const { fetch, calls } = cloudFetch(ok("cloud"));
+      const { speech, userData, spawnCalls, pushes } = cloudHarness(settings, fetch);
+      assert.equal(speech.status().state, "missing", "no model, no cloud → missing");
+      seedModel(userData);
+      await record(speech);
+      assert.equal(calls.length, 0);
+      assert.equal(spawnCalls.length, 1, "the local sidecar ran");
+      assert.equal(pushes.filter((p) => p.transcript).at(-1).transcript, "Hi there");
+    }
+  });
+
+  it("OpenAI: one multipart WAV upload with a bearer key, no sidecar", async () => {
+    const { fetch, calls } = cloudFetch(ok(" hello world "));
+    const { speech, spawnCalls, pushes } = cloudHarness(
+      { provider: "openai", openaiApiKey: "sk-test", elevenlabsApiKey: null },
+      fetch,
+    );
+    assert.equal(speech.status().state, "ready", "usable without the local model");
+    await record(speech);
+    assert.equal(spawnCalls.length, 0);
+    assert.equal(calls.length, 1);
+    const [{ url, init }] = calls;
+    assert.equal(url, "https://api.openai.com/v1/audio/transcriptions");
+    assert.equal(init.method, "POST");
+    assert.equal(init.headers.Authorization, "Bearer sk-test");
+    assert.equal(init.body.get("model"), "gpt-4o-mini-transcribe");
+    const wav = Buffer.from(await init.body.get("file").arrayBuffer());
+    assert.equal(wav.subarray(0, 4).toString(), "RIFF");
+    assert.equal(wav.readUInt32LE(24), 16000);
+    assert.equal(wav.length, 44 + PCM.length * 2);
+    const last = pushes.at(-1);
+    assert.equal(last.transcript, "hello world");
+    assert.equal(last.note, undefined);
+    assert.equal(speech.status().state, "ready");
+    assert.equal(speech.isRecordingRequested(), false);
+  });
+
+  it("ElevenLabs: xi-api-key header and scribe_v2", async () => {
+    const { fetch, calls } = cloudFetch(ok("hi"));
+    const { speech } = cloudHarness(
+      { provider: "elevenlabs", openaiApiKey: "sk-unused", elevenlabsApiKey: "el-key" },
+      fetch,
+    );
+    await record(speech);
+    assert.equal(calls[0].url, "https://api.elevenlabs.io/v1/speech-to-text");
+    assert.equal(calls[0].init.headers["xi-api-key"], "el-key");
+    assert.equal(calls[0].init.body.get("model_id"), "scribe_v2");
+  });
+
+  it("a cloud error falls back to the local model with a visible note", async () => {
+    const { fetch } = cloudFetch(async () => ({ ok: false, status: 401, json: async () => ({}) }));
+    const { speech, userData, sockets, pushes } = cloudHarness(
+      { provider: "openai", openaiApiKey: "sk-bad", elevenlabsApiKey: null },
+      fetch,
+    );
+    seedModel(userData);
+    await record(speech);
+    const audio = sockets[0].sent.filter((d) => typeof d !== "string");
+    assert.equal(audio.length, 2, "the buffered audio replayed locally");
+    const last = pushes.filter((p) => p.transcript !== undefined).at(-1);
+    assert.equal(last.transcript, "Hi there");
+    assert.equal(
+      last.note,
+      "OpenAI transcription failed (HTTP 401). Used the local model instead.",
+    );
+    assert.equal(speech.status().state, "ready");
+  });
+
+  it("a cloud error with no local model rejects stop with the reason", async () => {
+    const { fetch } = cloudFetch(async () => {
+      throw new Error("ECONNRESET");
+    });
+    const { speech } = cloudHarness(
+      { provider: "openai", openaiApiKey: "sk", elevenlabsApiKey: null },
+      fetch,
+    );
+    const { sessionId } = await speech.start();
+    await speech.write({ sessionId, pcm: PCM, seq: 0 });
+    await assert.rejects(
+      () => speech.stop({ sessionId }),
+      /OpenAI transcription failed \(network\)\. Install the local speech model/,
+    );
+    assert.equal(speech.isRecordingRequested(), false);
+  });
+
+  it("rejects out-of-order cloud PCM and cancel drops the buffer", async () => {
+    const { fetch, calls } = cloudFetch(ok("x"));
+    const { speech } = cloudHarness(
+      { provider: "openai", openaiApiKey: "sk", elevenlabsApiKey: null },
+      fetch,
+    );
+    const { sessionId } = await speech.start();
+    await assert.rejects(() => speech.write({ sessionId, pcm: PCM, seq: 3 }), {
+      message: SPEECH_BAD_PCM,
+    });
+    await speech.cancel({ sessionId });
+    assert.equal(calls.length, 0);
+    assert.equal(speech.isRecordingRequested(), false);
+    await assert.rejects(() => speech.stop({ sessionId }), { message: SPEECH_STALE_SESSION });
+  });
+});
+
+describe("speech API keys at rest and on the wire (#1725)", () => {
+  const { Store } = require("../store.js");
+  const { createSecrets } = require("../secrets.js");
+  const { redactSettings } = require("../mcp.js");
+
+  it("seals both keys on disk, keeps memory plaintext, and redacts for the renderer", () => {
+    const dir = tmp();
+    const filePath = path.join(dir, "coder-store.json");
+    const secrets = createSecrets({
+      safeStorage: {
+        isEncryptionAvailable: () => true,
+        encryptString: (s) => Buffer.from(`sealed:${s}`).map((b) => b ^ 0x5a),
+        decryptString: (b) => Buffer.from(b).map((x) => x ^ 0x5a).toString().slice(7),
+      },
+      inElectron: true,
+      log: () => {},
+      auditPath: path.join(dir, "audit.jsonl"),
+    });
+    const store = new Store(filePath, { secrets });
+    store.setSettings({
+      speech: { provider: "openai", openaiApiKey: "sk-speech-unique", elevenlabsApiKey: "el-speech-unique" },
+    });
+    store.saveNow();
+    const disk = fs.readFileSync(filePath, "utf8");
+    assert.ok(!disk.includes("sk-speech-unique") && !disk.includes("el-speech-unique"));
+    assert.ok(JSON.parse(disk).settings.speech.openaiApiKey.startsWith("enc:v1:"));
+    assert.equal(store.getSettings().speech.openaiApiKey, "sk-speech-unique");
+
+    const reloaded = new Store(filePath, { secrets });
+    assert.equal(reloaded.getSettings().speech.elevenlabsApiKey, "el-speech-unique");
+
+    const pub = redactSettings(reloaded.getSettings());
+    assert.deepEqual(pub.speech, { provider: "openai", hasOpenaiKey: true, hasElevenlabsKey: true });
+    assert.ok(!JSON.stringify(pub).includes("speech-unique"));
+
+    // Switching provider without resending keys keeps them.
+    reloaded.setSettings({ speech: { provider: "elevenlabs" } });
+    assert.equal(reloaded.getSettings().speech.openaiApiKey, "sk-speech-unique");
+    reloaded.setSettings({ speech: { openaiApiKey: null } });
+    assert.equal(reloaded.getSettings().speech.openaiApiKey, null);
+    assert.throws(() => reloaded.setSettings({ speech: { provider: "whisper" } }), /speech.provider/);
+  });
+});

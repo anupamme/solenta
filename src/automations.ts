@@ -5,6 +5,7 @@ import type {
   AutomationTriggerEvent,
   ThreadStatus,
 } from "./shared/ipc";
+import { cronError } from "./cron";
 
 export const TRIGGER_EVENT_LABELS: Record<AutomationTriggerEvent, string> = {
   pr_opened: "PR opened",
@@ -196,8 +197,10 @@ export function scheduleLabel(
   preset: AutomationPreset,
   hour: number | null,
   nextRunAt: number,
+  cron?: string | null,
 ): string {
   if (preset === "hourly") return "hourly";
+  if (preset === "cron") return `cron ${cron ?? ""}`.trim();
   const h = hour ?? new Date(nextRunAt).getHours();
   if (preset === "daily") return `daily at ${formatHourLabel(h)}`;
   const day = WEEKDAYS[new Date(nextRunAt).getDay()] ?? "";
@@ -225,6 +228,7 @@ export function createFormError(input: {
   provider: string;
   preset: AutomationPreset;
   hour: string;
+  cron?: string;
   event?: string;
   org?: string;
   project?: string;
@@ -236,6 +240,10 @@ export function createFormError(input: {
   if (input.event === "sentry_issue") {
     if (!String(input.org || "").trim()) return "Sentry org is required";
     if (!String(input.project || "").trim()) return "Sentry project is required";
+  }
+  if (input.preset === "cron") {
+    const err = cronError(input.cron ?? "");
+    if (err) return err;
   }
   if (input.preset === "daily" || input.preset === "weekly") {
     if (input.hour === "") return "Hour is required";
@@ -258,6 +266,7 @@ export type AutomationCreateResult = {
   provider?: string;
   preset?: AutomationPreset;
   hour?: number | null;
+  cron?: string;
   trigger?: AutomationTrigger | null;
   nextRunAt?: number;
 };
@@ -286,6 +295,7 @@ export function parseAutomationCreateResult(
           ? (parsed.preset as AutomationPreset)
           : undefined,
       hour: typeof parsed.hour === "number" ? parsed.hour : null,
+      ...(typeof parsed.cron === "string" ? { cron: parsed.cron } : {}),
       trigger,
       nextRunAt:
         typeof parsed.nextRunAt === "number" ? parsed.nextRunAt : undefined,

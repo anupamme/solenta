@@ -15,10 +15,12 @@ const { nudgeUiScale } = require("./zoom.js");
  *   appName?: string,
  *   applyZoom?: (win: unknown, factor: number) => void,
  *   getUiScale?: () => number,
+ *   onExportDiagnostics?: () => void,
  * }} [opts]
  */
 function appMenuTemplate(opts = {}) {
   const platform = opts.platform || process.platform;
+  const onExportDiagnostics = opts.onExportDiagnostics;
   const appName = opts.appName || "Solenta";
   const applyZoom = opts.applyZoom;
   const getUiScale = opts.getUiScale || (() => 1);
@@ -118,6 +120,13 @@ function appMenuTemplate(opts = {}) {
       ],
     },
   );
+  // role: "help" so macOS adds its menu search field (#1723).
+  if (onExportDiagnostics) {
+    template.push({
+      role: "help",
+      submenu: [{ label: "Export Diagnostics…", click: () => onExportDiagnostics() }],
+    });
+  }
   return template;
 }
 

@@ -388,6 +388,55 @@ describe("run headers", () => {
   });
 });
 
+describe("cost badge (#1725)", () => {
+  const usage = (over: Partial<NonNullable<ThreadDetail["usage"]>> = {}) => ({
+    model: "claude-opus-5-5",
+    inputTokens: 100,
+    outputTokens: 50,
+    costUsd: 1.234,
+    turns: 2,
+    ...over,
+  });
+
+  it("shows the running total with a per-model tooltip", async () => {
+    const m = await mount(
+      view({
+        detail: detail({
+          usage: usage({
+            costByModel: { "claude-sonnet-5": 0.234, "claude-opus-5-5": 1 },
+          }),
+        }),
+      }),
+    );
+    await m.flush();
+    const badge = m.query("[data-cost-badge]");
+    assert.ok(badge, "badge in the header");
+    assert.equal(badge.textContent, "$1.23");
+    assert.equal(
+      badge.getAttribute("title"),
+      "Thread cost $1.23\nclaude-opus-5-5: $1.00\nclaude-sonnet-5: $0.23",
+    );
+  });
+
+  it("falls back to the session model when no split was recorded", async () => {
+    const m = await mount(view({ detail: detail({ usage: usage() }) }));
+    await m.flush();
+    assert.match(
+      m.query("[data-cost-badge]")?.getAttribute("title") ?? "",
+      /claude-opus-5-5: \$1\.23$/,
+    );
+  });
+
+  it("is hidden with no usage or zero cost (subscription billing)", async () => {
+    for (const u of [null, usage({ costUsd: 0, inputTokens: 5000 })]) {
+      const m = await mount(view({ detail: detail({ usage: u }) }));
+      await m.flush();
+      assert.equal(m.query("[data-cost-badge]"), null);
+      m.unmount();
+    }
+  });
+});
+
 describe("sync pill", () => {
   it("is hidden without an upstream", async () => {
     const m = await mount(

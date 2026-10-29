@@ -23,9 +23,9 @@ const REPO_CONFIG_FILE = "solenta.json";
 const SLUG_RE = /^[a-z][a-z0-9-]{0,47}$/;
 const MAX_SHARED_AUTOMATIONS = 16;
 const PROMPT_MAX = 4000;
-const PRESETS = new Set(["hourly", "daily", "weekly"]);
+const PRESETS = new Set(["hourly", "daily", "weekly", "cron"]);
 /** canonical()'s keys: anything else in a row is a typo (#438). */
-const ROW_KEYS = new Set(["id", "name", "prompt", "provider", "model", "preset", "hour", "trigger", "tier", "budget"]);
+const ROW_KEYS = new Set(["id", "name", "prompt", "provider", "model", "preset", "hour", "cron", "trigger", "tier", "budget"]);
 
 /**
  * Overlay / merge id for a shared automation row.
@@ -64,6 +64,7 @@ function slugFromName(name, taken) {
  *   model: string | null,
  *   preset: string,
  *   hour: number | null,
+ *   cron?: string,
  *   trigger: object | null,
  *   tier: string | null,
  * }} row
@@ -77,6 +78,8 @@ function canonical(row) {
     model: row.model,
     preset: row.preset,
     hour: row.hour,
+    // #1719: only cron rows carry it, so older files keep their hash.
+    cron: row.cron || undefined,
     trigger: row.trigger,
     tier: row.tier,
     // #286. undefined drops out of JSON.stringify, so rows without a cap
@@ -101,7 +104,7 @@ function automationsHash(rows) {
  * @returns {{ hour: number | null } | { error: string }}
  */
 function parseHour(preset, hour) {
-  if (preset === "hourly") return { hour: null };
+  if (preset === "hourly" || preset === "cron") return { hour: null };
   if (hour == null || hour === "") {
     return { error: "solenta.json: hour is required for daily and weekly automations" };
   }
@@ -170,8 +173,21 @@ function parseRow(raw, index, seen) {
   const preset = typeof r.preset === "string" ? r.preset : "";
   if (!PRESETS.has(preset)) {
     return {
-      error: `solenta.json: ${at}.preset must be hourly, daily, or weekly`,
+      error: `solenta.json: ${at}.preset must be hourly, daily, weekly, or cron`,
     };
+  }
+
+  let cron = null;
+  if (preset === "cron") {
+    cron = typeof r.cron === "string" ? r.cron.trim().replace(/\s+/g, " ") : "";
+    try {
+      require("./cron.js").parseCron(cron);
+    } catch (err) {
+      const msg = err && err.message ? String(err.message) : String(err);
+      return { error: `solenta.json: ${at}.cron: ${msg}` };
+    }
+  } else if (r.cron != null) {
+    return { error: `solenta.json: ${at}.cron needs preset "cron"` };
   }
 
   const hourParsed = parseHour(preset, r.hour);
@@ -215,6 +231,7 @@ function parseRow(raw, index, seen) {
       model,
       preset,
       hour: hourParsed.hour,
+      ...(cron ? { cron } : {}),
       trigger,
       tier,
       ...(budget ? { budget } : {}),
@@ -342,7 +359,7 @@ function mergeAutomations(store, nowMs) {
             lastError: null,
             consecutiveFailures: 0,
             pendingRunThreadId: null,
-            nextRunAt: nextFire(row.preset, row.hour, nowMs),
+            nextRunAt: nextFire(row.preset, row.hour, nowMs, null, row.cron),
             // #388: each machine calibrates a shared row from scratch.
             stage: "observe",
             graduate: true,
@@ -358,6 +375,7 @@ function mergeAutomations(store, nowMs) {
         model: row.model,
         preset: row.preset,
         hour: row.hour,
+        ...(row.cron ? { cron: row.cron } : {}),
         trigger: row.trigger,
         tier: row.tier,
         ...(row.budget ? { budget: row.budget } : {}),
@@ -468,6 +486,7 @@ function ensureOverlay(store, auto) {
     model: auto.model,
     preset: auto.preset,
     hour: auto.hour,
+    ...(auto.cron ? { cron: auto.cron } : {}),
     trigger: auto.trigger || null,
     tier: auto.tier || null,
     enabled: auto.enabled,
@@ -483,7 +502,7 @@ function ensureOverlay(store, auto) {
     nextRunAt:
       typeof auto.nextRunAt === "number" && Number.isFinite(auto.nextRunAt)
         ? auto.nextRunAt
-        : nextFire(auto.preset, auto.hour, Date.now()),
+        : nextFire(auto.preset, auto.hour, Date.now(), null, auto.cron),
   };
   const list = (store.getAutomations() || []).slice();
   list.push(overlay);

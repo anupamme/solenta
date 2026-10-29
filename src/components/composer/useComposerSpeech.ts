@@ -164,6 +164,7 @@ export function useComposerSpeech({
           transcript: status.transcript,
         });
         writeDraftFor(snap.threadId, next.text, next.caret);
+        if (status.note) setLocalError(status.note);
         snapshotRef.current = null;
         dictatingRef.current = false;
         setDictating(false);

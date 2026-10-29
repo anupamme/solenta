@@ -6,6 +6,7 @@ import type {
   MemoryEntryInfo,
   ProjectInfo,
   ProviderInfo,
+  SessionUsage,
   ThreadGoal,
   ThreadInfo,
 } from "../../shared/ipc";
@@ -16,7 +17,12 @@ import {
 } from "../../viewReturn";
 import type { ContextBreakdownSegment } from "../../contextBreakdown";
 import type { ContextRingView } from "../../contextRing";
-import { formatElapsed, formatRelativeAge, threadProviderRef } from "../../format";
+import {
+  formatCostUsd,
+  formatElapsed,
+  formatRelativeAge,
+  threadProviderRef,
+} from "../../format";
 import { useEscapeClose } from "../../useEscapeClose";
 import styles from "../ThreadView.module.css";
 
@@ -40,6 +46,29 @@ export function SandboxBadge({
       aria-label={`${label}: ${sandbox.reason}`}
     >
       {label}
+    </span>
+  );
+}
+
+/**
+ * Running cost of this thread (#1725); per-model split on hover. Hidden at
+ * zero, which also covers subscription-billed providers that report no cost.
+ */
+export function CostBadge({ usage }: { usage: SessionUsage | null | undefined }) {
+  if (!usage || !(usage.costUsd > 0)) return null;
+  const rows = Object.entries(usage.costByModel ?? {}).filter(([, c]) => c > 0);
+  const breakdown = rows.length
+    ? rows.sort((a, b) => b[1] - a[1]).map(([m, c]) => `${m}: ${formatCostUsd(c)}`)
+    : [`${usage.model ?? "unknown model"}: ${formatCostUsd(usage.costUsd)}`];
+  const total = formatCostUsd(usage.costUsd);
+  return (
+    <span
+      className={styles.sandboxBadge}
+      data-cost-badge=""
+      title={[`Thread cost ${total}`, ...breakdown].join("\n")}
+      aria-label={`Thread cost ${total}`}
+    >
+      {total}
     </span>
   );
 }
