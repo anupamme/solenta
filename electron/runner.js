@@ -878,11 +878,13 @@ function createRunner(opts) {
     // covered by one call site (generic/claude/codex/kimi/opencode/workflow).
     if (status === "done") {
       afterSuccessfulTurn(threadId);
-      userHookEvents.turnDone(
-        threadId,
-        terminalRunId,
-        lastAssistantText(threadId, terminalRunId),
-      );
+      if (userHookEvents.has(threadId, "Stop")) {
+        userHookEvents.turnDone(
+          threadId,
+          terminalRunId,
+          lastAssistantText(threadId, terminalRunId),
+        );
+      }
     } else if (status === "failed") {
       const parked = store.getThread(threadId);
       if (
