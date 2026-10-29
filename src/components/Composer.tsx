@@ -102,9 +102,11 @@ import {
 import { formatReviewCommentsPrompt } from "../diffView";
 import {
   formatContextChipsPrompt,
+  loadMentionSource,
   type ContextChip,
   type ContextChipLoader,
   type MentionExtra,
+  type MentionSourceApi,
 } from "../contextChips";
 import {
   parseJumpCommand,
@@ -293,6 +295,8 @@ export interface ComposerProps {
   mentionThreads?: ReadonlyArray<{ id: string; title: string }>;
   mentionPrs?: ReadonlyArray<{ number: number; title: string }>;
   mentionSkills?: ReadonlyArray<{ name: string; description: string }>;
+  /** @url/@terminal/@problems/@git-changes/@<commit> (#1722). Absent hides those rows. */
+  mentionSources?: MentionSourceApi;
   /**
    * Native folder picker for the mention popup's "Browse folder" row.
    * Returns a repo-relative token (trailing slash) or null if cancelled.
@@ -453,6 +457,7 @@ export const Composer = memo(function Composer({
   mentionThreads,
   mentionPrs,
   mentionSkills,
+  mentionSources,
   onPickMentionFolder,
   replyTo = null,
   onClearReply,
@@ -699,6 +704,48 @@ export const Composer = memo(function Composer({
   const returnFocusToOptions = useRef(false);
   const modelListId = useId();
 
+  /**
+   * Spinner chip now, content when main answers. A chip removed meanwhile
+   * stays removed; a failed load drops its chip and says why.
+   */
+  const acceptSource = useCallback(
+    (extra: Extract<MentionExtra, { kind: "source" | "commit" }>) => {
+      if (!mentionSources) return;
+      const id =
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `chip-${Date.now()}`;
+      const source = extra.kind === "commit" ? "commit" : extra.source;
+      const label = extra.kind === "commit" ? extra.short : extra.arg ?? source;
+      setContextChips(threadId, (prev) => [
+        ...prev,
+        { id, kind: "source", source, label, text: "", pending: true },
+      ]);
+      const drop = () =>
+        setContextChips(threadId, (prev) => prev.filter((c) => c.id !== id));
+      loadMentionSource(mentionSources, extra, id).then(
+        (res) => {
+          if (res.cancelled) return drop();
+          setContextChips(threadId, (prev) =>
+            prev.map((c) =>
+              c.id === id
+                ? { id, kind: "source", source, label: res.label, text: res.text }
+                : c,
+            ),
+          );
+        },
+        (err) => {
+          const live = getContextChips(threadId).some((c) => c.id === id);
+          drop();
+          if (!live) return;
+          const why = err instanceof Error && err.message ? err.message : "failed";
+          setLocalError(`Couldn't add @${source}: ${why}`);
+        },
+      );
+    },
+    [mentionSources, threadId],
+  );
+
   const {
     mentionFiles,
     snippetMatches,
@@ -734,6 +781,8 @@ export const Composer = memo(function Composer({
     ],
     onAcceptExtra: (chip) =>
       setContextChips(threadId, (prev) => [...prev, chip]),
+    mentionSources,
+    onAcceptSource: acceptSource,
     onPickMentionFolder,
     disabled,
     writeDraft,
@@ -1143,6 +1192,11 @@ export const Composer = memo(function Composer({
     const shellLine = onShell ? shellCommand(typed) : null;
     if (shellLine !== null) {
       await runShell(typed, shellLine);
+      return;
+    }
+    const loading = contextChips.find((c) => c.kind === "source" && c.pending);
+    if (loading?.kind === "source") {
+      setLocalError(`@${loading.source} is still loading. Wait for it, or remove the chip.`);
       return;
     }
     const prompt = await composeOutgoing(typed);
@@ -2008,11 +2062,15 @@ export const Composer = memo(function Composer({
                 ),
               )
             }
-            onRemove={(id) =>
+            onRemove={(id) => {
+              const chip = contextChips.find((c) => c.id === id);
+              if (chip?.kind === "source" && chip.pending && chip.source === "problems") {
+                mentionSources?.cancelProblems(id);
+              }
               setContextChips(threadId, (prev) =>
                 prev.filter((c) => c.id !== id),
-              )
-            }
+              );
+            }}
             unavailable={
               onContextChipUnavailable
                 ? (chip) => onContextChipUnavailable(chip)

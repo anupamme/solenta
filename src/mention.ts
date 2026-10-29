@@ -13,6 +13,7 @@ export interface MentionQuery {
 }
 
 const MAX_QUERY = 100;
+const MAX_URL_QUERY = 2048;
 
 export function getMentionQuery(
   text: string,
@@ -25,7 +26,9 @@ export function getMentionQuery(
   const query = before.slice(at + 1);
   // Empty query is allowed: typing a bare "@" opens the popup unfiltered.
   if (/\s/.test(query)) return null;
-  if (query.length > MAX_QUERY) return null;
+  // @url (#1722): pasted URLs run long; other tokens stay short.
+  const max = /^https?:\/\//i.test(query) ? MAX_URL_QUERY : MAX_QUERY;
+  if (query.length > max) return null;
   return { start: at, query };
 }
 

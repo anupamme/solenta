@@ -1246,6 +1246,33 @@
   font-weight: 550;
 }
 
+.mentionRow[data-unavailable] {
+  font-style: italic;
+}
+
+/* @-mention source chip still loading (#1722). */
+.chipSpinner {
+  flex-shrink: 0;
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid var(--border);
+  border-top-color: var(--text-muted);
+  border-radius: 50%;
+  animation: chipSpin 0.8s linear infinite;
+}
+
+@keyframes chipSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chipSpinner {
+    animation-duration: 2.4s;
+  }
+}
+
 .snippetPreview {
   font-weight: 400;
   color: var(--text-dim);

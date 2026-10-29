@@ -368,6 +368,7 @@ export default function App({ rendererSha: rendererShaOverride }: AppProps = {})
     terminal,
     files,
     preview,
+    mentions,
     simulator,
     simulatorStatus,
     setVerifyCommand,
@@ -675,6 +676,12 @@ export default function App({ rendererSha: rendererShaOverride }: AppProps = {})
     },
     [],
   );
+  /** The "no verify command" @problems row (#1722) opens Environment › Verify. */
+  const revealVerifySettings = useCallback(() => {
+    if (narrow) setDrawer("agents");
+    else setAgentsCollapsed(false);
+    rememberInspectorTab("git");
+  }, [narrow, rememberInspectorTab]);
   const revealAgentsTeam = useCallback(
     (threadId?: string) => {
       if (narrow) setDrawer("agents");
@@ -2208,6 +2215,8 @@ export default function App({ rendererSha: rendererShaOverride }: AppProps = {})
         onLoadAttachmentImage={loadAttachmentImage}
         onDropAttachmentFiles={dropAttachmentFiles}
         preview={preview}
+        mentions={mentions}
+        onRevealVerifySettings={revealVerifySettings}
         simulator={simulator}
         simulatorStatus={simulatorStatus}
         devServerStatus={devServerStatus}

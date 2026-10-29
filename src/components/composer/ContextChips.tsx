@@ -28,7 +28,9 @@ export function ContextChips({
   const [value, setValue] = useState("");
   const [previewing, setPreviewing] = useState<string | null>(null);
   const previewed = chips.find(
-    (c) => c.id === previewing && c.kind === "element",
+    (c) =>
+      c.id === previewing &&
+      (c.kind === "element" || (c.kind === "source" && !c.pending)),
   );
   const commit = (id: string) => {
     onEditComment(id, value.trim());
@@ -42,12 +44,17 @@ export function ContextChips({
           const quote = chip.kind === "quote";
           const element = chip.kind === "element";
           const gone = Boolean(unavailable?.(chip));
+          const pending = chip.kind === "source" && chip.pending === true;
+          // Element and loaded source chips toggle the exact text they send.
+          const previewable = element || (chip.kind === "source" && !pending);
           return (
             <span
               key={chip.id}
               className={styles.reviewCommentChip}
               data-context-chip=""
               data-context-kind={chip.kind}
+              data-context-source={chip.kind === "source" ? chip.source : undefined}
+              aria-busy={pending || undefined}
               data-reply-chip={quote ? "" : undefined}
               data-reply-kind={quote ? chip.quoteKind ?? "message" : undefined}
               data-reply-source={quote ? (gone ? "unavailable" : "ok") : undefined}
@@ -56,19 +63,22 @@ export function ContextChips({
                 onReveal?.(chip);
               }}
             >
+              {pending ? (
+                <span className={styles.chipSpinner} data-chip-spinner="" aria-hidden="true" />
+              ) : null}
               <button
                 type="button"
                 className={styles.reviewCommentWhere}
                 data-context-label=""
                 data-reply-source={quote ? "" : undefined}
                 disabled={
-                  !element && (!onReveal || gone || (quote && !chip.messageId))
+                  !previewable && (!onReveal || gone || (quote && !chip.messageId))
                 }
                 aria-label={label}
-                aria-expanded={element ? previewing === chip.id : undefined}
-                title={quote ? chip.text : element ? "Show what will be sent" : label}
+                aria-expanded={previewable ? previewing === chip.id : undefined}
+                title={quote ? chip.text : previewable ? "Show what will be sent" : label}
                 onClick={(e) => {
-                  if (!element) return onReveal?.(chip);
+                  if (!previewable) return onReveal?.(chip);
                   e.stopPropagation();
                   setPreviewing((cur) => (cur === chip.id ? null : chip.id));
                 }}
@@ -114,8 +124,8 @@ export function ContextChips({
               <button
                 type="button"
                 className={styles.attachmentRemove}
-                aria-label={`Remove ${label}`}
-                title="Remove"
+                aria-label={pending ? `Cancel ${label}` : `Remove ${label}`}
+                title={pending ? "Cancel" : "Remove"}
                 onClick={() => onRemove(chip.id)}
               >
                 ×
@@ -124,9 +134,13 @@ export function ContextChips({
           );
         })}
       </div>
-      {previewed?.kind === "element" ? (
+      {previewed ? (
         <pre className={styles.contextPreview} data-context-preview="">
-          {elementChipPrompt(previewed)}
+          {previewed.kind === "element"
+            ? elementChipPrompt(previewed)
+            : previewed.kind === "source"
+              ? previewed.text
+              : null}
         </pre>
       ) : null}
     </>

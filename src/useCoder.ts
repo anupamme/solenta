@@ -785,6 +785,8 @@ export interface UseCoderResult {
   files: FilesPaneApi;
   /** Embedded Browser pane guest (issue #155). Desktop-only. */
   preview: CoderApi["preview"];
+  /** Composer @-mention sources (#1722). */
+  mentions: CoderApi["mentions"];
   /** Desktop-only iOS Simulator pane (#248). */
   simulator: CoderApi["simulator"];
   simulatorStatus: SimulatorStatus | null;
@@ -2301,6 +2303,7 @@ export function useCoder(): UseCoderResult {
     terminal,
     files: filesApi,
     preview: api.preview,
+    mentions: api.mentions,
     simulator: api.simulator,
     simulatorStatus,
     setVerifyCommand,

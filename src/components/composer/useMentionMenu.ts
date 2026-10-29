@@ -9,10 +9,14 @@ import {
 import { applyMention, getMentionQuery, type MentionQuery } from "../../mention";
 import {
   filterMentionExtras,
+  sourceMentionRows,
   type ContextChip,
   type MentionExtra,
+  type MentionSourceApi,
 } from "../../contextChips";
-import type { PromptSnippet } from "../../shared/ipc";
+import type { MentionCommit, PromptSnippet } from "../../shared/ipc";
+
+type SourceExtra = Extract<MentionExtra, { kind: "source" | "commit" }>;
 
 /**
  * The @-mention popup: the token under the caret, a debounced file lookup,
@@ -25,6 +29,8 @@ export function useMentionMenu({
   promptSnippets,
   mentionExtras,
   onAcceptExtra,
+  mentionSources,
+  onAcceptSource,
   onPickMentionFolder,
   disabled,
   writeDraft,
@@ -36,6 +42,9 @@ export function useMentionMenu({
   promptSnippets?: readonly PromptSnippet[];
   mentionExtras?: readonly MentionExtra[];
   onAcceptExtra?: (chip: ContextChip) => void;
+  /** @url/@terminal/@problems/@git-changes/@<commit> rows (#1722). */
+  mentionSources?: MentionSourceApi;
+  onAcceptSource?: (extra: SourceExtra) => void;
   onPickMentionFolder?: () => Promise<string | null>;
   disabled: boolean;
   writeDraft: (text: string, caret?: number) => void;
@@ -53,10 +62,24 @@ export function useMentionMenu({
         sn.name.toLowerCase().startsWith(mention.query.toLowerCase()),
       )
     : [];
+  /** Recent commits, fetched once each time the popup opens. */
+  const [commits, setCommits] = useState<readonly MentionCommit[]>([]);
+  const commitsAsked = useRef(false);
+  const sourceRows =
+    mention && mentionSources
+      ? sourceMentionRows(mention.query, {
+          verifyCommand: mentionSources.verifyCommand,
+          commits,
+        })
+      : { sources: [], commits: [] };
   const extraMatches = mention
-    ? filterMentionExtras([...(mentionExtras ?? [])], mention.query)
+    ? [
+        ...sourceRows.sources,
+        ...filterMentionExtras([...(mentionExtras ?? [])], mention.query),
+        ...sourceRows.commits,
+      ]
     : [];
-  /** Snippets, then threads/PRs/skills, then files. */
+  /** Snippets, then sources, threads/PRs/skills, commits, then files. */
   const mentionCount =
     snippetMatches.length + extraMatches.length + mentionFiles.length;
   // Files land 150ms after the query changes; clamp so a shorter snippet
@@ -71,6 +94,7 @@ export function useMentionMenu({
       mentionTimer.current = null;
     }
     setMention((prev) => (prev == null ? prev : null));
+    commitsAsked.current = false;
     setMentionFiles((prev) => (prev.length === 0 ? prev : []));
     setMentionIndex((prev) => (prev === 0 ? prev : 0));
   }, []);
@@ -80,7 +104,10 @@ export function useMentionMenu({
     const el = textareaRef.current;
     if (
       !el ||
-      (!onListFiles && !promptSnippets?.length && !mentionExtras?.length) ||
+      (!onListFiles &&
+        !promptSnippets?.length &&
+        !mentionExtras?.length &&
+        !mentionSources) ||
       disabled
     ) {
       closeMention();
@@ -94,6 +121,13 @@ export function useMentionMenu({
     setMention((prev) =>
       prev && prev.start === q.start && prev.query === q.query ? prev : q,
     );
+    if (mentionSources && !commitsAsked.current) {
+      commitsAsked.current = true;
+      mentionSources
+        .listCommits()
+        .then(setCommits)
+        .catch(() => setCommits([]));
+    }
     if (mentionTimer.current) clearTimeout(mentionTimer.current);
     if (!onListFiles) return;
     const seq = ++mentionSeq.current;
@@ -109,7 +143,14 @@ export function useMentionMenu({
           setMentionFiles([]);
         });
     }, 150);
-  }, [onListFiles, promptSnippets, mentionExtras, disabled, closeMention]);
+  }, [
+    onListFiles,
+    promptSnippets,
+    mentionExtras,
+    mentionSources,
+    disabled,
+    closeMention,
+  ]);
 
   const acceptMention = useCallback(
     (path: string) => {
@@ -143,8 +184,27 @@ export function useMentionMenu({
   const acceptExtra = useCallback(
     (extra: MentionExtra) => {
       const el = textareaRef.current;
-      if (!el || !mention || !onAcceptExtra) return;
+      if (!el || !mention) return;
       const caret = el.selectionStart ?? el.value.length;
+      if (extra.kind === "source" || extra.kind === "commit") {
+        if (extra.kind === "source" && extra.unavailable) {
+          closeMention();
+          mentionSources?.onOpenVerifySettings?.();
+          return;
+        }
+        if (extra.kind === "source" && extra.source === "url" && !extra.arg) {
+          // Bare @url row: leave `@https://` for the user to finish typing.
+          const head = `${el.value.slice(0, mention.start)}@https://`;
+          writeDraft(head + el.value.slice(caret), head.length);
+          setMention({ start: mention.start, query: "https://" });
+          return;
+        }
+        writeDraft(el.value.slice(0, mention.start) + el.value.slice(caret), mention.start);
+        onAcceptSource?.(extra);
+        closeMention();
+        return;
+      }
+      if (!onAcceptExtra) return;
       writeDraft(el.value.slice(0, mention.start) + el.value.slice(caret), mention.start);
       const id =
         typeof crypto !== "undefined" && crypto.randomUUID
@@ -164,7 +224,7 @@ export function useMentionMenu({
           number: extra.number,
           title: extra.title,
         });
-      } else {
+      } else if (extra.kind === "skill") {
         onAcceptExtra({
           id,
           kind: "skill",
@@ -174,7 +234,7 @@ export function useMentionMenu({
       }
       closeMention();
     },
-    [mention, closeMention, writeDraft, onAcceptExtra],
+    [mention, closeMention, writeDraft, onAcceptExtra, onAcceptSource, mentionSources],
   );
 
   const browseMentionFolder = useCallback(() => {

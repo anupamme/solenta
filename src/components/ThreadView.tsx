@@ -154,6 +154,7 @@ import {
   elementChip,
   quoteChipAsReply,
   type InspectPick,
+  type MentionSourceApi,
   type TerminalChip,
 } from "../contextChips";
 import { waitWhatPrompt } from "../waitWhat";
@@ -587,6 +588,10 @@ interface ThreadViewProps {
   ) => Promise<AttachmentInfo[]>;
   /** Embedded Browser pane (issue #155). Absent hides screenshot-to-composer. */
   preview?: CoderApi["preview"] | null;
+  /** Composer @url/@terminal/@problems/@git-changes/@<commit> (#1722). */
+  mentions?: CoderApi["mentions"] | null;
+  /** Where the @problems row sends a thread with no verify command. */
+  onRevealVerifySettings?: () => void;
   /** Desktop-only iOS Simulator pane (#248). */
   simulator?: CoderApi["simulator"] | null;
   simulatorStatus?: SimulatorStatus | null;
@@ -888,6 +893,8 @@ export const ThreadView = memo(function ThreadView({
   onLoadAttachmentImage,
   onDropAttachmentFiles,
   preview,
+  mentions,
+  onRevealVerifySettings,
   simulator,
   simulatorStatus,
   devServerStatus,
@@ -1880,6 +1887,24 @@ export const ThreadView = memo(function ThreadView({
   );
 
   useCiteShortcut(detail, storeReply);
+
+  const mentionThreadId = detail?.thread.id;
+  const verifyCommand = detail?.thread.verifyCommand ?? null;
+  const mentionSources = useMemo((): MentionSourceApi | undefined => {
+    if (!mentions || !mentionThreadId) return undefined;
+    const threadId = mentionThreadId;
+    return {
+      verifyCommand,
+      onOpenVerifySettings: onRevealVerifySettings,
+      fetchUrl: (url) => mentions.fetchUrl({ threadId, url }),
+      terminalTail: () => mentions.terminalTail({ threadId }),
+      runProblems: (requestId) => mentions.runProblems({ threadId, requestId }),
+      cancelProblems: (requestId) => void mentions.cancelProblems({ requestId }).catch(() => {}),
+      gitChanges: () => mentions.gitChanges({ threadId }),
+      listCommits: () => mentions.listCommits({ threadId }),
+      showCommit: (sha) => mentions.showCommit({ threadId, sha }),
+    };
+  }, [mentions, mentionThreadId, verifyCommand, onRevealVerifySettings]);
 
   const pickMentionFolder = useCallback(async () => {
     if (!onPickDirectory) return null;
@@ -5197,6 +5222,7 @@ export const ThreadView = memo(function ThreadView({
         onListFiles={onListFiles}
         promptSnippets={promptSnippets}
         mentionThreads={mentionThreads}
+        mentionSources={thread.ask ? undefined : mentionSources}
         onPickMentionFolder={
           onPickDirectory ? pickMentionFolder : undefined
         }
