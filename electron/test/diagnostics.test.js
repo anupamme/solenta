@@ -22,6 +22,7 @@ const {
   redactSettings,
   zipFiles,
   exportDiagnostics,
+  confirmAndExportDiagnostics,
 } = require("../diagnostics.js");
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "solenta-diag-"));
@@ -282,5 +283,46 @@ describe("exportDiagnostics", () => {
     assert.equal(r, target);
     assert.match(offered, /^solenta-diagnostics-.+-\d{4}-\d{2}-\d{2}\.zip$/);
     assert.ok(Object.keys(unzip(fs.readFileSync(target))).includes("settings.redacted.json"));
+  });
+});
+
+describe("confirmAndExportDiagnostics", () => {
+  it("previews the file list and stops on Cancel", async () => {
+    let detail = "";
+    let saveAsked = false;
+    const r = await confirmAndExportDiagnostics({
+      store: fixtureStore(),
+      userDataPath: userData,
+      dialog: {
+        showMessageBox: async (o) => {
+          detail = o.detail;
+          return { response: 1 };
+        },
+        showSaveDialog: async () => {
+          saveAsked = true;
+          return { canceled: true };
+        },
+      },
+    });
+    assert.equal(r, null);
+    assert.equal(saveAsked, false);
+    for (const f of [...BASE_FILES, "logs/crash.log"]) assert.ok(detail.includes(f), f);
+  });
+
+  it("saves after Save…", async () => {
+    const target = path.join(tmp, "menu.zip");
+    const r = await confirmAndExportDiagnostics(
+      {
+        store: fixtureStore(),
+        userDataPath: userData,
+        dialog: {
+          showMessageBox: async () => ({ response: 0 }),
+          showSaveDialog: async () => ({ canceled: false, filePath: target }),
+        },
+      },
+      { which: () => null, authState: () => undefined },
+    );
+    assert.equal(r, target);
+    assert.ok(fs.existsSync(target));
   });
 });

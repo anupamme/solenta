@@ -312,8 +312,31 @@ async function exportDiagnostics(ctx, buildOpts = {}) {
   return picked.filePath;
 }
 
+/**
+ * Help › Export Diagnostics…: native preview of the file list, then save.
+ * @param {{ store: any, dialog: any, userDataPath?: string }} ctx
+ * @param {Partial<Parameters<typeof buildDiagnostics>[0]>} [buildOpts]
+ * @returns {Promise<string | null>}
+ */
+async function confirmAndExportDiagnostics(ctx, buildOpts) {
+  const files = diagnosticsFileList({ userDataPath: ctx.userDataPath });
+  const { response } = await ctx.dialog.showMessageBox({
+    type: "info",
+    message: "Export diagnostics",
+    detail:
+      `The zip will contain:\n${files.map((f) => `• ${f}`).join("\n")}\n\n` +
+      "Secrets, prompts, transcripts and memory are never included.",
+    buttons: ["Save…", "Cancel"],
+    defaultId: 0,
+    cancelId: 1,
+  });
+  if (response !== 0) return null;
+  return exportDiagnostics(ctx, buildOpts);
+}
+
 module.exports = {
   BASE_FILES,
+  confirmAndExportDiagnostics,
   diagnosticsFileList,
   probeVersion,
   redactSettings,

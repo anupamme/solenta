@@ -69,4 +69,18 @@ describe("app menu template (issue #353)", () => {
       );
     }
   });
+
+  it("adds Help › Export Diagnostics… when given a handler (#1723)", () => {
+    let clicked = 0;
+    for (const platform of ["darwin", "linux", "win32"]) {
+      const t = appMenuTemplate({ platform, onExportDiagnostics: () => (clicked += 1) });
+      const help = t.find((m) => m.role === "help");
+      assert.ok(help, `Help menu missing on ${platform}`);
+      const item = help.submenu.find((i) => i.label === "Export Diagnostics…");
+      assert.ok(item);
+      item.click();
+    }
+    assert.equal(clicked, 3);
+    assert.equal(appMenuTemplate({ platform: "darwin" }).some((m) => m.role === "help"), false);
+  });
 });
