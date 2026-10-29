@@ -8,13 +8,25 @@ import styles from "../Composer.module.css";
 function extraLabel(extra: MentionExtra): string {
   if (extra.kind === "thread") return extra.title;
   if (extra.kind === "pr") return `#${extra.number} ${extra.title}`;
+  if (extra.kind === "source") return extra.hint;
+  if (extra.kind === "commit") return `${extra.short} ${extra.subject || "(typed sha)"}`;
   return extra.name;
 }
 
-function extraKindPrefix(kind: MentionExtra["kind"]): string {
-  if (kind === "thread") return "Thread";
-  if (kind === "pr") return "PR";
+function extraKindPrefix(extra: MentionExtra): string {
+  if (extra.kind === "thread") return "Thread";
+  if (extra.kind === "pr") return "PR";
+  if (extra.kind === "source") return `@${extra.source}`;
+  if (extra.kind === "commit") return "Commit";
   return "Skill";
+}
+
+function extraKey(extra: MentionExtra): string {
+  if (extra.kind === "pr") return `pr:${extra.number}`;
+  if (extra.kind === "thread") return `thread:${extra.id}`;
+  if (extra.kind === "source") return `source:${extra.source}`;
+  if (extra.kind === "commit") return `commit:${extra.sha}`;
+  return `skill:${extra.name}`;
 }
 
 /** The @-mention listbox above the textarea. */
@@ -75,7 +87,7 @@ export function MentionList({
       {(extraMatches ?? []).map((extra, ei) => {
         const i = ei + snippetMatches.length;
         return (
-        <li key={`${extra.kind}:${extra.kind === "pr" ? extra.number : extra.kind === "thread" ? extra.id : extra.name}`} role="option" aria-selected={i === mentionIndex}>
+        <li key={extraKey(extra)} role="option" aria-selected={i === mentionIndex}>
           <button
             type="button"
             className={styles.mentionRow}
@@ -89,11 +101,15 @@ export function MentionList({
             }}
             data-highlighted={i === mentionIndex ? "true" : undefined}
             data-mention-kind={extra.kind}
+            data-mention-source={extra.kind === "source" ? extra.source : undefined}
+            data-unavailable={
+              extra.kind === "source" && extra.unavailable ? "" : undefined
+            }
             onMouseEnter={() => setMentionIndex(i)}
             onClick={() => acceptExtra?.(extra)}
           >
             <span className={styles.providerRowText}>
-              <span className={styles.modelRowVendor}>{extraKindPrefix(extra.kind)}</span>
+              <span className={styles.modelRowVendor}>{extraKindPrefix(extra)}</span>
               <span className={styles.modelRowLabel}>{extraLabel(extra)}</span>
             </span>
           </button>
