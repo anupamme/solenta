@@ -122,7 +122,9 @@ function isInside(root, child, p = path) {
  * files are skipped; a bare argv[0] is a PATH lookup on POSIX, not a file.
  * @param {string} root  project checkout
  * @param {string[]} command
- * @returns {Array<{ index: number, path: string, abs: string, sha256: string }>}
+ * `--flag=path` values count too (`node --require=./x.js`); `prefix` keeps
+ * the `--flag=` part for the argv rewrite.
+ * @returns {Array<{ index: number, prefix: string, path: string, abs: string, sha256: string }>}
  */
 function scriptRefs(root, command) {
   let realRoot;
@@ -133,13 +135,22 @@ function scriptRefs(root, command) {
   }
   const refs = [];
   command.forEach((arg, index) => {
-    if (!arg || arg.startsWith("-")) return;
+    if (!arg) return;
+    let prefix = "";
+    let target = arg;
+    if (arg.startsWith("-")) {
+      const eq = arg.indexOf("=");
+      if (eq < 0) return;
+      prefix = arg.slice(0, eq + 1);
+      target = arg.slice(eq + 1);
+      if (!target) return;
+    }
     if (index === 0 && process.platform !== "win32" && path.basename(arg) === arg) return;
     try {
-      const abs = fs.realpathSync(path.resolve(realRoot, arg));
+      const abs = fs.realpathSync(path.resolve(realRoot, target));
       if (!isInside(realRoot, abs) || !fs.statSync(abs).isFile()) return;
       const rel = path.relative(realRoot, abs).split(path.sep).join("/");
-      refs.push({ index, path: rel, abs, sha256: sha256(fs.readFileSync(abs)) });
+      refs.push({ index, prefix, path: rel, abs, sha256: sha256(fs.readFileSync(abs)) });
     } catch {
       // missing or unreadable: not a script reference
     }
@@ -231,7 +242,7 @@ function effectiveHooks(opts) {
     }));
     for (const { scripts, ...h } of project.hooks) {
       const command = h.command.slice();
-      for (const s of scripts || []) command[s.index] = s.abs;
+      for (const s of scripts || []) command[s.index] = `${s.prefix || ""}${s.abs}`;
       out.push({ ...h, command, ...(verify.length ? { verify } : {}) });
     }
   }

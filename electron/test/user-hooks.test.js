@@ -197,7 +197,10 @@ describe("project trust covers repo scripts (#1737)", () => {
     // inline code is already in hooks.json; flags, missing files, dirs and outside paths are not scripts
     assert.deepEqual(refs(["bash", "-c", "./scripts/check.sh && echo done"]), []);
     assert.deepEqual(refs([NODE, "-e", "require('./tools/hook.js')"]), []);
-    assert.deepEqual(refs(["node", "--require=./tools/hook.js", "missing.js", "tools", outside]), []);
+    assert.deepEqual(refs(["node", "--require=missing.js", "missing.js", "tools", `--x=${outside}`, outside]), []);
+    // --flag=path pins the value and keeps the flag for the rewrite
+    const [flagRef] = userHooks.scriptRefs(project, ["node", "--require=./tools/hook.js", "-e", "1"]);
+    assert.deepEqual([flagRef.index, flagRef.path, flagRef.prefix], [1, "tools/hook.js", "--require="]);
     assert.deepEqual(refs(["npx", "eslint", "."]), []);
     if (process.platform !== "win32") {
       // a bare argv[0] is a PATH lookup, not the repo file of that name
