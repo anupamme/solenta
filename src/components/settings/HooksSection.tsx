@@ -166,6 +166,9 @@ export function HooksSection({
         warning. They run after Solenta&apos;s guardrails and can only add a
         block. Project hooks in .solenta/hooks.json come from the repo and run
         only after you approve the file; any change needs a new approval.
+        Approval covers hooks.json only: a hook that runs a script from the
+        repo (./scripts/check.sh) runs the thread&apos;s copy, which the agent
+        can edit. Prefer commands installed outside the repo.
       </p>
       {local.length > 0 && (
         <ProjectPicker
@@ -192,7 +195,7 @@ export function HooksSection({
                 <>
                   <span className={styles.note}>
                     Not approved: these hooks do not run. Review the commands
-                    above first.
+                    above, and any repo scripts they call, first.
                   </span>
                   <button
                     type="button"
