@@ -124,6 +124,9 @@ function secretGroups(settings) {
     field(`github:${r.host || "?"}`, r, ["token"], true);
   }
   if (isPlainObject(settings.webhook)) field("webhook", settings.webhook, ["url"], true);
+  if (isPlainObject(settings.telegram)) {
+    field("telegram", settings.telegram, ["botToken"], true);
+  }
   // Provider instance env (#453): every value may be a key or token.
   for (const inst of rows(settings.providerInstances)) {
     map(`instance:${inst.id || "?"}:env`, inst, "env");

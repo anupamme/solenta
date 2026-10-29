@@ -22,6 +22,7 @@ import type { MemoryProjectToolsApi } from "./MemoryTab";
 import { SkillsManager, type SkillsManagerProps } from "./SkillsTab";
 import styles from "./SettingsModal.module.css";
 import { IntegrationsSection } from "./IntegrationsSection";
+import { ChannelsSection } from "./settings/ChannelsSection";
 import { ConnectionsSection } from "./ConnectionsSection";
 import { WebAccessSection } from "./WebAccessSection";
 import { isWebMode } from "../shared/wire";
@@ -122,9 +123,9 @@ const PANE_META: Record<
   },
   integrations: {
     label: "Integrations",
-    hint: "Pair an external MCP client so it can launch and track Solenta tasks.",
+    hint: "Pair an external MCP client, or start threads from a Telegram chat.",
     keywords:
-      "mcp pairing claude desktop claude code token integrations external agent connect",
+      "mcp pairing claude desktop claude code token integrations external agent connect telegram chat bot channel slack discord phone message",
   },
   advanced: {
     label: "Advanced",
@@ -816,10 +817,20 @@ export function SettingsModal({
           )}
 
           {pane === "integrations" && (
+          <>
           <IntegrationsSection
             active={open && pane === "integrations"}
             projects={projects}
           />
+          {!isWebMode() && (
+          <ChannelsSection
+            active={open && pane === "integrations"}
+            settings={settings}
+            projects={projects}
+            onSaveSettings={onSaveSettings}
+          />
+          )}
+          </>
           )}
 
           {pane === "connections" && !isWebMode() && (

@@ -21,6 +21,17 @@ const providerAuth = require("./providerAuth.js");
 const { appVersion } = feedback;
 
 /** IPC_HANDLERS rows for app:*, memory:*, settings:*, stayAwake:*, providers:*, sourceControl:*; ipc.js spreads them in. */
+/**
+ * @param {any} ctx
+ * @param {unknown} input
+ */
+function channelsFor(ctx, input) {
+  const name = input && typeof input === "object" ? /** @type {any} */ (input).channel : null;
+  if (name !== "telegram") throw new Error(`Unknown channel: ${name}`);
+  if (!ctx.channels) throw new Error("Chat channels run in the desktop app only");
+  return ctx.channels;
+}
+
 module.exports = {
   "app:status": async (ctx) => {
     return services.appStatus(ctx.store);
@@ -208,6 +219,19 @@ module.exports = {
       recordSecretUse,
     });
   },
+  // Chat channels (#1718). Only "telegram" exists today.
+  "settings:channelStatus": async (ctx) => {
+    if (!ctx.channels) {
+      return { telegram: { state: "off", botUsername: null, error: null } };
+    }
+    return ctx.channels.status();
+  },
+  "settings:connectChannel": async (ctx, input) => {
+    return channelsFor(ctx, input).connect();
+  },
+  "settings:disconnectChannel": async (ctx, input) => {
+    return channelsFor(ctx, input).disconnect();
+  },
   "providers:list": async (ctx) => {
     // First launch: `which` each CLI only once the login-shell PATH is in (#1475).
     const pathWait = whenPathReady({ ifUncached: true });
@@ -226,6 +250,10 @@ module.exports = {
   "providers:fetchModels": async (ctx, input) => {
     const { fetchProviderModels } = require("./providerModels.js");
     return fetchProviderModels(ctx.store.getSettings(), String((input && input.provider) || ""));
+  },
+  // Ollama / LM Studio probe (#1717): loopback by default, a LAN host when given.
+  "providers:detectLocal": async (_ctx, input) => {
+    return require("./localModels.js").detectLocalModels(input);
   },
   "sourceControl:discover": async (_ctx, input) => {
     return discoverSourceControl({

@@ -240,7 +240,9 @@ async function main() {
       sessionID: "ses_opencode_001",
       part: { id: "r1", type: "reasoning", text: "I should read opencode.js first." },
     });
-    await delay(80);
+    // Wide enough that a loaded CI runner can't deliver both before the
+    // test's 20ms poll sees the reasoning alone (failed at 80ms on macOS CI).
+    await delay(400);
     emit({
       type: "tool_call",
       timestamp: Date.now(),

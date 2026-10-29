@@ -266,8 +266,12 @@ const BY_SCOPE = {
   ],
   settings: [
     "providers:fetchModels",
+    "providers:detectLocal",
     "settings:set",
     "settings:testWebhook",
+    "settings:channelStatus",
+    "settings:connectChannel",
+    "settings:disconnectChannel",
     "memory:store",
     "memory:update",
     "memory:remove",

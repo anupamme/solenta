@@ -858,6 +858,11 @@ function redactSettings(settings) {
       hasToken: Boolean(r.token),
     }));
   }
+  // Same for the Telegram bot token (#1718).
+  if (settings.telegram && typeof settings.telegram === "object") {
+    const { botToken, ...rest } = settings.telegram;
+    out.telegram = { ...rest, hasToken: Boolean(botToken) };
+  }
   return out;
 }
 
