@@ -397,6 +397,7 @@ interface ThreadViewProps {
   onApplyAgentProfile: (profileId: string, threadId?: string) => void | Promise<void>;
   onSetWebSearch?: (webSearch: boolean, threadId?: string) => void | Promise<void>;
   onSetFast?: (fast: boolean, threadId?: string) => void | Promise<void>;
+  onSetPlanModel?: (model: string | null, threadId?: string) => void | Promise<void>;
   onSetRoute?: (route: ModelRoute | null, threadId?: string) => void | Promise<void>;
   /** Run the thread as a CLI custom agent (#172); null = CLI default. */
   onSetAgent?: (agent: string | null) => void | Promise<void>;
@@ -820,6 +821,7 @@ export const ThreadView = memo(function ThreadView({
   onApplyAgentProfile,
   onSetWebSearch,
   onSetFast,
+  onSetPlanModel,
   onSetRoute,
   onSetAgent,
   onListAgents,
@@ -5120,6 +5122,8 @@ export const ThreadView = memo(function ThreadView({
         onApplyAgentProfile={onApplyAgentProfile}
         onSetWebSearch={onSetWebSearch}
         onSetFast={onSetFast}
+        planModel={thread.planModel ?? null}
+        onSetPlanModel={onSetPlanModel}
         onSetRoute={onSetRoute}
         onSaveWorkflow={onSaveWorkflow}
         onRemoveWorkflow={onRemoveWorkflow}

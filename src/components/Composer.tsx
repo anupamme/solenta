@@ -49,6 +49,7 @@ import {
   isRowSelected,
   lastSelectableIndex,
   modelTriggerLabel,
+  planActTriggerLabel,
   readModelFavourites,
   rowKey,
   showReasoningControl,
@@ -198,6 +199,10 @@ export interface ComposerProps {
   onApplyAgentProfile: (profileId: string) => void | Promise<void>;
   onSetWebSearch?: (webSearch: boolean) => void | Promise<void>;
   onSetFast?: (fast: boolean) => void | Promise<void>;
+  /** Plan-mode model (#1716); null = plan on `model`. */
+  planModel?: string | null;
+  /** Shown only for providers with `supportsPlanModel`. */
+  onSetPlanModel?: (model: string | null) => void | Promise<void>;
   /** Pending first-turn route (#246); "auto" shows the pill as Auto. */
   route?: ModelRoute | null;
   /** Absent hides the Auto row. */
@@ -420,6 +425,8 @@ export const Composer = memo(function Composer({
   workflows,
   onSetProvider,
   onSetReasoningEffort,
+  planModel = null,
+  onSetPlanModel,
   onApplyAgentProfile,
   onSetWebSearch,
   onSetFast,
@@ -858,7 +865,8 @@ export const Composer = memo(function Composer({
     ? route === "auto"
       ? "Auto"
       : `Auto: ${route}`
-    : modelTriggerLabel(model, currentProviderInfo) + instanceSuffix;
+    : (planActTriggerLabel(permissionMode, planModel, model, currentProviderInfo) ??
+        modelTriggerLabel(model, currentProviderInfo)) + instanceSuffix;
   const hi = clampHighlightIndex(modelRows, highlightIndex);
   // The rail's diamond follows the highlighted row's provider.
   const railActive = favouritesOnly
@@ -2579,6 +2587,27 @@ export const Composer = memo(function Composer({
                           Fast
                         </button>
                       </div>
+                    ) : null}
+                    {onSetPlanModel && currentProviderInfo?.supportsPlanModel ? (
+                      <label className={styles.pickerEffort} data-picker-plan="">
+                        <span className={styles.pickerEffortLabel}>Plan with…</span>
+                        <select
+                          value={planModel ?? ""}
+                          disabled={locked}
+                          title="Plan-mode turns run on this model; leaving plan mode continues the same session on the model above"
+                          onChange={(e) => void onSetPlanModel(e.target.value || null)}
+                        >
+                          <option value="">Same model</option>
+                          {planModel && !currentProviderInfo.models.includes(planModel) ? (
+                            <option value={planModel}>{planModel}</option>
+                          ) : null}
+                          {currentProviderInfo.models.map((id) => (
+                            <option key={id} value={id}>
+                              {modelTriggerLabel(id, currentProviderInfo)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
                     ) : null}
                   </div>
                 </div>

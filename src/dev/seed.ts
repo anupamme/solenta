@@ -80,12 +80,14 @@ export const DEV_PROVIDERS: ProviderInfo[] = [
     ...devProvider("claude", "Claude Code", ["claude-opus-5-5", "claude-sonnet-5-5"]),
     supportsSteer: true,
     supportsAgents: true,
+    supportsPlanModel: true,
     auth: "signedIn",
     account: { email: "dev@example.com", plan: "max" },
   },
   {
     ...devProvider("codex", "Codex", ["gpt-5.3-codex", "gpt-5.3"]),
     supportsSearch: true,
+    supportsPlanModel: true,
     // Shows the signed-out picker line and Settings > Agents Sign in (#1501).
     auth: "signedOut",
   },

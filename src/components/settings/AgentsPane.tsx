@@ -34,6 +34,10 @@ export interface ProfileDraft {
   provider: string;
   model: string | null;
   reasoningEffort: ReasoningEffort | null;
+  /** Plan-mode model (#1716); only kept for supportsPlanModel providers. */
+  planModel?: string | null;
+  /** Not editable here; carried through so an edit does not drop it. */
+  planReasoningEffort?: ReasoningEffort | null;
   permissionMode: PermissionMode;
   customModel: boolean;
   defaultAction: "ask" | "allow";
@@ -130,6 +134,8 @@ function draftFromProfile(
     provider: profile.provider,
     model: profile.model,
     reasoningEffort: profile.reasoningEffort,
+    planModel: profile.planModel ?? null,
+    planReasoningEffort: profile.planReasoningEffort ?? null,
     permissionMode: snapToHonouredPermissionMode(
       providerPermissionModes(provider),
       profile.permissionMode,
@@ -206,6 +212,15 @@ export function AgentsPane({
         draft.permissionMode,
       ),
     };
+    if (selected?.supportsPlanModel && draft.planModel) {
+      nextProfile.planModel = draft.planModel;
+      if (
+        draft.planReasoningEffort &&
+        effortsForModel(selected, draft.planModel).includes(draft.planReasoningEffort)
+      ) {
+        nextProfile.planReasoningEffort = draft.planReasoningEffort;
+      }
+    }
     const rules = draft.rules
       .map((r) => ({ ...r, match: r.match.trim() }))
       .filter((r) => r.match !== "");
@@ -782,6 +797,9 @@ function ProfileForm({
       model: modelOk ? draft.model : null,
       customModel: false,
       reasoningEffort: effortOk ? draft.reasoningEffort : null,
+      // Model ids are per-CLI: the plan model cannot follow a provider switch.
+      planModel: null,
+      planReasoningEffort: null,
       permissionMode: snapToHonouredPermissionMode(
         providerPermissionModes(next),
         draft.permissionMode,
@@ -919,6 +937,34 @@ function ProfileForm({
               </option>
               );
             })}
+          </select>
+        </div>
+      )}
+      {selected?.supportsPlanModel && (
+        <div className={styles.field}>
+          <label className={styles.fieldLabel} htmlFor="profile-plan-model">
+            Plan with…
+          </label>
+          <select
+            id="profile-plan-model"
+            className={styles.input}
+            value={draft.planModel ?? ""}
+            disabled={saving}
+            title="Plan-mode turns run on this model; leaving plan mode continues the same session on the model above"
+            onChange={(e) =>
+              onChange({ ...draft, planModel: e.target.value || null })
+            }
+          >
+            <option value="">Same model</option>
+            {draft.planModel &&
+              !modelInfo.some((m) => m.id === draft.planModel) && (
+                <option value={draft.planModel}>{draft.planModel}</option>
+              )}
+            {modelInfo.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
           </select>
         </div>
       )}
