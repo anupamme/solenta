@@ -763,8 +763,13 @@ describe("Store conceals secrets on disk", () => {
       "utf8",
     );
     const store = new Store(filePath, { secrets });
-    await new Promise((r) => setTimeout(r, SAVE_DEBOUNCE_MS + 100));
-    const disk = fs.readFileSync(filePath, "utf8");
+    // Wait for the debounced save itself, not a fixed delay: a loaded CI
+    // runner fired it after SAVE_DEBOUNCE_MS + 100 and the read saw plaintext.
+    let disk = fs.readFileSync(filePath, "utf8");
+    for (let waited = 0; disk.includes("lin-plain-unique") && waited < SAVE_DEBOUNCE_MS + 5000; waited += 50) {
+      await new Promise((r) => setTimeout(r, 50));
+      disk = fs.readFileSync(filePath, "utf8");
+    }
     assert.ok(!disk.includes("lin-plain-unique"));
     assert.ok(JSON.parse(disk).settings.linearApiKey.startsWith(PREFIX));
     store.flushPending();
