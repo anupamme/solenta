@@ -11,7 +11,7 @@
  */
 
 const { WRITE_TOOLS } = require("./guardrails.js");
-const { isSafeCommand } = require("./safeCommands.js");
+const { isSafeCommand, parseArgv } = require("./safeCommands.js");
 
 /** id -> label. Order is the UI order. */
 const LABELS = {
@@ -104,6 +104,37 @@ function readsProject(tool, input, worktreePath) {
 }
 
 /**
+ * A write under `.git/`. Never "project" edits: `.git/config` can set
+ * core.fsmonitor / a pager / a diff driver, which a "safe" git command then runs.
+ * @param {string} target
+ */
+function touchesGitDir(target) {
+  return /(^|[/\\])\.git([/\\]|$)/.test(String(target));
+}
+
+/**
+ * Every argument of a safe command (and every `--flag=value` value)
+ * resolves inside the project, symlinks followed. A plain word (a search
+ * pattern) resolves to a spot under the root, so it passes. Without this,
+ * "Run safe commands" alone would auto-approve `cat ~/.ssh/id_rsa` or
+ * `cat link-out/secret` with "Read all files" off.
+ * @param {unknown} command
+ * @param {string | null} worktreePath
+ */
+function argsStayInProject(command, worktreePath) {
+  const argv = parseArgv(String(command));
+  // Unparseable here means it passed as an exact user-configured command.
+  if (!argv) return true;
+  for (const arg of argv.slice(1)) {
+    const value = arg.startsWith("-") ? (arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : "") : arg;
+    if (!value) continue;
+    const expanded = value.startsWith("~") ? require("node:os").homedir() + value.slice(1) : value;
+    if (!inProject(expanded, worktreePath)) return false;
+  }
+  return true;
+}
+
+/**
  * @typedef {{ tool: string, input: Record<string, unknown>, worktreePath: string | null | undefined, known: string[] }} RuleCtx
  */
 
@@ -120,6 +151,8 @@ function autoApproveRules(raw, opts = {}) {
   const m = normalizeAutoApprove(raw);
   if (!m) return [];
   const known = (opts.known || []).filter((k) => typeof k === "string" && k.trim());
+  const flat = (/** @type {unknown} */ s) => String(s).replace(/\s+/g, " ").trim();
+  const isKnown = (/** @type {unknown} */ cmd) => known.some((k) => flat(k) === flat(cmd));
   /** @param {RuleCtx} c */
   const root = (c) => c.worktreePath || opts.root || null;
   /** @type {Record<string, (ctx: RuleCtx) => boolean>} */
@@ -127,10 +160,16 @@ function autoApproveRules(raw, opts = {}) {
     readProject: (c) => READ_TOOLS.has(c.tool) && readsProject(c.tool, c.input, root(c)),
     readAll: (c) => READ_TOOLS.has(c.tool),
     editProject: (c) =>
-      WRITE.has(c.tool) && Boolean(inputPath(c.input)) && inProject(inputPath(c.input), root(c)),
+      WRITE.has(c.tool) &&
+      Boolean(inputPath(c.input)) &&
+      !touchesGitDir(/** @type {string} */ (inputPath(c.input))) &&
+      inProject(inputPath(c.input), root(c)),
     editAll: (c) => WRITE.has(c.tool) && Boolean(inputPath(c.input)),
     safeCommands: (c) =>
-      SHELL_TOOLS.has(c.tool) && isSafeCommand(c.input.command, known),
+      SHELL_TOOLS.has(c.tool) &&
+      isSafeCommand(c.input.command, known) &&
+      // The user's own commands (exact text) are theirs to scope.
+      (isKnown(c.input.command) || m.readAll || argsStayInProject(c.input.command, root(c))),
     allCommands: (c) => SHELL_TOOLS.has(c.tool),
     web: (c) => WEB_TOOLS.has(c.tool),
     mcp: (c) => c.tool.startsWith("mcp__"),
@@ -152,4 +191,6 @@ module.exports = {
   normalizeAutoApprove,
   autoApproveRules,
   inProject,
+  argsStayInProject,
+  touchesGitDir,
 };

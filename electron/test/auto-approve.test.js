@@ -304,6 +304,35 @@ describe("project scope: path escapes", () => {
     assert.equal(allowed("mcp__gh__issues", {}, { mcp: true }).decision, "allow");
     assert.equal(allowed("mcp__gh__issues", {}, { web: true }).decision, "ask");
   });
+
+  it("safe commands stay in the project unless Read all files is on", () => {
+    const safe = { safeCommands: true };
+    assert.equal(allowed("Bash", { command: "cat src/a.js" }, safe).decision, "allow");
+    assert.equal(allowed("Bash", { command: "rg foo src" }, safe).decision, "allow");
+    for (const command of [
+      "cat ~/.ssh/id_rsa",
+      "head -c 10 /etc/passwd",
+      "grep -r token /",
+      "cat ../outside/secret.txt",
+      "cat link-out/secret.txt",
+      "git diff --no-index /etc/passwd src/a.js",
+      `wc -l ${path.join(outside, "secret.txt")}`,
+    ]) {
+      assert.equal(allowed("Bash", { command }, safe).decision, "ask", command);
+    }
+    const reads = { safeCommands: true, readProject: true, readAll: true };
+    assert.equal(allowed("Bash", { command: "cat ~/.ssh/id_rsa" }, reads).decision, "allow");
+  });
+
+  it("Edit project files never covers .git (core.fsmonitor → a 'safe' git status runs it)", () => {
+    fs.mkdirSync(path.join(root, ".git"), { recursive: true });
+    const m = { editProject: true };
+    for (const file_path of [".git/config", ".git/hooks/pre-commit", "src/../.git/config", path.join(root, ".git", "config")]) {
+      assert.equal(allowed("Edit", { file_path }, m).decision, "ask", file_path);
+    }
+    assert.equal(allowed("Edit", { file_path: "src/a.git.js" }, m).decision, "allow");
+    assert.equal(allowed("Edit", { file_path: ".gitignore" }, m).decision, "allow");
+  });
 });
 
 describe("deny wins over every toggle", () => {
