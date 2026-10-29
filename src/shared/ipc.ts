@@ -3392,7 +3392,7 @@ export interface DistilledMemory {
   citations: MemoryCitation[];
 }
 
-export type AutomationPreset = "hourly" | "daily" | "weekly";
+export type AutomationPreset = "hourly" | "daily" | "weekly" | "cron";
 
 export type AutomationTriggerEvent =
   | "pr_opened"
@@ -3456,8 +3456,10 @@ export interface AutomationInfo {
   provider: string;
   model: string | null;
   preset: AutomationPreset;
-  /** 0-23 for daily/weekly; null for hourly. */
+  /** 0-23 for daily/weekly; null for hourly and cron. */
   hour: number | null;
+  /** 5-field local-time expression; set only when preset is "cron" (#1719). */
+  cron?: string;
   enabled: boolean;
   lastRunAt: number | null;
   nextRunAt: number;
@@ -3492,6 +3494,8 @@ export interface AutomationWrite {
   model?: string | null;
   preset: AutomationPreset;
   hour?: number | null;
+  /** Required when preset is "cron". */
+  cron?: string;
   enabled?: boolean;
   trigger?: AutomationTrigger | null;
   memory?: string;

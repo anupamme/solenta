@@ -9,6 +9,7 @@ import type {
 } from "../shared/ipc";
 import type { DevCtx } from "./context.ts";
 import { now, id } from "./util.ts";
+import { nextCronFire, parseCron } from "../cron.ts";
 
 const SLUG_RE = /^[a-z][a-z0-9-]{0,47}$/;
 
@@ -36,7 +37,9 @@ export function nextAutomationFire(
   preset: AutomationInfo["preset"],
   hour: number | null,
   fromMs: number,
+  cron?: string,
 ): number {
+  if (preset === "cron") return nextCronFire(cron ?? "", fromMs) ?? fromMs;
   const from = new Date(fromMs);
   if (preset === "hourly") {
     const next = new Date(from);
@@ -90,11 +93,18 @@ export function normalizeDevAutomation(
   const preset = (Object.prototype.hasOwnProperty.call(input, "preset")
     ? input.preset
     : existing?.preset) as AutomationInfo["preset"] | undefined;
-  if (preset !== "hourly" && preset !== "daily" && preset !== "weekly") {
+  if (preset !== "hourly" && preset !== "daily" && preset !== "weekly" && preset !== "cron") {
     throw new Error("Invalid preset");
   }
+  let cron: string | undefined;
+  if (preset === "cron") {
+    cron = String(
+      (Object.prototype.hasOwnProperty.call(input, "cron") ? input.cron : existing?.cron) ?? "",
+    ).trim();
+    parseCron(cron);
+  }
   let hour: number | null = null;
-  if (preset !== "hourly") {
+  if (preset === "daily" || preset === "weekly") {
     const raw = Object.prototype.hasOwnProperty.call(input, "hour")
       ? input.hour
       : existing?.hour;
@@ -141,6 +151,7 @@ export function normalizeDevAutomation(
     model,
     preset,
     hour,
+    ...(cron ? { cron } : {}),
     enabled,
     trigger,
     memory,
@@ -255,7 +266,7 @@ export function createAutomations(ctx: DevCtx): Pick<CoderApi, "automations"> {
           enabled,
           stageSince: now(),
           lastRunAt: null,
-          nextRunAt: nextAutomationFire(fields.preset, fields.hour, now()),
+          nextRunAt: nextAutomationFire(fields.preset, fields.hour, now(), fields.cron),
           lastError: null,
         };
         automationsList = [...automationsList, created];
@@ -271,15 +282,18 @@ export function createAutomations(ctx: DevCtx): Pick<CoderApi, "automations"> {
         }
         const fields = normalizeDevAutomation(input, ctx.projects, existing);
         const scheduleChanged =
-          fields.preset !== existing.preset || fields.hour !== existing.hour;
+          fields.preset !== existing.preset ||
+          fields.hour !== existing.hour ||
+          fields.cron !== existing.cron;
         const updated: AutomationInfo = {
           ...existing,
           ...fields,
           ...(fields.stage !== existing.stage ? { stageSince: now() } : {}),
           nextRunAt: scheduleChanged
-            ? nextAutomationFire(fields.preset, fields.hour, now())
+            ? nextAutomationFire(fields.preset, fields.hour, now(), fields.cron)
             : existing.nextRunAt,
         };
+        if (!fields.cron) delete updated.cron;
         automationsList = automationsList.map((a) =>
           a.id === existing.id ? updated : a,
         );
@@ -328,6 +342,7 @@ export function createAutomations(ctx: DevCtx): Pick<CoderApi, "automations"> {
           existing.preset,
           existing.hour,
           firedAt,
+          existing.cron,
         );
         try {
           const thread = await ctx.api().threads.create({
