@@ -655,6 +655,7 @@ function createPermissions(ctx) {
         worktreePath,
         policy: gov.policy,
         builtin,
+        mcpRules: gov.mcpRules,
       });
       const audit = (row) =>
         appendAudit({

@@ -41,6 +41,64 @@ function isPlainObject(v) {
   return proto === Object.prototype || proto === null;
 }
 
+/** MCP tool names: what `mcp__<server>__<tool>` rules can safely glob on. */
+const MCP_TOOL_NAME_RE = /^[A-Za-z0-9_.-]{1,128}$/;
+const MCP_TOOL_RULES_MAX = 256;
+const MCP_TOOL_ACTIONS = new Set(["allow", "ask", "deny"]);
+const OAUTH_STRING_FIELDS = [
+  "accessToken",
+  "refreshToken",
+  "tokenType",
+  "scope",
+  "clientId",
+  "clientSecret",
+  "redirectUri",
+];
+
+/**
+ * Tokens from the MCP OAuth flow (#1720). Main writes these; the renderer
+ * never can (sanitizeMcpInput drops `oauth`). Lenient: junk is dropped.
+ * @param {unknown} raw
+ */
+function parseOauth(raw) {
+  if (!isPlainObject(raw)) return undefined;
+  /** @type {Record<string, string | number>} */
+  const out = {};
+  for (const k of OAUTH_STRING_FIELDS) {
+    const v = raw[k];
+    if (typeof v === "string" && v && v.length <= MCP_TOKEN_MAX && !BAD_CHARS_RE.test(v)) {
+      out[k] = v;
+    }
+  }
+  if (Number.isFinite(raw.expiresAt) && raw.expiresAt > 0) out.expiresAt = raw.expiresAt;
+  return out.accessToken ? out : undefined;
+}
+
+/**
+ * Per-tool allow/ask/deny (#1720), compiled into governance rules.
+ * @param {unknown} raw
+ * @returns {Record<string, "allow" | "ask" | "deny"> | undefined}
+ */
+function parseToolRules(raw) {
+  if (!isPlainObject(raw)) return undefined;
+  /** @type {Record<string, "allow" | "ask" | "deny">} */
+  const out = {};
+  for (const [k, v] of Object.entries(raw).slice(0, MCP_TOOL_RULES_MAX)) {
+    if (MCP_TOOL_NAME_RE.test(k) && !PROTOTYPE_KEYS.has(k) && MCP_TOOL_ACTIONS.has(v)) {
+      out[k] = v;
+    }
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+/** Public view of the OAuth record: never a token. */
+function oauthStatus(oauth) {
+  if (!isPlainObject(oauth) || !oauth.accessToken) return undefined;
+  const row = { refreshable: Boolean(oauth.refreshToken) };
+  if (Number.isFinite(oauth.expiresAt)) row.expiresAt = oauth.expiresAt;
+  return row;
+}
+
 /**
  * @param {unknown} u
  * @returns {boolean}
@@ -383,6 +441,8 @@ function parseOne(item, strict) {
     if (cwd) entry.cwd = cwd;
     if (provenance) entry.provenance = provenance;
     if (catalogId) entry.catalogId = catalogId;
+    const toolRules = parseToolRules(item.toolRules);
+    if (toolRules) entry.toolRules = toolRules;
     return entry;
   }
 
@@ -443,6 +503,10 @@ function parseOne(item, strict) {
   entry.headers = headers || {};
   if (provenance) entry.provenance = provenance;
   if (catalogId) entry.catalogId = catalogId;
+  const oauth = parseOauth(item.oauth);
+  if (oauth) entry.oauth = oauth;
+  const toolRules = parseToolRules(item.toolRules);
+  if (toolRules) entry.toolRules = toolRules;
   return entry;
 }
 
@@ -553,6 +617,8 @@ function redactMcpServer(stored) {
     if (typeof stored.cwd === "string" && stored.cwd) row.cwd = stored.cwd;
     if (provenance) row.provenance = provenance;
     if (catalogId) row.catalogId = catalogId;
+    const toolRules = parseToolRules(stored.toolRules);
+    if (toolRules) row.toolRules = toolRules;
     return row;
   }
   const headers =
@@ -571,6 +637,10 @@ function redactMcpServer(stored) {
   };
   if (provenance) row.provenance = provenance;
   if (catalogId) row.catalogId = catalogId;
+  const oauth = oauthStatus(stored.oauth);
+  if (oauth) row.oauth = oauth;
+  const toolRules = parseToolRules(stored.toolRules);
+  if (toolRules) row.toolRules = toolRules;
   return row;
 }
 
@@ -623,6 +693,9 @@ function upsertMcpServer(list, input) {
 
   /** @type {Record<string, unknown>} */
   const merged = { ...input, name, transport };
+  if (!Object.prototype.hasOwnProperty.call(input, "toolRules") && existing && existing.toolRules) {
+    merged.toolRules = { ...existing.toolRules };
+  }
 
   if (transport === "stdio") {
     if (switched) {
@@ -686,6 +759,15 @@ function upsertMcpServer(list, input) {
         if (existing.headers) merged.headers = { ...existing.headers };
       } else {
         merged.headers = mergeSecretMap(existing.headers, input.headers, true);
+      }
+      // A sign-in belongs to one endpoint: a new URL drops it.
+      if (
+        !Object.prototype.hasOwnProperty.call(input, "oauth") &&
+        existing.oauth &&
+        (!Object.prototype.hasOwnProperty.call(input, "url") ||
+          sameUrl(input.url, existing.url))
+      ) {
+        merged.oauth = { ...existing.oauth };
       }
     } else if (Object.prototype.hasOwnProperty.call(input, "token") && input.token === "") {
       delete merged.token;
@@ -803,11 +885,20 @@ function sanitizeMcpInput(input) {
     "trusted",
     "provenance",
     "catalogId",
+    "toolRules",
   ];
   for (const key of keep) {
     if (Object.prototype.hasOwnProperty.call(src, key)) out[key] = src[key];
   }
   return out;
+}
+
+function sameUrl(a, b) {
+  try {
+    return new URL(String(a).trim()).href === new URL(String(b)).href;
+  } catch {
+    return false;
+  }
 }
 
 function slugMcpName(name) {
@@ -925,12 +1016,18 @@ function buildFromConfigDef(name, def, warnings) {
   if (transport === "stdio") {
     const env = copyStringMap(def.env);
     const envNames = Object.keys(env);
-    const requiredSecrets = extractTemplateSecrets(env, `${slug}:env`);
+    const args = Array.isArray(def.args) ? def.args : [];
+    // `${NAME}` in args (a folder for the filesystem server) is asked for
+    // at install like an env secret.
+    const requiredSecrets = [
+      ...extractTemplateSecrets(env, `${slug}:env`),
+      ...extractTemplateSecrets({ ...args }, `${slug}:arg`),
+    ];
     const stored = {
       name: slug,
       transport: "stdio",
       command: def.command,
-      args: Array.isArray(def.args) ? def.args : [],
+      args,
       env,
       enabled: false,
       trusted: false,
@@ -1334,6 +1431,8 @@ function parseMcpImportDocument(input) {
 
 module.exports = {
   MCP_SERVER_NAME_RE,
+  MCP_TOOL_NAME_RE,
+  parseToolRules,
   RESERVED_MCP_NAMES,
   MCP_NAME_MAX,
   isHttpUrl,

@@ -9,6 +9,8 @@ import type {
   McpServerDefinition,
   McpServerInfo,
   McpServerSaveInput,
+  McpToolAction,
+  McpToolInfo,
 } from "../shared/ipc";
 import {
   parseMcpConfigDocument,
@@ -17,100 +19,77 @@ import {
   upsertMcpServer,
 } from "../shared/mcpModel.ts";
 import type { DevCtx } from "./context.ts";
+import { DEV_MCP_CATALOG_DATA } from "./mcpCatalogData.ts";
 
-/**
- * Browser-twin mirror of the main-process curated catalog
- * (electron/mcpCatalog.js). Keep ids/definitions in sync with it.
- */
+/** Browser-twin row of the main-process catalog (electron/mcpCatalog.js). */
 export interface DevMcpCatalogEntry {
   id: string;
   name: string;
   description: string;
+  category: string;
   publisher: string;
   homepage: string;
   sourceUrl: string;
   transport: "http" | "sse" | "stdio";
+  auth: "oauth" | "key" | "none";
   risk: string;
+  requiredSecrets: Array<{ id: string; label: string }>;
   definition: Record<string, unknown>;
 }
 
-export const DEV_MCP_CATALOG: readonly DevMcpCatalogEntry[] = [
-  {
-    id: "context7",
-    name: "Context7",
-    description:
-      "Up-to-date library documentation and code examples for LLMs over a remote MCP endpoint.",
-    publisher: "Upstash",
-    homepage: "https://context7.com",
-    sourceUrl: "https://context7.com",
-    transport: "http",
-    risk: "Remote HTTP endpoint. Review the vendor before sending repository context.",
-    definition: {
-      name: "context7",
-      transport: "http",
-      url: "https://mcp.context7.com/mcp",
-      enabled: true,
-    },
-  },
-  {
-    id: "linear",
-    name: "Linear",
-    description:
-      "Linear issue tracking and project management over a remote MCP endpoint.",
-    publisher: "Linear",
-    homepage: "https://linear.app",
-    sourceUrl: "https://linear.app",
-    transport: "http",
-    risk: "Remote HTTP with OAuth. No static secret is stored; complete Linear's OAuth flow.",
-    definition: {
-      name: "linear",
-      transport: "http",
-      url: "https://mcp.linear.app/mcp",
-      enabled: true,
-    },
-  },
-  {
-    id: "playwright",
-    name: "Playwright",
-    description:
-      "Browser automation via the Playwright MCP server. Runs a local npx command.",
-    publisher: "Microsoft",
-    homepage: "https://playwright.dev",
-    sourceUrl: "https://playwright.dev",
-    transport: "stdio",
-    risk: "Local stdio via npx. Explicit trust is required before the command can run.",
-    definition: {
-      name: "playwright",
-      transport: "stdio",
-      command: "npx",
-      args: ["-y", "@playwright/mcp@latest"],
-      enabled: false,
-      trusted: false,
-    },
-  },
-];
+export const DEV_MCP_CATALOG: readonly DevMcpCatalogEntry[] = DEV_MCP_CATALOG_DATA;
+
+function summaryOf(def: Record<string, unknown>): string {
+  return def.transport === "stdio"
+    ? [def.command, ...((def.args as string[]) || [])].join(" ")
+    : String(def.url);
+}
 
 /** Public catalog rows with `installed` derived from the curated servers. */
 export function devMcpCatalogRows(
-  servers: ReadonlyArray<{ provenance?: string; catalogId?: string }>,
+  servers: ReadonlyArray<{ name?: string; provenance?: string; catalogId?: string }>,
 ): McpCatalogEntry[] {
-  const installedIds = new Set(
-    servers
-      .filter((s) => s.provenance === "curated" && s.catalogId)
-      .map((s) => s.catalogId as string),
-  );
+  const installed = new Map<string, string>();
+  for (const s of servers) {
+    if (s.provenance === "curated" && s.catalogId) installed.set(s.catalogId, s.name ?? "");
+  }
   return DEV_MCP_CATALOG.map((entry) => ({
     id: entry.id,
     name: entry.name,
     description: entry.description,
+    category: entry.category,
     publisher: entry.publisher,
-    sourceUrl: entry.sourceUrl,
     homepage: entry.homepage,
+    sourceUrl: entry.sourceUrl,
     transport: entry.transport,
+    auth: entry.auth,
     risk: entry.risk,
-    requiredSecrets: [],
-    installed: installedIds.has(entry.id),
+    summary: summaryOf(entry.definition),
+    requiredSecrets: entry.requiredSecrets.map((r) => ({ ...r })),
+    installed: installed.has(entry.id),
+    ...(installed.get(entry.id) ? { installedName: installed.get(entry.id) } : {}),
   }));
+}
+
+/** Fixture tools so browser dev can show the per-tool rules UI. */
+export function devMcpTools(name: string): McpToolInfo[] {
+  return [
+    { name: "search", description: `Search ${name}` },
+    { name: "read_item", description: "Read one item by id" },
+    { name: "create_item", description: "Create a new item" },
+    { name: "delete_item", description: "Delete an item permanently" },
+  ];
+}
+
+export function withToolRule<T extends { toolRules?: Record<string, McpToolAction> }>(
+  s: T,
+  tool: string,
+  action: McpToolAction | null,
+): T {
+  const rules = { ...(s.toolRules || {}) };
+  if (action === null) delete rules[tool];
+  else rules[tool] = action;
+  return { ...s, toolRules: rules };
 }
 
 export function redactDevMcp(s: McpServerInfo): McpServerDefinition {
@@ -287,6 +266,48 @@ export function createMcp(ctx: DevCtx): Pick<CoderApi, "mcp"> {
       },
       async discardImport(input: { previewId: string }): Promise<void> {
         if (pendingMcpImport?.previewId === input.previewId) pendingMcpImport = null;
+      },
+      // Browser dev has no loopback or shell: pretend the sign-in succeeded.
+      async oauthConnect(input: { name: string }): Promise<McpServerDefinition> {
+        ctx.mcpServers = ctx.mcpServers.map((s) =>
+          s.name === input.name && s.transport !== "stdio"
+            ? { ...s, oauth: { accessToken: "dev", refreshToken: "dev", expiresAt: Date.now() + 3_600_000 } }
+            : s,
+        ) as McpServerInfo[];
+        const saved = ctx.mcpServers.find((s) => s.name === input.name);
+        if (!saved) throw new Error(`Unknown MCP server: ${input.name}`);
+        return redactMcpServer(saved) as unknown as McpServerDefinition;
+      },
+      async listTools(input: { name: string }) {
+        if (!ctx.mcpServers.some((s) => s.name === input.name)) {
+          throw new Error(`Unknown MCP server: ${input.name}`);
+        }
+        return { tools: devMcpTools(input.name) };
+      },
+      async setToolRule(input: {
+        name: string;
+        tool: string;
+        action: McpToolAction | null;
+      }): Promise<McpServerDefinition> {
+        ctx.mcpServers = ctx.mcpServers.map((s) =>
+          s.name === input.name ? withToolRule(s, input.tool, input.action) : s,
+        );
+        const saved = ctx.mcpServers.find((s) => s.name === input.name);
+        if (!saved) throw new Error(`Unknown MCP server: ${input.name}`);
+        return redactMcpServer(saved) as unknown as McpServerDefinition;
+      },
+      async oauthCancel(): Promise<{ cancelled: boolean }> {
+        return { cancelled: false };
+      },
+      async oauthDisconnect(input: { name: string }): Promise<McpServerDefinition> {
+        ctx.mcpServers = ctx.mcpServers.map((s) => {
+          if (s.name !== input.name) return s;
+          const { oauth: _drop, ...rest } = s as McpServerInfo & { oauth?: unknown };
+          return rest;
+        }) as McpServerInfo[];
+        const saved = ctx.mcpServers.find((s) => s.name === input.name);
+        if (!saved) throw new Error(`Unknown MCP server: ${input.name}`);
+        return redactMcpServer(saved) as unknown as McpServerDefinition;
       },
     },
   };

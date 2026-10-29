@@ -207,43 +207,126 @@ const TEMPLATE_DOC = {
 };
 
 describe("listCatalog", () => {
-  it("returns three main-owned entries with real metadata and no public secrets", () => {
+  it("every catalog entry has a well-formed install config and no public secrets", () => {
+    const { parseMcpConfigDocument, isHttpUrl } = require("../mcp.js");
     const catalog = listCatalog();
-    assert.equal(catalog.length, 3);
-    const byId = Object.fromEntries(catalog.map((e) => [e.id, e]));
-    assert.ok(byId.context7);
-    assert.equal(byId.context7.name, "Context7");
-    assert.ok(byId.context7.description.length > 0);
-    assert.ok(byId.context7.publisher);
-    assert.equal(byId.context7.homepage, "https://context7.com");
-    assert.equal(byId.context7.transport, "http");
-    assert.match(byId.context7.risk, /remote|http/i);
-    assert.deepEqual(byId.context7.requiredSecrets, []);
-    assert.equal(byId.context7.installed, false);
-    assert.equal(byId.context7.definition, undefined);
-    assert.equal(byId.context7.url, undefined);
+    assert.ok(catalog.length >= 25, `marketplace has ${catalog.length} entries`);
+    const ids = new Set();
+    const names = new Set();
+    for (const row of catalog) {
+      const at = `catalog ${row.id}`;
+      assert.match(row.id, /^[a-z0-9-]+$/, at);
+      assert.equal(ids.has(row.id), false, `${at}: duplicate id`);
+      ids.add(row.id);
+      for (const k of ["name", "description", "category", "publisher", "risk", "summary"]) {
+        assert.ok(typeof row[k] === "string" && row[k].trim(), `${at}: ${k}`);
+      }
+      assert.ok(row.description.length <= 90, `${at}: one-line description`);
+      assert.match(row.homepage, /^https:\/\//, at);
+      assert.ok(["http", "sse", "stdio"].includes(row.transport), at);
+      assert.ok(["oauth", "key", "none"].includes(row.auth), at);
+      assert.equal(row.auth === "key", row.requiredSecrets.length > 0, `${at}: auth`);
+      assert.equal(row.installed, false, at);
+      // The install config stays in main; the renderer only gets a summary.
+      assert.equal(row.definition, undefined, at);
+      assert.equal(row.url, undefined, at);
 
-    assert.ok(byId.linear);
-    assert.equal(byId.linear.homepage, "https://linear.app");
-    assert.equal(byId.linear.transport, "http");
-    assert.match(byId.linear.risk, /oauth/i);
-    assert.deepEqual(byId.linear.requiredSecrets, []);
-
-    assert.ok(byId.playwright);
-    assert.equal(byId.playwright.transport, "stdio");
-    assert.match(byId.playwright.risk, /trust|local|npx/i);
-    assert.equal(byId.playwright.installed, false);
-
-    const ctx = getCatalogEntry("context7");
-    assert.equal(ctx.definition.url, "https://mcp.context7.com/mcp");
-    assert.equal(ctx.definition.token, undefined);
-    const lin = getCatalogEntry("linear");
-    assert.equal(lin.definition.url, "https://mcp.linear.app/mcp");
-    const pw = getCatalogEntry("playwright");
-    assert.equal(pw.definition.command, "npx");
-    assert.deepEqual(pw.definition.args, ["-y", "@playwright/mcp@latest"]);
+      const def = getCatalogEntry(row.id).definition;
+      assert.equal(def.transport, row.transport, at);
+      assert.equal(names.has(def.name), false, `${at}: duplicate server name`);
+      names.add(def.name);
+      assert.equal(def.token, undefined, `${at}: no static token`);
+      for (const v of Object.values({ ...def.env, ...def.headers })) {
+        assert.match(v, /\$\{[A-Z][A-Z0-9_]*\}/, `${at}: secrets are install-form templates`);
+      }
+      if (def.transport === "stdio") {
+        assert.ok(["npx", "uvx"].includes(def.command), `${at}: command`);
+        assert.equal(def.url, undefined, at);
+        if (def.command === "npx") assert.equal(def.args[0], "-y", `${at}: npx must not prompt`);
+      } else {
+        assert.ok(isHttpUrl(def.url), at);
+        const u = new URL(def.url);
+        assert.ok(u.protocol === "https:" || u.hostname === "127.0.0.1", `${at}: https or loopback`);
+      }
+      // Exactly what install stores: one server, no warnings, same name.
+      const parsed = parseMcpConfigDocument([def]);
+      assert.equal(parsed.servers.length, 1, at);
+      assert.deepEqual(parsed.warnings, [], at);
+      assert.equal(parsed.servers[0].stored.name, def.name, at);
+      assert.deepEqual(
+        parsed.servers[0].meta.requiredSecrets.map((s) => s.label),
+        row.requiredSecrets.map((s) => s.label),
+        at,
+      );
+    }
+    for (const id of ["context7", "linear", "playwright", "github", "filesystem"]) {
+      assert.ok(ids.has(id), `${id} stays in the catalog`);
+    }
+    assert.equal(getCatalogEntry("context7").definition.url, "https://mcp.context7.com/mcp");
+    assert.equal(getCatalogEntry("linear").definition.url, "https://mcp.linear.app/mcp");
+    assert.deepEqual(getCatalogEntry("playwright").definition.args, ["-y", "@playwright/mcp@latest"]);
     assert.equal(getCatalogEntry("not-real"), null);
     assert.equal(getCatalogEntry("https://evil.example/mcp"), null);
+  });
+
+  it("install/uninstall round trip: secrets fill templates, curated row, Installed flips back", async () => {
+    const { upsertMcpServer } = require("../mcp.js");
+    const userDataPath = fs.mkdtempSync(path.join(os.tmpdir(), "coder-mcp-market-"));
+    try {
+      let stored = [];
+      const install = async (id, secrets) => {
+        const preview = await previewImport({
+          userDataPath,
+          input: { kind: "catalog", id },
+          current: stored,
+        });
+        await installImport({
+          userDataPath,
+          current: stored,
+          request: {
+            previewId: preview.previewId,
+            selected: preview.servers.map((s) => s.name),
+            trustLocalCommands: true,
+            secrets,
+          },
+          save: (next) => {
+            stored = next;
+          },
+        });
+      };
+      const formId = (id, label) =>
+        listCatalog().find((e) => e.id === id).requiredSecrets.find((s) => s.label === label).id;
+
+      await assert.rejects(() => install("brave-search", {}), /Missing secret for BRAVE_API_KEY/);
+      await install("brave-search", { [formId("brave-search", "BRAVE_API_KEY")]: "bsk-1" });
+      await install("github", {
+        [formId("github", "GITHUB_PERSONAL_ACCESS_TOKEN")]: "ghp_x",
+      });
+      await install("filesystem", { [formId("filesystem", "ALLOWED_FOLDER")]: "/tmp/work" });
+      await install("sentry", {});
+
+      const byName = Object.fromEntries(stored.map((s) => [s.name, s]));
+      assert.deepEqual(byName["brave-search"].env, { BRAVE_API_KEY: "bsk-1" });
+      assert.equal(byName["brave-search"].trusted, true);
+      assert.equal(byName["brave-search"].enabled, true);
+      assert.deepEqual(byName.github.headers, { Authorization: "Bearer ghp_x" });
+      assert.deepEqual(byName.filesystem.args, ["-y", "@modelcontextprotocol/server-filesystem", "/tmp/work"]);
+      assert.equal(byName.sentry.url, "https://mcp.sentry.dev/mcp");
+      for (const s of stored) assert.equal(s.provenance, "curated");
+
+      const listed = listCatalog({ servers: stored });
+      const gh = listed.find((e) => e.id === "github");
+      assert.equal(gh.installed, true);
+      assert.equal(gh.installedName, "github");
+      assert.equal(JSON.stringify(listed).includes("ghp_x"), false, "no secret in the catalog rows");
+
+      stored = stored.filter((s) => s.name !== gh.installedName);
+      assert.equal(listCatalog({ servers: stored }).find((e) => e.id === "github").installed, false);
+      // The remaining rows still validate as a settings slice.
+      assert.ok(upsertMcpServer(stored, { ...byName.sentry }));
+    } finally {
+      fs.rmSync(userDataPath, { recursive: true, force: true });
+    }
   });
 
   it("marks installed only for stored provenance curated plus catalogId", () => {

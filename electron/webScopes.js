@@ -281,6 +281,9 @@ const BY_SCOPE = {
     "mcp:setEnabled",
     "mcp:previewImport",
     "mcp:discardImport",
+    "mcp:oauthCancel",
+    "mcp:oauthDisconnect",
+    "mcp:setToolRule",
     "pairing:list",
     "skills:add",
     "skills:remove",
@@ -319,6 +322,10 @@ const BY_SCOPE = {
     "mcp:save",
     "mcp:installImport",
     "mcp:pairXcode",
+    // Opens the host's browser and listens on a host loopback port.
+    "mcp:oauthConnect",
+    // Starts a trusted stdio server on the host to read its tool list.
+    "mcp:listTools",
     "pairing:create",
     "pairing:revoke",
     "pairing:approve",

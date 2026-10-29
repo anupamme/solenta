@@ -46,12 +46,75 @@ export type StoredMcpServer = {
   trusted?: boolean;
   provenance?: "added" | "curated";
   catalogId?: string;
+  oauth?: Record<string, string | number>;
+  toolRules?: Record<string, "allow" | "ask" | "deny">;
 };
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   if (v == null || typeof v !== "object" || Array.isArray(v)) return false;
   const proto = Object.getPrototypeOf(v);
   return proto === Object.prototype || proto === null;
+}
+
+// Mirror of electron/mcp.js parseOauth / parseToolRules / oauthStatus (#1720).
+const MCP_TOOL_NAME_RE = /^[A-Za-z0-9_.-]{1,128}$/;
+const MCP_TOOL_RULES_MAX = 256;
+const MCP_TOOL_ACTIONS = new Set(["allow", "ask", "deny"]);
+const OAUTH_STRING_FIELDS = [
+  "accessToken",
+  "refreshToken",
+  "tokenType",
+  "scope",
+  "clientId",
+  "clientSecret",
+  "redirectUri",
+];
+
+function parseOauth(raw: unknown): Record<string, string | number> | undefined {
+  if (!isPlainObject(raw)) return undefined;
+  const out: Record<string, string | number> = {};
+  for (const k of OAUTH_STRING_FIELDS) {
+    const v = raw[k];
+    if (typeof v === "string" && v && v.length <= 8 * 1024 && !/[\0\r\n]/.test(v)) {
+      out[k] = v;
+    }
+  }
+  const exp = raw.expiresAt;
+  if (typeof exp === "number" && Number.isFinite(exp) && exp > 0) out.expiresAt = exp;
+  return out.accessToken ? out : undefined;
+}
+
+function parseToolRules(raw: unknown): Record<string, "allow" | "ask" | "deny"> | undefined {
+  if (!isPlainObject(raw)) return undefined;
+  const out: Record<string, "allow" | "ask" | "deny"> = {};
+  for (const [k, v] of Object.entries(raw).slice(0, MCP_TOOL_RULES_MAX)) {
+    if (
+      MCP_TOOL_NAME_RE.test(k) &&
+      !["__proto__", "prototype", "constructor"].includes(k) &&
+      typeof v === "string" &&
+      MCP_TOOL_ACTIONS.has(v)
+    ) {
+      out[k] = v as "allow" | "ask" | "deny";
+    }
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+function oauthStatus(oauth: unknown): Record<string, unknown> | undefined {
+  if (!isPlainObject(oauth) || !oauth.accessToken) return undefined;
+  const row: Record<string, unknown> = { refreshable: Boolean(oauth.refreshToken) };
+  if (typeof oauth.expiresAt === "number" && Number.isFinite(oauth.expiresAt)) {
+    row.expiresAt = oauth.expiresAt;
+  }
+  return row;
+}
+
+function sameUrl(a: unknown, b: unknown): boolean {
+  try {
+    return new URL(String(a).trim()).href === new URL(String(b)).href;
+  } catch {
+    return false;
+  }
 }
 
 export function isHttpUrl(u: unknown): boolean {
@@ -355,6 +418,8 @@ function parseOne(item: unknown, strict: boolean): StoredMcpServer | null {
     if (cwd) entry.cwd = cwd;
     if (provenance) entry.provenance = provenance;
     if (catalogId) entry.catalogId = catalogId;
+    const toolRules = parseToolRules(item.toolRules);
+    if (toolRules) entry.toolRules = toolRules;
     return entry;
   }
 
@@ -413,6 +478,10 @@ function parseOne(item: unknown, strict: boolean): StoredMcpServer | null {
   }
   if (provenance) entry.provenance = provenance;
   if (catalogId) entry.catalogId = catalogId;
+  const oauth = parseOauth(item.oauth);
+  if (oauth) entry.oauth = oauth;
+  const toolRules = parseToolRules(item.toolRules);
+  if (toolRules) entry.toolRules = toolRules;
   return entry;
 }
 
@@ -499,6 +568,8 @@ export function redactMcpServer(stored: unknown): Record<string, unknown> {
     if (typeof s.cwd === "string" && s.cwd) row.cwd = s.cwd;
     if (provenance) row.provenance = provenance;
     if (catalogId) row.catalogId = catalogId;
+    const toolRules = parseToolRules(s.toolRules);
+    if (toolRules) row.toolRules = toolRules;
     return row;
   }
   const headers = s.headers && typeof s.headers === "object" ? s.headers : {};
@@ -512,6 +583,10 @@ export function redactMcpServer(stored: unknown): Record<string, unknown> {
   };
   if (provenance) row.provenance = provenance;
   if (catalogId) row.catalogId = catalogId;
+  const oauth = oauthStatus(s.oauth);
+  if (oauth) row.oauth = oauth;
+  const toolRules = parseToolRules(s.toolRules);
+  if (toolRules) row.toolRules = toolRules;
   return row;
 }
 
@@ -551,6 +626,9 @@ export function upsertMcpServer(list: unknown, input: unknown): StoredMcpServer[
     inferTransport(rec) || (existing && existing.transport) || "";
   const switched = Boolean(existing && existing.transport !== transport);
   const merged: Record<string, unknown> = { ...rec, name, transport };
+  if (!Object.prototype.hasOwnProperty.call(input, "toolRules") && existing?.toolRules) {
+    merged.toolRules = { ...existing.toolRules };
+  }
 
   if (transport === "stdio") {
     if (switched) {
@@ -601,6 +679,13 @@ export function upsertMcpServer(list: unknown, input: unknown): StoredMcpServer[
         if (existing.headers) merged.headers = { ...existing.headers };
       } else {
         merged.headers = mergeSecretMap(existing.headers, rec.headers, true);
+      }
+      if (
+        !Object.prototype.hasOwnProperty.call(input, "oauth") &&
+        existing.oauth &&
+        (!Object.prototype.hasOwnProperty.call(input, "url") || sameUrl(rec.url, existing.url))
+      ) {
+        merged.oauth = { ...existing.oauth };
       }
     } else if (Object.prototype.hasOwnProperty.call(input, "token") && rec.token === "") {
       delete merged.token;
@@ -654,6 +739,7 @@ export function sanitizeMcpInput(input: unknown): Record<string, unknown> {
     "trusted",
     "provenance",
     "catalogId",
+    "toolRules",
   ];
   for (const key of keep) {
     if (Object.prototype.hasOwnProperty.call(src, key)) out[key] = src[key];

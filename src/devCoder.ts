@@ -62,7 +62,7 @@ import {
   createWorkflows,
 } from "./dev/workflows.ts";
 import { createWorkspace } from "./dev/workspace.ts";
-export { DEV_MCP_CATALOG, devMcpCatalogRows } from "./dev/mcp.ts";
+export { DEV_MCP_CATALOG, devMcpCatalogRows, devMcpTools, withToolRule } from "./dev/mcp.ts";
 export type { DevMcpCatalogEntry } from "./dev/mcp.ts";
 
 type ListenerMap = {

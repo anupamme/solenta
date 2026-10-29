@@ -115,7 +115,12 @@ import type {
 import { normalizeMessagePins } from "../../src/messagePins";
 import { queuedItemFiles, queuedRow } from "../../src/queuedFiles";
 import { buildActivity } from "../../src/activity";
-import { DEV_MCP_CATALOG, devMcpCatalogRows } from "../../src/devCoder.ts";
+import {
+  DEV_MCP_CATALOG,
+  devMcpCatalogRows,
+  devMcpTools,
+  withToolRule,
+} from "../../src/devCoder.ts";
 import {
   mergeMcpSettingsPatch,
   parseMcpConfigDocument,
@@ -1316,6 +1321,42 @@ export function createFakeCoder(opts: FakeOptions = {}): FakeCoder {
       discardImport: (input: { previewId: string }) => {
         if (pendingMcpImport?.previewId === input.previewId) pendingMcpImport = null;
         return rec("mcp.discardImport", [input], undefined);
+      },
+      oauthConnect: (input: { name: string }) => {
+        const next = settingsState.mcpServers.map((s) =>
+          s.name === input.name && s.transport !== "stdio"
+            ? { ...s, oauth: { accessToken: "fake", refreshToken: "fake", expiresAt: Date.now() + 3_600_000 } }
+            : s,
+        ) as McpServerInfo[];
+        settingsState = { ...settingsState, mcpServers: next };
+        const saved = next.find((s) => s.name === input.name);
+        if (!saved) {
+          calls.push({ channel: "mcp.oauthConnect", args: [input] });
+          return Promise.reject(new Error(`Unknown MCP server: ${input.name}`));
+        }
+        return rec("mcp.oauthConnect", [input], redactMcpServer(saved) as McpServerDefinition);
+      },
+      listTools: (input: { name: string }) =>
+        rec("mcp.listTools", [input], { tools: devMcpTools(input.name) }),
+      setToolRule: (input: { name: string; tool: string; action: "allow" | "ask" | "deny" | null }) => {
+        const next = settingsState.mcpServers.map((s) =>
+          s.name === input.name ? withToolRule(s, input.tool, input.action) : s,
+        ) as McpServerInfo[];
+        settingsState = { ...settingsState, mcpServers: next };
+        const saved = next.find((s) => s.name === input.name);
+        return rec("mcp.setToolRule", [input], redactMcpServer(saved) as McpServerDefinition);
+      },
+      oauthCancel: (input: { name: string }) =>
+        rec("mcp.oauthCancel", [input], { cancelled: false }),
+      oauthDisconnect: (input: { name: string }) => {
+        const next = settingsState.mcpServers.map((s) => {
+          if (s.name !== input.name) return s;
+          const { oauth: _drop, ...rest } = s as McpServerInfo & { oauth?: unknown };
+          return rest;
+        }) as McpServerInfo[];
+        settingsState = { ...settingsState, mcpServers: next };
+        const saved = next.find((s) => s.name === input.name);
+        return rec("mcp.oauthDisconnect", [input], redactMcpServer(saved) as McpServerDefinition);
       },
     },
     skills: {

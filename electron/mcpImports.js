@@ -460,7 +460,7 @@ async function previewImport(opts) {
       userDataPath: opts.userDataPath,
       kind: "catalog",
       label: entry.name,
-      sourceUrl: entry.sourceUrl,
+      sourceUrl: entry.homepage,
       catalogId: entry.id,
       current: opts.current,
       now: opts.now,
@@ -587,6 +587,7 @@ async function installImport(opts) {
       entry.trusted = true;
       entry.enabled = true;
       if (entry.env) entry.env = applySecretMap(entry.env, secrets);
+      if (Array.isArray(entry.args)) entry.args = entry.args.map((a) => applySecrets(a, secrets));
     } else if (entry.headers) {
       entry.headers = applySecretMap(entry.headers, secrets);
     }

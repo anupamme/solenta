@@ -705,6 +705,7 @@ function createClaudeRun(ctx) {
               policy: gov.policy,
               builtin: verdict,
               sessionAllows: e.sessionAllows,
+              mcpRules: gov.mcpRules,
             });
             const auditRow = (decision, executed) =>
               appendAudit({
@@ -765,7 +766,10 @@ function createClaudeRun(ctx) {
               return;
             }
 
-            const governed = Boolean(gov.policy && gov.policy.rules.length);
+            // An MCP tool rule (#1720) outranks a remembered always-allow too.
+            const governed =
+              Boolean(gov.policy && gov.policy.rules.length) ||
+              ev.layer.startsWith("mcp.");
             if (
               ev.decision === "allow" ||
               takeRestartGrant(threadId, toolName, rawInput) ||
@@ -823,7 +827,8 @@ function createClaudeRun(ctx) {
             if (editFolder && !granted) pending.folderGrant = editFolder;
             if (
               (ev.layer === "builtin" && verdict && verdict.decision === "ask") ||
-              (gov.policy && ev.layer !== "builtin")
+              (gov.policy && ev.layer !== "builtin") ||
+              ev.layer.startsWith("mcp.")
             ) {
               pending.guardrail = {
                 rule: ev.rule,

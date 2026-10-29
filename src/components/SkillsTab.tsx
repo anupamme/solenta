@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { resolveCoderApi } from "../coderApi";
 import type {
+  CoderApi,
   McpCatalogEntry,
   XcodeMcpStatus,
   McpImportPreview,
@@ -26,7 +28,7 @@ import type {
 import {
   AddSkillSection,
   AddedMcpsSection,
-  CuratedMcpsSection,
+  type McpAuthState,
   XcodeMcpCard,
   CuratedSkillsSection,
   HarnessImportPreviewPanel,
@@ -49,6 +51,7 @@ import {
 import styles from "./SkillsTab.module.css";
 import { parseMcpArgv } from "../parseMcpArgv";
 import { InspectorBanner } from "./InspectorSection";
+import { McpMarketplace, McpToolsPanel } from "./McpMarketplace";
 
 export { formatSkillTokens };
 
@@ -103,6 +106,22 @@ export interface SkillsManagerProps {
     input: HarnessInstallRequest,
   ) => Promise<HarnessInstallResult>;
   discardHarnessImport: (input: { previewId: string }) => Promise<void>;
+  /**
+   * Sign-in and tool methods (#1720). Defaults to the app bridge so the
+   * Settings wiring stays as is; tests pass their own.
+   */
+  mcpApi?: Pick<
+    CoderApi["mcp"],
+    "oauthConnect" | "oauthCancel" | "oauthDisconnect" | "listTools" | "setToolRule"
+  >;
+}
+
+function bridgeMcp(): SkillsManagerProps["mcpApi"] {
+  try {
+    return resolveCoderApi().mcp;
+  } catch {
+    return undefined;
+  }
 }
 
 function errorMessage(err: unknown): string {
@@ -262,7 +281,10 @@ export function SkillsManager({
   previewHarnessImport,
   installHarnessImport,
   discardHarnessImport,
+  mcpApi,
 }: SkillsManagerProps) {
+  const mcpCalls = mcpApi ?? bridgeMcp();
+  const [mcpAuth, setMcpAuth] = useState<Record<string, McpAuthState>>({});
   const [mcpServers, setMcpServers] = useState<McpServerDefinition[]>([]);
 
   const [skills, setSkills] = useState<SkillInfo[]>([]);
@@ -278,6 +300,7 @@ export function SkillsManager({
   const [mcpUrl, setMcpUrl] = useState("");
   const [mcpToken, setMcpToken] = useState("");
   const [mcpCatalog, setMcpCatalog] = useState<McpCatalogEntry[]>([]);
+  const [marketError, setMarketError] = useState<string | null>(null);
   const [xcode, setXcode] = useState<XcodeMcpStatus | null>(null);
   const [mcpCommand, setMcpCommand] = useState("");
   const [mcpArgs, setMcpArgs] = useState("");
@@ -509,6 +532,40 @@ export function SkillsManager({
     });
   };
 
+  const setAuth = (name: string, state: McpAuthState | null) =>
+    setMcpAuth((prev) => {
+      const next = { ...prev };
+      if (state) next[name] = state;
+      else delete next[name];
+      return next;
+    });
+
+  const handleMcpConnect = async (name: string) => {
+    if (!mcpCalls) return;
+    setAuth(name, { pending: true });
+    try {
+      await mcpCalls.oauthConnect({ name });
+      if (!mountedRef.current) return;
+      setAuth(name, null);
+      setStatusMessage(`Signed in to ${name}`);
+      await reloadMcp();
+    } catch (err) {
+      if (mountedRef.current) setAuth(name, { error: errorMessage(err) });
+    }
+  };
+
+  const handleMcpCancelConnect = (name: string) => {
+    void mcpCalls?.oauthCancel({ name });
+  };
+
+  const handleMcpDisconnect = async (name: string) => {
+    if (!mcpCalls) return;
+    await runMcp(async () => {
+      await mcpCalls.oauthDisconnect({ name });
+    });
+    if (mountedRef.current) setAuth(name, null);
+  };
+
   const handleRemoveMcp = async (name: string) => {
     await runMcp(async () => {
       await removeMcpServer({ name });
@@ -644,18 +701,32 @@ export function SkillsManager({
     });
   };
 
-  const handleMcpCatalogInstall = async (id: string) => {
-    setMcpImportError(null);
+  // Marketplace install (#1720): preview + install in one click. The row
+  // already shows the command or URL, so clicking Install is the trust.
+  const handleMcpCatalogInstall = async (
+    id: string,
+    secrets: Record<string, string>,
+  ) => {
+    setMarketError(null);
     setMcpBusy(true);
     try {
-      const next = await previewMcpImport({ kind: "catalog", id });
-      if (!mountedRef.current) {
-        discardMcpOnce(next.previewId);
-        return;
-      }
-      showMcpPreview(next);
+      const preview = await previewMcpImport({ kind: "catalog", id });
+      const result = await installMcpImport({
+        previewId: preview.previewId,
+        selected: preview.servers.map((s) => s.name),
+        replace: false,
+        trustLocal: true,
+        trustLocalCommands: true,
+        secrets,
+      });
+      if (!mountedRef.current) return;
+      const names = (result.installed || []).map((s) =>
+        typeof s === "string" ? s : s.name,
+      );
+      setStatusMessage(`Installed ${names.join(", ")}`);
+      await reloadMcp();
     } catch (err) {
-      if (mountedRef.current) setMcpImportError(errorMessage(err));
+      if (mountedRef.current) setMarketError(errorMessage(err));
     } finally {
       if (mountedRef.current) setMcpBusy(false);
     }
@@ -1041,7 +1112,24 @@ export function SkillsManager({
         onToggle={(name, enabled) => void handleToggleMcp(name, enabled)}
         onRemove={(name) => void handleRemoveMcp(name)}
         onTrust={(server) => void handleTrustMcp(server)}
-        onCatalogInstall={(id) => void handleMcpCatalogInstall(id)}
+        marketError={marketError}
+        mcpAuth={mcpCalls ? mcpAuth : undefined}
+        renderTools={
+          mcpCalls
+            ? (server) =>
+                server.enabled ? (
+                  <McpToolsPanel
+                    server={server}
+                    listTools={mcpCalls.listTools}
+                    setToolRule={mcpCalls.setToolRule}
+                  />
+                ) : null
+            : undefined
+        }
+        onMcpConnect={(name) => void handleMcpConnect(name)}
+        onMcpCancelConnect={handleMcpCancelConnect}
+        onMcpDisconnect={(name) => void handleMcpDisconnect(name)}
+        onCatalogInstall={(id, secrets) => void handleMcpCatalogInstall(id, secrets)}
         onImportFile={() => void handleMcpImportFile()}
         onPreviewJson={() => void handleMcpPreviewJson()}
         onPreviewGithub={() => void handleMcpPreviewGithub()}
@@ -1529,6 +1617,12 @@ function McpServersSection({
   onToggle,
   onRemove,
   onTrust,
+  marketError,
+  mcpAuth,
+  renderTools,
+  onMcpConnect,
+  onMcpCancelConnect,
+  onMcpDisconnect,
   onCatalogInstall,
   onImportFile,
   onPreviewJson,
@@ -1563,12 +1657,18 @@ function McpServersSection({
   onToggle: (name: string, enabled: boolean) => void;
   onRemove: (name: string) => void;
   onTrust: (server: McpServerDefinition) => void;
-  onCatalogInstall: (id: string) => void;
+  marketError: string | null;
+  /** Undefined hides sign-in controls (no bridge). */
+  mcpAuth: Record<string, McpAuthState> | undefined;
+  renderTools: ((server: McpServerDefinition) => ReactNode) | undefined;
+  onMcpConnect: (name: string) => void;
+  onMcpCancelConnect: (name: string) => void;
+  onMcpDisconnect: (name: string) => void;
+  onCatalogInstall: (id: string, secrets: Record<string, string>) => void;
   onImportFile: () => void;
   onPreviewJson: () => void;
   onPreviewGithub: () => void;
 }) {
-  const added = mcpServers.filter((s) => s.provenance !== "curated");
   return (
     <section className={styles.section} aria-label="MCP servers">
       <div
@@ -1588,14 +1688,28 @@ function McpServersSection({
       {xcode && (
         <XcodeMcpCard status={xcode} busy={mcpBusy} onPair={onPairXcode} />
       )}
-      <CuratedMcpsSection
+      <McpMarketplace
         catalog={mcpCatalog}
         busy={mcpBusy}
+        error={marketError}
         onInstall={onCatalogInstall}
+        onUninstall={onRemove}
       />
       <AddedMcpsSection
-        servers={added}
+        servers={mcpServers}
         busy={mcpBusy}
+        signInNames={
+          new Set(
+            mcpCatalog
+              .filter((e) => e.auth === "oauth" && e.installedName)
+              .map((e) => e.installedName as string),
+          )
+        }
+        auth={mcpAuth}
+        onConnect={mcpAuth ? onMcpConnect : undefined}
+        onCancelConnect={onMcpCancelConnect}
+        onDisconnect={onMcpDisconnect}
+        renderExtra={renderTools}
         onToggle={onToggle}
         onRemove={onRemove}
         onTrust={onTrust}

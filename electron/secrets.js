@@ -108,6 +108,15 @@ function secretGroups(settings) {
     field(n, s, ["token"]);
     map(`${n}:header`, s, "headers");
     map(`${n}:env`, s, "env");
+    // MCP OAuth sign-in (#1720): tokens and a confidential client's secret.
+    groups.push({
+      name: `${n}:oauth`,
+      parent: s,
+      prop: "oauth",
+      fields: ["accessToken", "refreshToken", "clientSecret"],
+      nullable: false,
+      holder: () => s.oauth,
+    });
   }
   if (isPlainObject(settings.otel)) map("otel", settings.otel, "headers");
   field("settings", settings, ["linearApiKey", "sentryAuthToken"], true);
