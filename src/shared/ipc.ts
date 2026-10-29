@@ -1566,6 +1566,8 @@ export interface SessionUsage {
   outputTokens: number;
   costUsd: number;
   turns: number;
+  /** costUsd split by model (#1725); absent on usage recorded before it. */
+  costByModel?: Record<string, number>;
   /**
    * Last turn's FULL prompt size: input + cache-read + cache-creation + output.
    * The numerator for the context ring. Under prompt caching plain input_tokens
