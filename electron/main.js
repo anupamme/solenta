@@ -914,10 +914,13 @@ app.whenReady().then(async () => {
         ) {
           const settings = store.getSettings();
           const focused = isAnyWindowFocused();
-          if (shouldNotify(prev, next, focused) && settings.notifications) {
+          // Auto-approve "Notify when an approval is needed" off (#1721).
+          const quiet =
+            next === "waiting" && payload.thread.autoApprove?.notify === false;
+          if (shouldNotify(prev, next, focused) && settings.notifications && !quiet) {
             notifyThreadComplete(payload.thread);
           }
-          if (shouldPlayAlert(settings, focused)) shell.beep();
+          if (shouldPlayAlert(settings, focused) && !quiet) shell.beep();
           void dispatchWebhook({
             thread: payload.thread,
             prevStatus: prev,

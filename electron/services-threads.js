@@ -28,6 +28,7 @@ const { resolveSandbox } = require("./sandbox.js");
 const { normalizeRoute } = require("./routing.js");
 const { dueRecap } = require("./recap.js");
 const { budgetPatchFrom } = require("./budgetCaps.js");
+const { normalizeAutoApprove } = require("./autoApprove.js");
 const {
   messagesInMemory,
   stampLastActivity,
@@ -446,6 +447,14 @@ function setPermissionMode(store, input) {
   }
   /** @type {Record<string, unknown>} */
   const patch = { permissionMode: mode };
+  // Auto-approve toggles (#1721) travel with the mode they snap to. A bare
+  // mode pick is "use this mode": it drops the matrix, except plan, which
+  // the run leaves again on its own.
+  if (Object.prototype.hasOwnProperty.call(input, "autoApprove")) {
+    patch.autoApprove = normalizeAutoApprove(input.autoApprove);
+  } else if (mode !== "plan" && thread.autoApprove) {
+    patch.autoApprove = null;
+  }
   // Leaving plan mode dismisses a persisted approval card (issue #707).
   // Switching the picker is "I don't want plan mode", not "approve this".
   if (mode !== "plan" && thread.pendingPlan) {
@@ -498,6 +507,10 @@ function applyAgentProfile(store, input) {
   const updated = store.updateThread(threadId, {
     agentProfileId: profile.id,
     ...budgetPatchFrom(profile),
+    // The profile's toggles (#1721) replace the thread's; none clears them.
+    ...(profile.autoApprove || store.getThread(threadId).autoApprove
+      ? { autoApprove: profile.autoApprove || null }
+      : {}),
   });
   store.save();
   return decorateThread(store, updated || store.getThread(threadId));
@@ -751,6 +764,10 @@ function forkThread(store, input) {
     : null;
   if (profile && parseProviderRef(profile.provider).provider === nextProvider) {
     forkPatch.agentProfileId = profile.id;
+  }
+  // Auto-approve toggles (#1721) follow the mode they were snapped with.
+  if (source.autoApprove && nextProvider === source.provider) {
+    forkPatch.autoApprove = source.autoApprove;
   }
   // Opt-in worktree for user-facing forks (issue #550 chips). Same guards
   // as forkWorkerThread: not an Ask thread, project can host a worktree.

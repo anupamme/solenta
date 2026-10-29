@@ -438,6 +438,7 @@ function createClaudeRun(ctx) {
     const extraDirs = crossesBoundary(project) ? [] : secondaryFolders(project);
     const grantedDirs = writeGrants(thread);
     const askWriteDirs = extraDirs.filter((d) => !grantedDirs.includes(d));
+    const askReads = Boolean(thread.autoApprove && !thread.autoApprove.readProject);
     const args = entryDef.buildArgs({
       prompt,
       sessionId: thread.sessionId || null,
@@ -450,6 +451,7 @@ function createClaudeRun(ctx) {
       forkSessionAt: thread.forkSessionAt || null,
       addDirs: extraDirs,
       askWriteDirs,
+      askReads,
     });
     // Claude runs interactively: prompt over stdin, permission prompts via
     // the control protocol. Other claude-stream providers (e.g. grok) keep
@@ -1402,7 +1404,7 @@ function createClaudeRun(ctx) {
       // --settings fastMode is argv: toggling Fast must respawn (#1529).
       fast: thread.fast === true,
       // --add-dir / ask rules are argv: a folder change or grant respawns.
-      dirs: [extraDirs, askWriteDirs],
+      dirs: [extraDirs, askWriteDirs, askReads],
       mcp: interactive ? mcpArgs : [],
       // The config path is stable; a warm process has already read its contents.
       mcpHash: interactive
