@@ -177,6 +177,10 @@ module.exports = {
     if (patch && Object.prototype.hasOwnProperty.call(patch, "uiScale")) {
       applyZoom(null, next.uiScale, ctx.store);
     }
+    // A cloud provider makes the mic usable without the local model (#1725).
+    if (patch && Object.prototype.hasOwnProperty.call(patch, "speech") && ctx.speech) {
+      ctx.speech.refresh();
+    }
     // stayAwake mode change (#364): re-derive the power blocker now, not on
     // the next thread tick. evaluate() is idempotent.
     if (ctx.stayAwake) {

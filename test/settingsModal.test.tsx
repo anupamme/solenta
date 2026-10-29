@@ -1724,6 +1724,61 @@ describe("SettingsModal per-event notifications (#1725)", () => {
   });
 });
 
+describe("SettingsModal voice input provider (#1725)", () => {
+  const base = { dailyBudgetUsd: null, autoSettleAfterDays: 3 } as AppSettings;
+  it("defaults to local with no key field, and saves a provider pick", async () => {
+    const patches: Partial<AppSettings>[] = [];
+    const m = await mount(
+      modal({
+        initialPane: "general",
+        settings: base,
+        onSaveSettings: async (patch) => {
+          patches.push(patch);
+          return { ...base, ...patch };
+        },
+      }),
+    );
+    const select = m.query("[data-speech-provider]") as HTMLSelectElement;
+    assert.equal(select.value, "local");
+    assert.equal(m.query("[data-speech-api-key]"), null);
+    await m.change(select, "openai");
+    assert.deepEqual(patches, [{ speech: { provider: "openai" } }]);
+    m.unmount();
+  });
+
+  it("saves a write-only key and only ever shows whether one is set", async () => {
+    const patches: Partial<AppSettings>[] = [];
+    const m = await mount(
+      modal({
+        initialPane: "general",
+        settings: { ...base, speech: { provider: "elevenlabs", hasElevenlabsKey: false } },
+        onSaveSettings: async (patch) => {
+          patches.push(patch);
+          return base;
+        },
+      }),
+    );
+    const key = m.query("[data-speech-api-key]") as HTMLInputElement;
+    assert.equal(key.type, "password");
+    assert.match(m.query("[data-speech-key-state]")?.textContent ?? "", /No key saved/);
+    await m.type(key, "  el-test  ");
+    await m.click(m.query("[data-speech-api-key-save]"));
+    assert.deepEqual(patches, [{ speech: { elevenlabsApiKey: "el-test" } }]);
+    assert.equal((m.query("[data-speech-api-key]") as HTMLInputElement).value, "");
+    m.unmount();
+
+    const saved = await mount(
+      modal({
+        initialPane: "general",
+        settings: { ...base, speech: { provider: "elevenlabs", hasElevenlabsKey: true } },
+      }),
+    );
+    assert.match(saved.query("[data-speech-key-state]")?.textContent ?? "", /key is saved/);
+    assert.ok(saved.query("[data-speech-api-key-clear]"));
+    saved.unmount();
+  });
+});
+
 describe("SettingsModal quota-wait auto-resume (#462)", () => {
   it("saves the continue-at-usage-limit toggle", async () => {
     const patches: Partial<AppSettings>[] = [];

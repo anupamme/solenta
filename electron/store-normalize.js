@@ -441,6 +441,7 @@ function normalizeSettings(raw) {
     otel: { endpoint: null, headers: {}, claudeMetrics: false },
     linearApiKey: null,
     sentryAuthToken: null,
+    speech: normalizeSpeechSettings(null),
     githubHosts: [],
     webhook: { url: null, onDone: true, onFailed: true, onWaiting: true },
     modelPrices: {},
@@ -639,6 +640,9 @@ function normalizeSettings(raw) {
   settings.webhook = normalizeWebhook(
     /** @type {{ webhook?: unknown }} */ (obj).webhook,
   );
+  settings.speech = normalizeSpeechSettings(
+    /** @type {{ speech?: unknown }} */ (obj).speech,
+  );
   const root = /** @type {{ worktreeRoot?: unknown }} */ (obj).worktreeRoot;
   settings.worktreeRoot =
     typeof root === "string" && path.isAbsolute(root.trim()) ? root.trim() : null;
@@ -690,6 +694,32 @@ function normalizeNotifyEvents(raw) {
     if (typeof obj[key] === "boolean") out[key] = obj[key];
   }
   return out;
+}
+
+const SPEECH_PROVIDERS = ["local", "openai", "elevenlabs"];
+
+/**
+ * Voice input provider (#1725). Absent/junk → local, no keys. Keys are
+ * sealed at rest (secrets.js) and never sent to the renderer (mcp.js).
+ *
+ * @param {unknown} raw
+ * @returns {{ provider: "local" | "openai" | "elevenlabs", openaiApiKey: string | null, elevenlabsApiKey: string | null }}
+ */
+function normalizeSpeechSettings(raw) {
+  const obj =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? /** @type {Record<string, unknown>} */ (raw)
+      : {};
+  const key = (v) => (typeof v === "string" && v.trim() ? v.trim() : null);
+  return {
+    provider: /** @type {"local" | "openai" | "elevenlabs"} */ (
+      SPEECH_PROVIDERS.includes(/** @type {string} */ (obj.provider))
+        ? obj.provider
+        : "local"
+    ),
+    openaiApiKey: key(obj.openaiApiKey),
+    elevenlabsApiKey: key(obj.elevenlabsApiKey),
+  };
 }
 
 /**
@@ -766,5 +796,7 @@ module.exports = {
   normalizeOtel,
   normalizeWebhook,
   normalizeNotifyEvents,
+  normalizeSpeechSettings,
+  SPEECH_PROVIDERS,
   normalizeGithubHosts,
 };

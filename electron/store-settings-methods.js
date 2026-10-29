@@ -21,6 +21,8 @@ const {
   normalizeOtel,
   normalizeWebhook,
   normalizeNotifyEvents,
+  normalizeSpeechSettings,
+  SPEECH_PROVIDERS,
   normalizeGithubHosts,
 } = require("./store-normalize.js");
 
@@ -107,6 +109,7 @@ class StoreSettingsMethods {
       otel: n.otel,
       linearApiKey: n.linearApiKey,
       sentryAuthToken: n.sentryAuthToken,
+      speech: n.speech,
       githubHosts: n.githubHosts,
       webhook: n.webhook,
       modelPrices: n.modelPrices,
@@ -477,6 +480,25 @@ class StoreSettingsMethods {
           })
         : patch.githubHosts;
       this.data.settings.githubHosts = normalizeGithubHosts(rows, true);
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "speech")) {
+      const v = patch.speech;
+      if (!v || typeof v !== "object" || Array.isArray(v)) {
+        throw new Error("speech must be an object");
+      }
+      if ("provider" in v && !SPEECH_PROVIDERS.includes(v.provider)) {
+        throw new Error(`speech.provider must be one of ${SPEECH_PROVIDERS.join(", ")}`);
+      }
+      for (const k of ["openaiApiKey", "elevenlabsApiKey"]) {
+        if (k in v && v[k] !== null && typeof v[k] !== "string") {
+          throw new Error(`speech.${k} must be a string or null`);
+        }
+      }
+      // Omitted keys keep the saved value: the renderer never sees them.
+      this.data.settings.speech = normalizeSpeechSettings({
+        ...this.data.settings.speech,
+        ...v,
+      });
     }
     if (Object.prototype.hasOwnProperty.call(patch, "notifyEvents")) {
       const v = patch.notifyEvents;

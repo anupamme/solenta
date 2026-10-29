@@ -776,6 +776,14 @@ function redactSettings(settings) {
       hasToken: Boolean(r.token),
     }));
   }
+  // Speech API keys (#1725): same rule, only whether each one is set.
+  if (settings.speech && typeof settings.speech === "object") {
+    out.speech = {
+      provider: settings.speech.provider,
+      hasOpenaiKey: Boolean(settings.speech.openaiApiKey),
+      hasElevenlabsKey: Boolean(settings.speech.elevenlabsApiKey),
+    };
+  }
   return out;
 }
 

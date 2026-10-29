@@ -3788,6 +3788,11 @@ export interface AppSettings {
   linearApiKey?: string | null;
   sentryAuthToken?: string | null;
   /**
+   * Voice input provider (#1725). Keys go in on save and come back only as
+   * hasOpenaiKey / hasElevenlabsKey; omit a key in a patch to keep it.
+   */
+  speech?: SpeechSettings;
+  /**
    * GitHub account / saved token per host (issue #1528). Read back with
    * `hasToken` only; the token itself never reaches the renderer.
    */
@@ -4888,6 +4893,17 @@ export type SpeechState =
   | "stopping"
   | "error";
 
+export type SpeechProvider = "local" | "openai" | "elevenlabs";
+
+export interface SpeechSettings {
+  provider: SpeechProvider;
+  /** Write-only; null clears it. */
+  openaiApiKey?: string | null;
+  elevenlabsApiKey?: string | null;
+  hasOpenaiKey?: boolean;
+  hasElevenlabsKey?: boolean;
+}
+
 export interface SpeechStatus {
   state: SpeechState;
   runtimeReady: boolean;
@@ -4899,6 +4915,8 @@ export interface SpeechStatus {
   transcript?: string;
   /** One user-facing error string. */
   error?: string;
+  /** With a transcript: cloud failed and the local model was used (#1725). */
+  note?: string;
   sessionId?: string;
 }
 

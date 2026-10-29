@@ -683,6 +683,8 @@ app.whenReady().then(async () => {
       platform: process.platform,
       arch: process.arch,
       onStatus: (status) => broadcast("speech:changed", status),
+      // Read per call: store boots after speech, and keys change at runtime.
+      getSpeechSettings: () => (store ? store.getSettings().speech : null),
     });
     installSpeechMediaPermissions({
       session: session.defaultSession,

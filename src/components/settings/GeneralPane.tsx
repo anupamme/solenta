@@ -1,8 +1,10 @@
-import type { RefObject } from "react";
+import { useState, type RefObject } from "react";
 import type {
   AppSettings,
   AppStatus,
   NotifyEvents,
+  SpeechProvider,
+  SpeechSettings,
   UpdateStatus,
   WebhookSettings,
   WebhookTestResult,
@@ -670,8 +672,129 @@ export function GeneralPane({
         )}
       </section>
 
+      <VoiceInputSection
+        settings={settings}
+        saving={saving}
+        onSaveSettings={onSaveSettings}
+        setError={setError}
+      />
       <DisplayPrefsSection />
     </>
+  );
+}
+
+const CLOUD_SPEECH: Record<
+  Exclude<SpeechProvider, "local">,
+  { label: string; keyField: "openaiApiKey" | "elevenlabsApiKey"; has: "hasOpenaiKey" | "hasElevenlabsKey"; placeholder: string }
+> = {
+  openai: { label: "OpenAI", keyField: "openaiApiKey", has: "hasOpenaiKey", placeholder: "sk-…" },
+  elevenlabs: { label: "ElevenLabs", keyField: "elevenlabsApiKey", has: "hasElevenlabsKey", placeholder: "xi-api-key" },
+};
+
+/**
+ * Voice input provider (#1725). Local is the default; a cloud provider
+ * uploads each recording and falls back to local on an error. Keys are
+ * write-only: the field stays empty and the note says whether one is saved.
+ */
+function VoiceInputSection({
+  settings,
+  saving,
+  onSaveSettings,
+  setError,
+}: {
+  settings: AppSettings | null;
+  saving: boolean;
+  onSaveSettings: SettingsModalProps["onSaveSettings"];
+  setError: (msg: string | null) => void;
+}) {
+  const provider = settings?.speech?.provider ?? "local";
+  const cloud = provider === "local" ? null : CLOUD_SPEECH[provider];
+  const [keyText, setKeyText] = useState("");
+  // A partial patch: main keeps the omitted provider/keys.
+  const save = (speech: Partial<SpeechSettings>) => {
+    setError(null);
+    return onSaveSettings({ speech: speech as SpeechSettings }).catch((err) => {
+      setError(err instanceof Error && err.message ? err.message : "Failed to save settings");
+    });
+  };
+  const hasKey = cloud ? settings?.speech?.[cloud.has] === true : false;
+  return (
+    <section className={styles.section} data-voice-input="">
+      <h3 className={styles.sectionLabel}>Voice input</h3>
+      <div className={styles.field}>
+        <label className={styles.fieldLabel} htmlFor="speech-provider">
+          Speech-to-text
+        </label>
+        <select
+          id="speech-provider"
+          className={styles.input}
+          data-speech-provider=""
+          value={provider}
+          disabled={saving || settings == null}
+          onChange={(e) => {
+            setKeyText("");
+            void save({ provider: e.target.value as SpeechProvider });
+          }}
+        >
+          <option value="local">Local model (private, offline)</option>
+          <option value="openai">OpenAI</option>
+          <option value="elevenlabs">ElevenLabs</option>
+        </select>
+        <p className={styles.note}>
+          {cloud
+            ? `Each recording is sent to ${cloud.label} when you stop dictating. If that fails, the local model is used, when installed.`
+            : "Runs on this machine. The model downloads the first time you use the mic."}
+        </p>
+      </div>
+      {cloud && (
+        <div className={styles.field}>
+          <label className={styles.fieldLabel} htmlFor="speech-api-key">
+            {cloud.label} API key
+          </label>
+          <div className={styles.fieldRow}>
+            <input
+              id="speech-api-key"
+              className={styles.input}
+              type="password"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder={hasKey ? "Saved. Paste a new key to replace it" : cloud.placeholder}
+              value={keyText}
+              disabled={saving}
+              data-speech-api-key=""
+              onChange={(e) => setKeyText(e.target.value)}
+            />
+            <button
+              type="button"
+              className={`${styles.btn} ${styles.btnPrimary}`}
+              disabled={saving || !keyText.trim()}
+              data-speech-api-key-save=""
+              onClick={() => {
+                void save({ [cloud.keyField]: keyText.trim() }).then(() => setKeyText(""));
+              }}
+            >
+              Save key
+            </button>
+            {hasKey && (
+              <button
+                type="button"
+                className={styles.btn}
+                disabled={saving}
+                data-speech-api-key-clear=""
+                onClick={() => void save({ [cloud.keyField]: null })}
+              >
+                Remove
+              </button>
+            )}
+          </div>
+          <p className={styles.note} data-speech-key-state="">
+            {hasKey
+              ? "A key is saved, encrypted on this machine."
+              : "No key saved yet. Dictation stays local until you add one."}
+          </p>
+        </div>
+      )}
+    </section>
   );
 }
 

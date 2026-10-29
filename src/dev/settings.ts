@@ -60,6 +60,12 @@ export function createSettings(ctx: DevCtx): Pick<CoderApi, "settings" | "stayAw
   let updateChannel: "prod" | "nightly" | null = null;
   let notifications = true;
   let notificationSound = false;
+  // Keys stay here; the snapshot only says whether each is set (#1725).
+  let speech = {
+    provider: "local" as NonNullable<AppSettings["speech"]>["provider"],
+    openaiApiKey: null as string | null,
+    elevenlabsApiKey: null as string | null,
+  };
   let notifyEvents: AppSettings["notifyEvents"] = {
     approval: true,
     turnFinished: true,
@@ -171,6 +177,11 @@ export function createSettings(ctx: DevCtx): Pick<CoderApi, "settings" | "stayAw
           notifications,
           notificationSound,
           notifyEvents: { ...notifyEvents },
+          speech: {
+            provider: speech.provider,
+            hasOpenaiKey: Boolean(speech.openaiApiKey),
+            hasElevenlabsKey: Boolean(speech.elevenlabsApiKey),
+          },
           feltEstimatePrompt,
           uiScale,
           theme,
@@ -317,6 +328,9 @@ export function createSettings(ctx: DevCtx): Pick<CoderApi, "settings" | "stayAw
             throw new Error("notificationSound must be a boolean");
           }
           notificationSound = patch.notificationSound;
+        }
+        if (patch.speech) {
+          speech = { ...speech, ...patch.speech };
         }
         if (patch.notifyEvents) {
           notifyEvents = { ...notifyEvents, ...patch.notifyEvents };
@@ -530,6 +544,11 @@ export function createSettings(ctx: DevCtx): Pick<CoderApi, "settings" | "stayAw
           notifications,
           notificationSound,
           notifyEvents: { ...notifyEvents },
+          speech: {
+            provider: speech.provider,
+            hasOpenaiKey: Boolean(speech.openaiApiKey),
+            hasElevenlabsKey: Boolean(speech.elevenlabsApiKey),
+          },
           feltEstimatePrompt,
           uiScale,
           theme,
