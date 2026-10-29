@@ -3473,3 +3473,90 @@ describe("SettingsModal privacy gateway (#295)", () => {
     m.unmount();
   });
 });
+
+describe("SettingsModal agent profile auto-approve (#1721)", () => {
+  const claude: ProviderInfo = {
+    id: "claude",
+    name: "Claude Code",
+    available: true,
+    supportsResume: true,
+    models: [],
+    modelInfo: [],
+    efforts: [],
+    permissionModes: ["default", "acceptEdits", "plan", "auto", "bypassPermissions"],
+  };
+  const base = {
+    id: "p-aa",
+    name: "Builder",
+    provider: "claude",
+    model: null,
+    reasoningEffort: null,
+    permissionMode: "default" as const,
+  };
+
+  it("toggles save onto the profile with the mode they snap to", async () => {
+    const patches: Partial<AppSettings>[] = [];
+    const settings = {
+      dailyBudgetUsd: null,
+      autoSettleAfterDays: 3,
+      agentProfiles: [base],
+    } as AppSettings;
+    const m = await mount(
+      modal({
+        initialPane: "agents",
+        providers: [claude],
+        settings,
+        onSaveSettings: async (patch) => {
+          patches.push(patch);
+          return { ...settings, ...patch };
+        },
+      }),
+    );
+    const edit = Array.from(m.queryAll("button")).find(
+      (b) => (b.textContent || "").trim() === "Edit",
+    );
+    await m.click(edit!);
+    const matrix = m.query("[data-profile-auto-approve] [data-auto-approve]");
+    assert.ok(matrix, "profile form renders the matrix");
+    const box = (id: string) =>
+      m.query(`[data-auto-approve-toggle="${id}"]`) as HTMLInputElement;
+    assert.equal(box("editAll").disabled, true);
+    await m.click(box("editProject"));
+    assert.equal(box("editAll").disabled, false);
+    const select = m.query("#profile-permission") as HTMLSelectElement;
+    assert.equal(select.value, "acceptEdits");
+    await m.click(m.byText("Update"));
+    const saved = patches[0].agentProfiles![0]!;
+    assert.equal(saved.permissionMode, "acceptEdits");
+    assert.equal(saved.autoApprove?.editProject, true);
+    assert.equal(saved.autoApprove?.editAll, false);
+    m.unmount();
+  });
+
+  it("a profile without toggles saves without the key", async () => {
+    const patches: Partial<AppSettings>[] = [];
+    const settings = {
+      dailyBudgetUsd: null,
+      autoSettleAfterDays: 3,
+      agentProfiles: [base],
+    } as AppSettings;
+    const m = await mount(
+      modal({
+        initialPane: "agents",
+        providers: [claude],
+        settings,
+        onSaveSettings: async (patch) => {
+          patches.push(patch);
+          return { ...settings, ...patch };
+        },
+      }),
+    );
+    const edit = Array.from(m.queryAll("button")).find(
+      (b) => (b.textContent || "").trim() === "Edit",
+    );
+    await m.click(edit!);
+    await m.click(m.byText("Update"));
+    assert.equal("autoApprove" in patches[0].agentProfiles![0]!, false);
+    m.unmount();
+  });
+});

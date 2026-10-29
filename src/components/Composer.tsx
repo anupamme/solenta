@@ -14,6 +14,7 @@ import {
   type ReactNode,
 } from "react";
 import type {
+  AutoApprove,
   AgentProfile,
   AttachmentInfo,
   CliAgentInfo,
@@ -24,6 +25,13 @@ import type {
   ModelRoute,
 } from "../shared/ipc";
 import type { WorkflowSaveInput } from "../useCoder";
+import {
+  autoApproveBestEffort,
+  autoApproveForMode,
+  enforcesAutoApprove,
+  modeForAutoApprove,
+} from "../autoApprove";
+import { AutoApproveMatrix } from "./AutoApproveMatrix";
 import {
   PERMISSION_MODE_LABELS,
   permissionModeHonoured,
@@ -166,6 +174,13 @@ export interface ComposerProps {
   /** Ask mode (issue #392): hide permission, Options, attach. */
   ask?: boolean;
   onPermissionModeChange: (mode: PermissionMode) => void | Promise<void>;
+  /** Auto-approve toggles (#1721); null = none set, shown from the mode. */
+  autoApprove?: AutoApprove | null;
+  /** Store toggles with the coarse mode they launch the CLI in. */
+  onAutoApproveChange?: (
+    next: AutoApprove,
+    mode: PermissionMode,
+  ) => void | Promise<void>;
   /** Current thread provider id. */
   provider: string;
   /** Thread model override; null means provider default. */
@@ -406,6 +421,8 @@ export const Composer = memo(function Composer({
   permissionMode,
   teach = null,
   onPermissionModeChange,
+  autoApprove = null,
+  onAutoApproveChange,
   provider,
   model,
   reasoningEffort,
@@ -893,6 +910,13 @@ export const Composer = memo(function Composer({
     : modeChoiceLocked
       ? `${permissionName} always runs tools unprompted`
       : undefined;
+  const permissionPill = autoApprove
+    ? "Auto-approve"
+    : PERMISSION_MODE_LABELS[permissionMode];
+  const autoApproveShown = autoApprove ?? autoApproveForMode(permissionMode);
+  const autoApproveNote = enforcesAutoApprove(provider)
+    ? null
+    : autoApproveBestEffort(permissionName, permissionMode);
 
   useEffect(() => {
     if (
@@ -1696,6 +1720,23 @@ export const Composer = memo(function Composer({
           ? err.message
           : "Failed to set permission mode";
       setLocalError(msg);
+    }
+  };
+
+  // #1721: stays open; a toggle applies to the next tool call.
+  const pickAutoApprove = async (next: AutoApprove) => {
+    if (!onAutoApproveChange) return;
+    try {
+      await onAutoApproveChange(
+        next,
+        modeForAutoApprove(next, provider, honouredModes, permissionMode),
+      );
+    } catch (err) {
+      setLocalError(
+        err instanceof Error && err.message
+          ? err.message
+          : "Failed to set auto-approve",
+      );
     }
   };
 
@@ -2795,7 +2836,7 @@ export const Composer = memo(function Composer({
                 }
                 aria-haspopup="listbox"
                 aria-expanded={modeOpen}
-                aria-label={`Permission: ${PERMISSION_MODE_LABELS[permissionMode]}`}
+                aria-label={`Permission: ${permissionPill}`}
                 title={permissionTitle}
                 onClick={() => {
                   if (!locked && !modeChoiceLocked) {
@@ -2806,7 +2847,7 @@ export const Composer = memo(function Composer({
                   }
                 }}
               >
-                {PERMISSION_MODE_LABELS[permissionMode]}
+                {permissionPill}
                 {!modeChoiceLocked && (
                 <span className={styles.caret}>
                   <svg
@@ -2826,8 +2867,9 @@ export const Composer = memo(function Composer({
                 )}
               </button>
               {modeOpen && !modeChoiceLocked && (
+                <div className={styles.modeMenu} data-permission-menu="">
                 <ul
-                  className={styles.modeMenu}
+                  className={styles.modeMenuList}
                   role="listbox"
                   aria-label="Permission mode"
                 >
@@ -2863,6 +2905,14 @@ export const Composer = memo(function Composer({
                     );
                   })}
                 </ul>
+                {onAutoApproveChange && (
+                  <AutoApproveMatrix
+                    value={autoApproveShown}
+                    note={autoApproveNote}
+                    onChange={(next) => void pickAutoApprove(next)}
+                  />
+                )}
+                </div>
               )}
             </div>
             )}

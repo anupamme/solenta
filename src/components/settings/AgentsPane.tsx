@@ -14,6 +14,7 @@ import {
 import type {
   AgentProfile,
   AppSettings,
+  AutoApprove,
   GovernanceAction,
   GovernanceRule,
   PermissionMode,
@@ -25,6 +26,13 @@ import type {
 } from "../../shared/ipc";
 import styles from "../SettingsModal.module.css";
 import { BudgetFields } from "../BudgetFields";
+import { AutoApproveMatrix } from "../AutoApproveMatrix";
+import {
+  autoApproveBestEffort,
+  autoApproveForMode,
+  enforcesAutoApprove,
+  modeForAutoApprove,
+} from "../../autoApprove";
 import { budgetToDraft, draftToBudget, type BudgetDraft } from "../../budget";
 import type { SettingsModalProps } from "../SettingsModal";
 
@@ -40,6 +48,8 @@ export interface ProfileDraft {
   rules: GovernanceRule[];
   /** Default hard cap (#286), as typed. */
   budget: BudgetDraft;
+  /** Auto-approve toggles (#1721); null = none, the mode decides. */
+  autoApprove: AutoApprove | null;
 }
 
 /** Per-profile rule cap; the store rejects more (#262). */
@@ -113,6 +123,7 @@ function emptyDraft(providers: readonly ProviderInfo[]): ProfileDraft {
     defaultAction: "ask",
     rules: [],
     budget: budgetToDraft(null),
+    autoApprove: null,
   };
 }
 
@@ -138,6 +149,7 @@ function draftFromProfile(
     defaultAction: profile.policy?.defaultAction ?? "ask",
     rules: profile.policy?.rules.map((r) => ({ ...r })) ?? [],
     budget: budgetToDraft(profile.budget),
+    autoApprove: profile.autoApprove ?? null,
   };
 }
 
@@ -206,6 +218,7 @@ export function AgentsPane({
         draft.permissionMode,
       ),
     };
+    if (draft.autoApprove) nextProfile.autoApprove = draft.autoApprove;
     const rules = draft.rules
       .map((r) => ({ ...r, match: r.match.trim() }))
       .filter((r) => r.match !== "");
@@ -782,10 +795,17 @@ function ProfileForm({
       model: modelOk ? draft.model : null,
       customModel: false,
       reasoningEffort: effortOk ? draft.reasoningEffort : null,
-      permissionMode: snapToHonouredPermissionMode(
-        providerPermissionModes(next),
-        draft.permissionMode,
-      ),
+      permissionMode: draft.autoApprove
+        ? modeForAutoApprove(
+            draft.autoApprove,
+            nextId,
+            providerPermissionModes(next),
+            draft.permissionMode,
+          )
+        : snapToHonouredPermissionMode(
+            providerPermissionModes(next),
+            draft.permissionMode,
+          ),
     });
   };
 
@@ -943,6 +963,8 @@ function ProfileForm({
             onChange({
               ...draft,
               permissionMode: e.target.value as PermissionMode,
+              // A mode pick means "this mode", same as the composer.
+              autoApprove: null,
             })
           }
         >
@@ -953,6 +975,34 @@ function ProfileForm({
           ))}
         </select>
       </div>
+      {permissionModes.length > 1 && (
+        <div className={styles.field} data-profile-auto-approve="">
+          <AutoApproveMatrix
+            value={draft.autoApprove ?? autoApproveForMode(draft.permissionMode)}
+            disabled={saving}
+            note={
+              enforcesAutoApprove(draft.provider)
+                ? null
+                : autoApproveBestEffort(
+                    selected?.name ?? "This CLI",
+                    draft.permissionMode,
+                  )
+            }
+            onChange={(next) =>
+              onChange({
+                ...draft,
+                autoApprove: next,
+                permissionMode: modeForAutoApprove(
+                  next,
+                  draft.provider,
+                  permissionModes,
+                  draft.permissionMode,
+                ),
+              })
+            }
+          />
+        </div>
+      )}
       <PolicyFields draft={draft} saving={saving} onChange={onChange} />
       <div className={styles.field} data-profile-budget="">
         <span className={styles.fieldLabel}>Default budget cap</span>

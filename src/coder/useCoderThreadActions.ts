@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import type {
+  AutoApprove,
   CoderApi,
   InputValues,
   PermissionDecision,
@@ -61,13 +62,19 @@ export function useCoderThreadActions({
   }, [api, selectedThreadId, applyThreads]);
 
   const setPermissionMode = useCallback(
-    async (mode: PermissionMode, threadIdArg?: string) => {
+    async (
+      mode: PermissionMode,
+      threadIdArg?: string,
+      autoApprove?: AutoApprove | null,
+    ) => {
       const threadId = threadIdArg ?? selectedThreadId;
       if (!threadId) return;
       try {
         const thread = await api.threads.setPermissionMode({
           threadId,
           mode,
+          // #1721: toggles travel with the mode they snap to.
+          ...(autoApprove !== undefined ? { autoApprove } : {}),
         });
         applyThreads(
           threadsRef.current.map((t) => (t.id === thread.id ? thread : t)),
