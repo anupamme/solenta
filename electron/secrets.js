@@ -124,6 +124,9 @@ function secretGroups(settings) {
     field(`github:${r.host || "?"}`, r, ["token"], true);
   }
   if (isPlainObject(settings.webhook)) field("webhook", settings.webhook, ["url"], true);
+  if (isPlainObject(settings.speech)) {
+    field("speech", settings.speech, ["openaiApiKey", "elevenlabsApiKey"], true);
+  }
   if (isPlainObject(settings.telegram)) {
     field("telegram", settings.telegram, ["botToken"], true);
   }

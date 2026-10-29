@@ -62,6 +62,19 @@ export function createSettings(ctx: DevCtx): Pick<CoderApi, "settings" | "stayAw
   let updateChannel: "prod" | "nightly" | null = null;
   let notifications = true;
   let notificationSound = false;
+  // Keys stay here; the snapshot only says whether each is set (#1725).
+  let speech = {
+    provider: "local" as NonNullable<AppSettings["speech"]>["provider"],
+    openaiApiKey: null as string | null,
+    elevenlabsApiKey: null as string | null,
+  };
+  let notifyEvents: AppSettings["notifyEvents"] = {
+    approval: true,
+    turnFinished: true,
+    turnFailed: true,
+    automationFinished: true,
+    ciFailed: false,
+  };
   let feltEstimatePrompt = false;
   let uiScale = 1;
   let theme: AppSettings["theme"] = "dark";
@@ -175,6 +188,12 @@ export function createSettings(ctx: DevCtx): Pick<CoderApi, "settings" | "stayAw
           updateChannel,
           notifications,
           notificationSound,
+          notifyEvents: { ...notifyEvents },
+          speech: {
+            provider: speech.provider,
+            hasOpenaiKey: Boolean(speech.openaiApiKey),
+            hasElevenlabsKey: Boolean(speech.elevenlabsApiKey),
+          },
           feltEstimatePrompt,
           uiScale,
           theme,
@@ -322,6 +341,12 @@ export function createSettings(ctx: DevCtx): Pick<CoderApi, "settings" | "stayAw
             throw new Error("notificationSound must be a boolean");
           }
           notificationSound = patch.notificationSound;
+        }
+        if (patch.speech) {
+          speech = { ...speech, ...patch.speech };
+        }
+        if (patch.notifyEvents) {
+          notifyEvents = { ...notifyEvents, ...patch.notifyEvents };
         }
         if (
           Object.prototype.hasOwnProperty.call(patch, "feltEstimatePrompt")
@@ -539,6 +564,12 @@ export function createSettings(ctx: DevCtx): Pick<CoderApi, "settings" | "stayAw
           updateChannel,
           notifications,
           notificationSound,
+          notifyEvents: { ...notifyEvents },
+          speech: {
+            provider: speech.provider,
+            hasOpenaiKey: Boolean(speech.openaiApiKey),
+            hasElevenlabsKey: Boolean(speech.elevenlabsApiKey),
+          },
           feltEstimatePrompt,
           uiScale,
           theme,

@@ -41,6 +41,95 @@ const SAMPLE_RATE = 16000;
 const READ_WRITE_TIMEOUT_S = "600";
 const WS_OPEN = 1;
 
+/** Optional cloud speech-to-text (#1725). Local stays the default. */
+const CLOUD_STT = {
+  openai: {
+    label: "OpenAI",
+    url: "https://api.openai.com/v1/audio/transcriptions",
+    model: ["model", "gpt-4o-mini-transcribe"],
+    headers: (key) => ({ Authorization: `Bearer ${key}` }),
+  },
+  elevenlabs: {
+    label: "ElevenLabs",
+    url: "https://api.elevenlabs.io/v1/speech-to-text",
+    model: ["model_id", "scribe_v2"],
+    headers: (key) => ({ "xi-api-key": key }),
+  },
+};
+/** Both APIs cap uploads at 25 MB; 16 kHz mono s16 is ~13 minutes. */
+const CLOUD_MAX_PCM_BYTES = 24 * 1024 * 1024;
+const CLOUD_TIMEOUT_MS = 30_000;
+
+/**
+ * Cloud provider + key from settings.speech, or null for local.
+ * @param {{ provider?: string, openaiApiKey?: string | null, elevenlabsApiKey?: string | null } | null | undefined} speech
+ */
+function cloudSpeechConfig(speech) {
+  if (!speech || !Object.prototype.hasOwnProperty.call(CLOUD_STT, speech.provider)) {
+    return null;
+  }
+  const apiKey =
+    speech.provider === "openai" ? speech.openaiApiKey : speech.elevenlabsApiKey;
+  return apiKey ? { provider: speech.provider, apiKey } : null;
+}
+
+/** 16 kHz mono signed 16-bit PCM → a WAV file. */
+function pcmToWav(pcm) {
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36 + pcm.length, 4);
+  header.write("WAVEfmt ", 8);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20); // PCM
+  header.writeUInt16LE(1, 22); // mono
+  header.writeUInt32LE(SAMPLE_RATE, 24);
+  header.writeUInt32LE(SAMPLE_RATE * 2, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write("data", 36);
+  header.writeUInt32LE(pcm.length, 40);
+  return Buffer.concat([header, pcm]);
+}
+
+/**
+ * One multipart POST of the whole recording. Throws a user-facing message.
+ * @param {{ provider: string, apiKey: string, pcm: Buffer, fetch: Function, timeoutMs?: number }} opts
+ * @returns {Promise<string>}
+ */
+async function cloudTranscribe({ provider, apiKey, pcm, fetch, timeoutMs }) {
+  const spec = CLOUD_STT[provider];
+  const form = new FormData();
+  form.append(spec.model[0], spec.model[1]);
+  form.append("file", new Blob([pcmToWav(pcm)], { type: "audio/wav" }), "speech.wav");
+  let res;
+  try {
+    res = await fetch(spec.url, {
+      method: "POST",
+      headers: spec.headers(apiKey),
+      body: form,
+      redirect: "error",
+      signal: AbortSignal.timeout(timeoutMs || CLOUD_TIMEOUT_MS),
+    });
+  } catch {
+    throw new Error(`${spec.label} transcription failed (network).`);
+  }
+  if (!res || !res.ok) {
+    throw new Error(
+      `${spec.label} transcription failed (HTTP ${(res && res.status) || "error"}).`,
+    );
+  }
+  let body;
+  try {
+    body = await res.json();
+  } catch {
+    body = null;
+  }
+  if (!body || typeof body.text !== "string") {
+    throw new Error(`${spec.label} returned no transcript.`);
+  }
+  return body.text.trim();
+}
+
 function serveDevice(platform, arch) {
   if (platform === "darwin" && arch === "arm64") return "metal";
   if ((platform === "linux" || platform === "win32") && arch === "x64") {
@@ -326,6 +415,9 @@ function createSpeechManager(deps) {
   const sessionTimeoutMs = deps.sessionTimeoutMs || 15_000;
   const stopTimeoutMs = deps.stopTimeoutMs || 15_000;
   const wait = deps.wait || ((ms) => new Promise((r) => setTimeout(r, ms)));
+  const getSpeechSettings =
+    typeof deps.getSpeechSettings === "function" ? deps.getSpeechSettings : () => null;
+  const cloudTimeoutMs = deps.cloudTimeoutMs || CLOUD_TIMEOUT_MS;
 
   /** @type {"missing"|"downloading"|"ready"|"recording"|"stopping"|"error"} */
   let state = "missing";
@@ -345,6 +437,19 @@ function createSpeechManager(deps) {
   let startWait = null;
   /** @type {{ resolve: () => void, reject: (err: Error) => void, timer: ReturnType<typeof setTimeout> } | null} */
   let stopWait = null;
+  /** Cloud recording (#1725): PCM buffered until stop, no sidecar. */
+  /** @type {{ id: string, seq: number, chunks: Buffer[], bytes: number, provider: string, apiKey: string } | null} */
+  let cloudActive = null;
+  /** Shown with the next transcript after a cloud→local fallback. */
+  let fallbackNote = "";
+
+  function cloudConfig() {
+    try {
+      return cloudSpeechConfig(getSpeechSettings());
+    } catch {
+      return null;
+    }
+  }
 
   function runtimeIsReady() {
     return !!(runtimePath && device && fs.existsSync(runtimePath));
@@ -360,9 +465,12 @@ function createSpeechManager(deps) {
 
   function deriveState() {
     if (state === "downloading") return "downloading";
-    if ((state === "recording" || state === "stopping") && active) return state;
-    if (state === "error" && !modelIsReady()) return "error";
-    return modelIsReady() ? "ready" : "missing";
+    if ((state === "recording" || state === "stopping") && (active || cloudActive)) {
+      return state;
+    }
+    const usable = modelIsReady() || cloudConfig() != null;
+    if (state === "error" && !usable) return "error";
+    return usable ? "ready" : "missing";
   }
 
   function snapshot(extra) {
@@ -381,10 +489,15 @@ function createSpeechManager(deps) {
     if (extra && typeof extra.delta === "string") out.delta = extra.delta;
     if (extra && typeof extra.transcript === "string") {
       out.transcript = extra.transcript;
+      if (fallbackNote) {
+        out.note = fallbackNote;
+        fallbackNote = "";
+      }
     }
     if (extra && typeof extra.error === "string") out.error = extra.error;
     else if (state === "error" && lastError) out.error = lastError;
     if (active) out.sessionId = active.id;
+    else if (cloudActive) out.sessionId = cloudActive.id;
     return out;
   }
 
@@ -728,8 +841,17 @@ function createSpeechManager(deps) {
   }
 
   async function start() {
-    if (state === "recording" || state === "stopping" || active) {
+    if (state === "recording" || state === "stopping" || active || cloudActive) {
       throw new Error("Speech session already active.");
+    }
+    const cloud = cloudConfig();
+    if (cloud) {
+      cloudActive = { id: crypto.randomUUID(), seq: 0, chunks: [], bytes: 0, ...cloud };
+      recordingRequested = true;
+      lastError = "";
+      state = "recording";
+      emit();
+      return { sessionId: cloudActive.id };
     }
     if (state === "downloading") {
       throw new Error("Speech model is downloading.");
@@ -761,6 +883,7 @@ function createSpeechManager(deps) {
     assertPcm(input && input.pcm);
     const sessionId = sessionIdOf(input);
     if (!sessionId) throw new Error(SPEECH_NO_SESSION);
+    if (cloudActive && cloudActive.id === sessionId) return writeCloud(input);
     if (!active || active.id !== sessionId) throw new Error(SPEECH_STALE_SESSION);
     if (state !== "recording") throw new Error(SPEECH_NO_SESSION);
     const seq = input && input.seq;
@@ -776,6 +899,71 @@ function createSpeechManager(deps) {
     active.seq += 1;
   }
 
+  function writeCloud(input) {
+    if (state !== "recording") throw new Error(SPEECH_NO_SESSION);
+    if (!Number.isInteger(input.seq) || input.seq !== cloudActive.seq) {
+      throw new Error(SPEECH_BAD_PCM);
+    }
+    const buf = pcmBuffer(input.pcm);
+    if (!buf) throw new Error(SPEECH_BAD_PCM);
+    if (cloudActive.bytes + buf.length > CLOUD_MAX_PCM_BYTES) {
+      throw new Error("Recording is too long for cloud transcription.");
+    }
+    cloudActive.chunks.push(Buffer.from(buf));
+    cloudActive.bytes += buf.length;
+    cloudActive.seq += 1;
+  }
+
+  /**
+   * Upload the buffered recording. On a cloud error, replay the same audio
+   * through the local model when it is installed, with a visible note.
+   */
+  async function stopCloud() {
+    const session = cloudActive;
+    state = "stopping";
+    emit();
+    let text;
+    try {
+      text = await cloudTranscribe({
+        provider: session.provider,
+        apiKey: session.apiKey,
+        pcm: Buffer.concat(session.chunks),
+        fetch: doFetch,
+        timeoutMs: cloudTimeoutMs,
+      });
+    } catch (err) {
+      if (cloudActive !== session) return; // cancelled meanwhile
+      const why = err && err.message ? String(err.message) : "Cloud transcription failed.";
+      cloudActive = null;
+      if (!modelIsReady() || !runtimeIsReady()) {
+        recordingRequested = false;
+        lastError = `${why} Install the local speech model to fall back.`;
+        emit({ error: lastError });
+        throw new Error(lastError);
+      }
+      fallbackNote = `${why} Used the local model instead.`;
+      try {
+        await ensureSidecar();
+        const id = await openSession();
+        state = "recording";
+        for (const chunk of session.chunks) active.socket.send(chunk);
+        await stop({ sessionId: id });
+      } catch (localErr) {
+        fallbackNote = "";
+        recordingRequested = false;
+        closeSocket();
+        lastError = localErr && localErr.message ? String(localErr.message) : why;
+        emit({ error: lastError });
+        throw localErr instanceof Error ? localErr : new Error(lastError);
+      }
+      return;
+    }
+    if (cloudActive !== session) return;
+    cloudActive = null;
+    recordingRequested = false;
+    emit({ transcript: text });
+  }
+
   function sendJson(type) {
     if (!active || !active.socket || active.socket.readyState !== WS_OPEN) return;
     try {
@@ -788,6 +976,10 @@ function createSpeechManager(deps) {
   async function stop(input) {
     const sessionId = sessionIdOf(input);
     if (!sessionId) throw new Error(SPEECH_NO_SESSION);
+    if (cloudActive && cloudActive.id === sessionId) {
+      if (state !== "recording") throw new Error(SPEECH_NO_SESSION);
+      return stopCloud();
+    }
     if (!active || active.id !== sessionId) throw new Error(SPEECH_STALE_SESSION);
     if (state !== "recording") throw new Error(SPEECH_NO_SESSION);
     state = "stopping";
@@ -810,6 +1002,12 @@ function createSpeechManager(deps) {
   async function cancel(input) {
     const sessionId = sessionIdOf(input);
     if (!sessionId) throw new Error(SPEECH_NO_SESSION);
+    if (cloudActive && cloudActive.id === sessionId) {
+      cloudActive = null;
+      recordingRequested = false;
+      emit();
+      return;
+    }
     if (!active || active.id !== sessionId) throw new Error(SPEECH_STALE_SESSION);
     sendJson("input_audio_buffer.clear");
     sendJson("response.cancel");
@@ -829,6 +1027,8 @@ function createSpeechManager(deps) {
       }
     }
     recordingRequested = false;
+    cloudActive = null;
+    fallbackNote = "";
     closeSocket();
     clearStartWait(new Error("Speech stopped."));
     clearStopWait(new Error("Speech stopped."));
@@ -847,6 +1047,8 @@ function createSpeechManager(deps) {
 
   return {
     status,
+    /** Re-broadcast after the speech provider setting changes. */
+    refresh: () => emit(),
     download,
     start,
     write,
@@ -871,6 +1073,8 @@ module.exports = {
   SPEECH_MAX_PCM_BYTES,
   serveDevice,
   bundledRuntimePath,
+  cloudSpeechConfig,
+  pcmToWav,
   allowSpeechMediaPermission,
   isSolentaMainFrame,
   installSpeechMediaPermissions,

@@ -1561,6 +1561,14 @@ export interface ChatMessage {
   commandResult?: CommandRunResult;
 }
 
+export interface NotifyEvents {
+  approval: boolean;
+  turnFinished: boolean;
+  turnFailed: boolean;
+  automationFinished: boolean;
+  ciFailed: boolean;
+}
+
 /** Cumulative session usage across turns of a thread. */
 export interface SessionUsage {
   model: string | null;
@@ -1568,6 +1576,8 @@ export interface SessionUsage {
   outputTokens: number;
   costUsd: number;
   turns: number;
+  /** costUsd split by model (#1725); absent on usage recorded before it. */
+  costByModel?: Record<string, number>;
   /**
    * Last turn's FULL prompt size: input + cache-read + cache-creation + output.
    * The numerator for the context ring. Under prompt caching plain input_tokens
@@ -3664,6 +3674,13 @@ export interface AppSettings {
    */
   notificationSound: boolean;
   /**
+   * Per-event switches under `notifications` (#1725); they gate the desktop
+   * notification and the alert sound. Defaults: all on except ciFailed.
+   * automationFinished covers done/failed on automation threads; ciFailed
+   * fires when PR watch sees a new failing check.
+   */
+  notifyEvents: NotifyEvents;
+  /**
    * Ask "how much time did this save you?" when a run finishes (issue #401).
    * Opt-in: absent/false means the card never appears and the felt-vs-actual
    * section of the Fleet view stays empty.
@@ -3787,6 +3804,11 @@ export interface AppSettings {
    */
   linearApiKey?: string | null;
   sentryAuthToken?: string | null;
+  /**
+   * Voice input provider (#1725). Keys go in on save and come back only as
+   * hasOpenaiKey / hasElevenlabsKey; omit a key in a patch to keep it.
+   */
+  speech?: SpeechSettings;
   /**
    * GitHub account / saved token per host (issue #1528). Read back with
    * `hasToken` only; the token itself never reaches the renderer.
@@ -4943,6 +4965,17 @@ export type SpeechState =
   | "stopping"
   | "error";
 
+export type SpeechProvider = "local" | "openai" | "elevenlabs";
+
+export interface SpeechSettings {
+  provider: SpeechProvider;
+  /** Write-only; null clears it. */
+  openaiApiKey?: string | null;
+  elevenlabsApiKey?: string | null;
+  hasOpenaiKey?: boolean;
+  hasElevenlabsKey?: boolean;
+}
+
 export interface SpeechStatus {
   state: SpeechState;
   runtimeReady: boolean;
@@ -4954,6 +4987,8 @@ export interface SpeechStatus {
   transcript?: string;
   /** One user-facing error string. */
   error?: string;
+  /** With a transcript: cloud failed and the local model was used (#1725). */
+  note?: string;
   sessionId?: string;
 }
 

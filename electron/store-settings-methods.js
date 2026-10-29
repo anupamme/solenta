@@ -20,6 +20,9 @@ const {
   normalizeSettings,
   normalizeOtel,
   normalizeWebhook,
+  normalizeNotifyEvents,
+  normalizeSpeechSettings,
+  SPEECH_PROVIDERS,
   normalizeTelegram,
   normalizeGithubHosts,
 } = require("./store-normalize.js");
@@ -83,6 +86,7 @@ class StoreSettingsMethods {
       updateChannel: n.updateChannel,
       notifications: n.notifications,
       notificationSound: n.notificationSound,
+      notifyEvents: n.notifyEvents,
       feltEstimatePrompt: n.feltEstimatePrompt,
       uiScale: n.uiScale,
       theme: n.theme,
@@ -106,6 +110,7 @@ class StoreSettingsMethods {
       otel: n.otel,
       linearApiKey: n.linearApiKey,
       sentryAuthToken: n.sentryAuthToken,
+      speech: n.speech,
       githubHosts: n.githubHosts,
       webhook: n.webhook,
       telegram: n.telegram,
@@ -477,6 +482,40 @@ class StoreSettingsMethods {
           })
         : patch.githubHosts;
       this.data.settings.githubHosts = normalizeGithubHosts(rows, true);
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "speech")) {
+      const v = patch.speech;
+      if (!v || typeof v !== "object" || Array.isArray(v)) {
+        throw new Error("speech must be an object");
+      }
+      if ("provider" in v && !SPEECH_PROVIDERS.includes(v.provider)) {
+        throw new Error(`speech.provider must be one of ${SPEECH_PROVIDERS.join(", ")}`);
+      }
+      for (const k of ["openaiApiKey", "elevenlabsApiKey"]) {
+        if (k in v && v[k] !== null && typeof v[k] !== "string") {
+          throw new Error(`speech.${k} must be a string or null`);
+        }
+      }
+      // Omitted keys keep the saved value: the renderer never sees them.
+      this.data.settings.speech = normalizeSpeechSettings({
+        ...this.data.settings.speech,
+        ...v,
+      });
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "notifyEvents")) {
+      const v = patch.notifyEvents;
+      if (!v || typeof v !== "object" || Array.isArray(v)) {
+        throw new Error("notifyEvents must be an object");
+      }
+      for (const [key, val] of Object.entries(v)) {
+        if (typeof val !== "boolean") {
+          throw new Error(`notifyEvents.${key} must be a boolean`);
+        }
+      }
+      this.data.settings.notifyEvents = normalizeNotifyEvents({
+        ...this.data.settings.notifyEvents,
+        ...v,
+      });
     }
     if (Object.prototype.hasOwnProperty.call(patch, "webhook")) {
       const v = patch.webhook;

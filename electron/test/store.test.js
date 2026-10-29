@@ -3651,3 +3651,26 @@ describe("main.js run-artifact cleanup wiring (#248)", () => {
     assert.equal(cleanupCalls, 1);
   });
 });
+
+describe("session costByModel (#1725)", () => {
+  it("splits recorded cost deltas by model and survives the runner's rebuild", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "coder-cost-model-"));
+    try {
+      const store = new Store(path.join(tmp, "coder-store.json"));
+      const turn = (model, total, delta) => {
+        store.setUsage("t1", { model, inputTokens: 1, outputTokens: 1, costUsd: total, turns: 1 });
+        store.recordUsage({ provider: "claude", model, costUsd: delta, threadId: "t1" });
+      };
+      turn("opus", 1, 1);
+      turn("sonnet", 1.25, 0.25);
+      turn("opus", 1.75, 0.5);
+      turn("opus", 1.75, 0); // zero-cost turn adds no row
+      assert.deepEqual(store.getUsage("t1").costByModel, { opus: 1.5, sonnet: 0.25 });
+      // No session row yet (or another thread): the ledger alone, no crash.
+      store.recordUsage({ provider: "claude", model: "x", costUsd: 1, threadId: "t2" });
+      assert.equal(store.getUsage("t2"), null);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
