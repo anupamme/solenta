@@ -5,6 +5,7 @@ import type {
   AppSettings,
   CoderApi,
   FetchedModel,
+  LocalModelServer,
   ModelInfo,
   ProviderInfo,
   ProviderInstance,
@@ -123,9 +124,10 @@ function authKind(p: ProviderInfo, inst: ProviderInstance | null): AuthKind {
   return "oauth";
 }
 
-/** Rows the list shows: every provider except the simulator. */
+/** Rows the list shows: every provider except the simulator. The local
+ * servers' opencode instances live under the Local group instead. */
 function listRows(providers: readonly ProviderInfo[]): ProviderInfo[] {
-  return providers.filter((p) => p.id !== "simulate");
+  return providers.filter((p) => p.id !== "simulate" && !LOCAL_REFS.has(p.id));
 }
 
 function errorText(err: unknown, fallback: string): string {
@@ -143,7 +145,12 @@ function resolveApi(): CoderApi | null {
   }
 }
 
-type View = { kind: "list" } | { kind: "detail"; id: string } | { kind: "add" };
+type LocalKind = LocalModelServer["kind"];
+type View =
+  | { kind: "list" }
+  | { kind: "detail"; id: string }
+  | { kind: "add" }
+  | { kind: "local"; id: LocalKind };
 
 export function ProvidersPane({
   settings,
@@ -168,6 +175,22 @@ export function ProvidersPane({
   }, []);
   const [view, setView] = useState<View>({ kind: "list" });
   const instances = settings?.providerInstances ?? [];
+  const [local, setLocal] = useState<LocalModelServer[] | null>(null);
+  const detectLocal = async (urls?: Partial<Record<LocalKind, string>>) => {
+    const api = resolveApi();
+    if (typeof api?.providers.detectLocal !== "function") return setLocal([]);
+    // A saved instance's host (a LAN Ollama) is where its server lives.
+    const saved = (kind: LocalKind) =>
+      urls?.[kind] ?? localInstanceOf(instances, kind)?.openaiCompatible?.baseUrl ?? null;
+    try {
+      setLocal(await api.providers.detectLocal({ ollamaUrl: saved("ollama"), lmstudioUrl: saved("lmstudio") }));
+    } catch {
+      setLocal([]);
+    }
+  };
+  useEffect(() => {
+    void detectLocal();
+  }, []);
 
   const persistInstances = async (next: ProviderInstance[]) => {
     setError(null);
@@ -229,6 +252,32 @@ export function ProvidersPane({
     );
   }
 
+  if (view.kind === "local") {
+    const kind = view.id;
+    return (
+      <LocalDetail
+        kind={kind}
+        server={local?.find((l) => l.kind === kind) ?? null}
+        inst={localInstanceOf(instances, kind)}
+        opencode={providers.find((p) => p.id === "opencode")}
+        saving={saving || settings == null}
+        onDetect={(url) => detectLocal({ [kind]: url })}
+        onSave={(next) =>
+          persistInstances(
+            instances.some((i) => i.id === next.id)
+              ? instances.map((i) => (i.id === next.id ? next : i))
+              : [...instances, next],
+          )
+        }
+        onOpenProvider={() => setView({ kind: "detail", id: `opencode:${kind}` })}
+        onBack={() => {
+          setError(null);
+          setView({ kind: "list" });
+        }}
+      />
+    );
+  }
+
   const selected =
     view.kind === "detail" ? providers.find((p) => p.id === view.id) : undefined;
   if (selected) {
@@ -255,9 +304,14 @@ export function ProvidersPane({
     <ProviderList
       providers={listRows(providers)}
       instances={instances}
+      local={local}
       onOpen={(id) => {
         setError(null);
         setView({ kind: "detail", id });
+      }}
+      onOpenLocal={(id) => {
+        setError(null);
+        setView({ kind: "local", id });
       }}
       onAdd={() => {
         setError(null);
@@ -329,14 +383,18 @@ function Group({
 function ProviderList({
   providers,
   instances,
+  local,
   onOpen,
+  onOpenLocal,
   onAdd,
   addDisabled,
   secretsUnencrypted = false,
 }: {
   providers: ProviderInfo[];
   instances: readonly ProviderInstance[];
+  local: LocalModelServer[] | null;
   onOpen: (id: string) => void;
+  onOpenLocal: (id: LocalKind) => void;
   onAdd: () => void;
   addDisabled: boolean;
   secretsUnencrypted?: boolean;
@@ -353,6 +411,9 @@ function ProviderList({
   const configured = builtIn.filter(({ p, inst }) => isConfigured(p, inst));
   const available = builtIn.filter(({ p, inst }) => !isConfigured(p, inst));
   const configuredCount = providers.filter((p) => isConfigured(p, findInstanceFor(p, instances))).length;
+  const localShown = LOCAL_KINDS.filter(
+    (k) => !q || LOCAL_NAMES[k].toLowerCase().includes(q) || k.includes(q) || "local".includes(q),
+  );
   const toggle = (id: string) =>
     setCollapsed((cur) => {
       const next = new Set(cur);
@@ -417,7 +478,9 @@ function ProviderList({
           setCollapsed(new Set());
         }}
       />
-      {shown.length === 0 && <p className={base.note}>No providers match &quot;{query.trim()}&quot;.</p>}
+      {shown.length === 0 && localShown.length === 0 && (
+        <p className={base.note}>No providers match &quot;{query.trim()}&quot;.</p>
+      )}
       {configured.length > 0 && (
         <Group id="configured" title="Configured" open={!collapsed.has("configured")} onToggle={() => toggle("configured")}>
           {rows(configured)}
@@ -426,6 +489,22 @@ function ProviderList({
       {available.length > 0 && (
         <Group id="available" title="Available" open={!collapsed.has("available")} onToggle={() => toggle("available")}>
           {rows(available)}
+        </Group>
+      )}
+      {localShown.length > 0 && (
+        <Group id="local" title="Local" open={!collapsed.has("local")} onToggle={() => toggle("local")}>
+          {localShown.map((k) => {
+            const server = local?.find((l) => l.kind === k);
+            return (
+              <button key={k} type="button" className={styles.row} data-local-row={k} onClick={() => onOpenLocal(k)}>
+                <span className={styles.rowName}>{LOCAL_NAMES[k]}</span>
+                <span className={styles.rowHint} data-local-state={server ? (server.running ? "running" : "stopped") : "checking"}>
+                  {localStatus(server)}
+                </span>
+                <Chevron />
+              </button>
+            );
+          })}
         </Group>
       )}
       {custom.length > 0 && (
@@ -1570,6 +1649,283 @@ function InstanceForm({
         </button>
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Local models (#1717): Ollama and LM Studio as OpenAI-compatible instances
+// ---------------------------------------------------------------------------
+
+const LOCAL_KINDS: LocalKind[] = ["ollama", "lmstudio"];
+const LOCAL_NAMES: Record<LocalKind, string> = { ollama: "Ollama", lmstudio: "LM Studio" };
+const LOCAL_DEFAULTS: Record<LocalKind, string> = {
+  ollama: "http://127.0.0.1:11434",
+  lmstudio: "http://127.0.0.1:1234",
+};
+/** Picker refs of the instances "Use with Solenta" saves. */
+const LOCAL_REFS = new Set(LOCAL_KINDS.map((k) => `opencode:${k}`));
+/** Below this, agentic coding (system prompt + tools + files) truncates. */
+const MIN_CONTEXT = 32_000;
+
+function localInstanceOf(instances: readonly ProviderInstance[], kind: LocalKind): ProviderInstance | null {
+  return instances.find((i) => i.id === kind && i.provider === "opencode" && i.openaiCompatible) ?? null;
+}
+
+function localStatus(server: LocalModelServer | undefined | null): string {
+  if (!server) return "Checking…";
+  if (!server.running) return "Not running";
+  const n = server.models.length;
+  return `Running (${n} model${n === 1 ? "" : "s"})`;
+}
+
+/**
+ * The opencode instance for a local server. No API key: opencode's
+ * openai-compatible provider treats options.apiKey as optional, and neither
+ * server checks one. A re-save keeps the instance's env and headers.
+ */
+function localInstance(
+  kind: LocalKind,
+  baseUrl: string,
+  models: string[],
+  prev: ProviderInstance | null = null,
+): ProviderInstance {
+  const prevDefault = prev?.openaiCompatible?.defaultModel;
+  return {
+    id: kind,
+    name: LOCAL_NAMES[kind],
+    provider: "opencode",
+    configDir: null,
+    env: prev?.env ?? {},
+    openaiCompatible: {
+      baseUrl,
+      modelsUrl: null,
+      models,
+      defaultModel: prevDefault && models.includes(prevDefault) ? prevDefault : (models[0] ?? null),
+      headers: prev?.openaiCompatible?.headers ?? {},
+    },
+  };
+}
+
+function LocalDetail({
+  kind,
+  server,
+  inst,
+  opencode,
+  saving,
+  onDetect,
+  onSave,
+  onOpenProvider,
+  onBack,
+}: {
+  kind: LocalKind;
+  server: LocalModelServer | null;
+  inst: ProviderInstance | null;
+  opencode: ProviderInfo | undefined;
+  saving: boolean;
+  onDetect: (url: string) => Promise<void>;
+  onSave: (next: ProviderInstance) => Promise<boolean>;
+  onOpenProvider: () => void;
+  onBack: () => void;
+}) {
+  const name = LOCAL_NAMES[kind];
+  const [url, setUrl] = useState(server?.url ?? LOCAL_DEFAULTS[kind]);
+  useEffect(() => {
+    if (server) setUrl(server.url);
+  }, [server?.url]);
+  const [checking, setChecking] = useState(false);
+  const [picked, setPicked] = useState<Set<string> | null>(null);
+  const [saved, setSaved] = useState(false);
+  const models = server?.running ? server.models : [];
+  const savedIds = inst?.openaiCompatible?.models ?? [];
+  const chosen = picked ?? new Set(inst ? savedIds : models.map((m) => m.id));
+  const ids = models.map((m) => m.id).filter((id) => chosen.has(id));
+  const urlId = useId();
+
+  const check = async () => {
+    setChecking(true);
+    try {
+      await onDetect(url.trim() || LOCAL_DEFAULTS[kind]);
+    } finally {
+      setChecking(false);
+    }
+  };
+  const toggle = (id: string) => {
+    const next = new Set(chosen);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setPicked(next);
+    setSaved(false);
+  };
+
+  return (
+    <section className={base.section} data-local-detail={kind}>
+      <div className={styles.detailHead}>
+        <button type="button" className={styles.back} data-provider-back="" aria-label="Back to providers" onClick={onBack}>
+          ←
+        </button>
+        <h4 className={styles.detailTitle}>{name}</h4>
+        <span className={styles.badge} data-local-badge="" data-on={server?.running ? "true" : undefined}>
+          {localStatus(server)}
+        </span>
+        <span className={styles.spacer} />
+        {inst && (
+          <button type="button" className={base.btn} data-local-open-provider="" onClick={onOpenProvider}>
+            Provider settings
+          </button>
+        )}
+      </div>
+
+      <div className={base.field}>
+        <label className={base.fieldLabel} htmlFor={urlId}>
+          Server
+        </label>
+        <div className={base.fieldRow}>
+          <input
+            id={urlId}
+            className={`${base.input} ${base.monoInput}`}
+            data-local-url=""
+            type="url"
+            value={url}
+            autoComplete="off"
+            spellCheck={false}
+            placeholder={LOCAL_DEFAULTS[kind]}
+            onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void check();
+            }}
+          />
+          <button type="button" className={base.btn} data-local-check="" disabled={checking} onClick={() => void check()}>
+            {checking ? "Checking…" : "Check"}
+          </button>
+        </div>
+        <p className={base.note}>Another machine on your network works too, e.g. http://192.168.1.20:11434.</p>
+      </div>
+
+      {opencode && !opencode.available && (
+        <p className={base.fieldError} role="note">
+          OpenCode is not installed. Local models run through the opencode CLI.
+        </p>
+      )}
+
+      {server && !server.running ? (
+        <div className={styles.card} data-local-setup={kind}>
+          <p className={styles.cardTitle}>{name} is not running at {server.url}</p>
+          {kind === "ollama" ? (
+            <ol className={base.note}>
+              <li>
+                Install it from{" "}
+                <a className={styles.link} href="https://ollama.com/download" target="_blank" rel="noreferrer">
+                  ollama.com/download ↗
+                </a>
+              </li>
+              <li>
+                Pull a coding model: <code>ollama pull qwen3-coder</code>
+              </li>
+              <li>
+                Start it from the menu bar app, or <code>ollama serve</code>, then Check.
+              </li>
+            </ol>
+          ) : (
+            <ol className={base.note}>
+              <li>
+                Install it from{" "}
+                <a className={styles.link} href="https://lmstudio.ai" target="_blank" rel="noreferrer">
+                  lmstudio.ai ↗
+                </a>{" "}
+                and download a model.
+              </li>
+              <li>
+                In the Developer tab choose Start server, or run <code>lms server start</code>, then Check.
+              </li>
+            </ol>
+          )}
+        </div>
+      ) : null}
+
+      {server?.running && (
+        <div className={styles.models} data-local-models="">
+          <div className={styles.modelsHead}>
+            <span className={styles.modelsTitle}>Models</span>
+            <span className={styles.modelsSource}>Installed on {server.url}</span>
+          </div>
+          <div className={styles.modelList}>
+            {models.length === 0 ? (
+              <p className={styles.modelsEmpty}>
+                {kind === "ollama" ? (
+                  <>
+                    No models yet. Run <code>ollama pull qwen3-coder</code>, then Check.
+                  </>
+                ) : (
+                  "No models loaded. Load one in LM Studio, then Check."
+                )}
+              </p>
+            ) : (
+              models.map((m) => (
+                <label key={m.id} className={styles.modelRow} data-local-model={m.id}>
+                  <input type="checkbox" checked={chosen.has(m.id)} disabled={saving} onChange={() => toggle(m.id)} />
+                  <div className={styles.modelMain}>
+                    <div className={styles.modelName}>
+                      <span className={styles.modelLabel}>{m.label}</span>
+                      {m.contextTokens ? (
+                        <span className={styles.ctx} title="Context window">
+                          {formatTokens(m.contextTokens)}
+                        </span>
+                      ) : null}
+                    </div>
+                    {m.contextTokens && m.contextTokens < MIN_CONTEXT ? (
+                      <p className={`${styles.modelDesc} ${styles.danger}`} data-context-warning="">
+                        {formatTokens(m.contextTokens)} context: agent runs will likely fail or get cut off. Use a
+                        model or setting with 32K or more.
+                      </p>
+                    ) : null}
+                  </div>
+                </label>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
+      {server?.running && (
+        <p className={base.note} data-local-context-hint="">
+          {kind === "ollama" ? (
+            <>
+              Ollama serves less context than a model supports unless told otherwise, and tool calls need room.
+              Start it with <code>OLLAMA_CONTEXT_LENGTH=32768 ollama serve</code>, or set <code>num_ctx</code> in a
+              Modelfile.
+            </>
+          ) : (
+            "Set the context length to 32K or more when loading a model in LM Studio; tool calls need the room."
+          )}
+        </p>
+      )}
+
+      {server?.running && models.length > 0 && (
+        <div className={base.fieldRow}>
+          <button
+            type="button"
+            className={`${base.btn} ${base.btnPrimary}`}
+            data-local-use=""
+            disabled={saving || ids.length === 0}
+            onClick={() =>
+              void onSave(localInstance(kind, server.baseUrl, ids, inst)).then((ok) => {
+                if (ok) {
+                  setPicked(null);
+                  setSaved(true);
+                }
+              })
+            }
+          >
+            {inst ? "Update models" : "Use with Solenta"}
+          </button>
+          {saved && (
+            <span className={base.note} role="status" data-local-saved="">
+              Saved. Pick {name} in the model picker.
+            </span>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 
