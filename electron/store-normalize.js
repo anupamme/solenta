@@ -9,6 +9,7 @@ const { normalizeProviderInstances, parseProviderModels } = require("./providerI
 const { normalizeModelPrices } = require("./modelPrices.js");
 const { normalizePrivacyGateway } = require("./privacyGateway.js");
 const { parsePolicy } = require("./governance.js");
+const { normalizeAutoApprove } = require("./autoApprove.js");
 const { normalizeBudget } = require("./budgetCaps.js");
 
 /**
@@ -134,6 +135,9 @@ function parseAgentProfile(item, strict) {
   // Default hard cap for threads this profile is applied to (#286). Same
   // heal-on-read / throw-on-set split; absent stays absent.
   const budget = normalizeBudget(rec.budget, strict);
+  // Auto-approve toggles (#1721) copied onto threads the profile is applied
+  // to. Junk heals to absent; absent stays absent.
+  const autoApprove = normalizeAutoApprove(rec.autoApprove);
   return {
     id,
     name,
@@ -144,6 +148,7 @@ function parseAgentProfile(item, strict) {
     permissionMode: /** @type {string} */ (permissionMode),
     ...(policy ? { policy } : {}),
     ...(budget ? { budget } : {}),
+    ...(autoApprove ? { autoApprove } : {}),
   };
 }
 

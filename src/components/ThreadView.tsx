@@ -29,6 +29,7 @@ import {
 } from "../paneLayout";
 import type {
   AttachmentInfo,
+  AutoApprove,
   DevServerState,
   LocalServerInfo,
   ChatMessage,
@@ -365,6 +366,7 @@ interface ThreadViewProps {
   onSetPermissionMode: (
     mode: PermissionMode,
     threadId?: string,
+    autoApprove?: AutoApprove | null,
   ) => void | Promise<void>;
   /** Answer the pending permission prompt (detail.pendingPermission). */
   onRespondPermission: (
@@ -5131,6 +5133,10 @@ export const ThreadView = memo(function ThreadView({
         teach={thread.teach ?? null}
         ask={thread.ask === true}
         onPermissionModeChange={onSetPermissionMode}
+        autoApprove={thread.autoApprove ?? null}
+        onAutoApproveChange={(next, mode) =>
+          onSetPermissionMode(mode, thread.id, next)
+        }
         provider={threadProviderRef(thread)}
         model={thread.model}
         reasoningEffort={thread.reasoningEffort}

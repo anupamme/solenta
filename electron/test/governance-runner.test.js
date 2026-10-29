@@ -294,4 +294,125 @@ describe("runner × governance matrix (issue #262)", () => {
     assert.equal(ctrl.response.response.updatedPermissions[0].type, "addRules");
     await waitFor(() => store.getThread(thread.id).status === "done");
   });
+
+  it("an auto-approve toggle (#1721) allows with no card; audit says which one", async () => {
+    services.setPermissionMode(store, {
+      threadId: thread.id,
+      mode: "acceptEdits",
+      autoApprove: { editProject: true },
+    });
+    store.updateThread(thread.id, { agentProfileId: null });
+    tool("Write", { file_path: "src/new.js", content: "x" });
+    await runner.startRun({ threadId: thread.id, prompt: "write" });
+    let ctrl;
+    await waitFor(() => (ctrl = readJsonIfComplete(ctrlFile)) !== undefined);
+    assert.equal(ctrl.response.response.behavior, "allow");
+    assert.equal(runner.getPendingPermission(thread.id), null);
+    const [row] = listAudit({ threadId: thread.id });
+    assert.equal(row.decision, "allow");
+    assert.equal(row.layer, "autoApprove");
+    assert.equal(row.reason, "auto-approved by: Edit project files");
+    await waitFor(() => store.getThread(thread.id).status === "done");
+  });
+
+  it("a profile ask still beats the toggles", async () => {
+    store.updateThread(thread.id, {
+      autoApprove: { safeCommands: true, allCommands: true },
+    });
+    tool("Bash", { command: "git push origin main" });
+    await runner.startRun({ threadId: thread.id, prompt: "push" });
+    await waitFor(() => runner.getPendingPermission(thread.id) != null);
+    assert.equal(runner.getPendingPermission(thread.id).guardrail.layer, "profile.ask");
+    runner.respondPermission({
+      threadId: thread.id,
+      requestId: runner.getPendingPermission(thread.id).requestId,
+      decision: "deny",
+    });
+    await waitFor(() => store.getThread(thread.id).status === "done");
+  });
+
+  it("alwaysAllowKeys (#1704) work as before with toggles on", async () => {
+    store.updateThread(thread.id, {
+      agentProfileId: null,
+      autoApprove: { safeCommands: true },
+    });
+    tool("Bash", { command: "npm test" });
+    await runner.startRun({ threadId: thread.id, prompt: "test" });
+    await waitFor(() => runner.getPendingPermission(thread.id) != null);
+    runner.respondPermission({
+      threadId: thread.id,
+      requestId: runner.getPendingPermission(thread.id).requestId,
+      decision: "allowAlways",
+    });
+    let ctrl;
+    await waitFor(() => (ctrl = readJsonIfComplete(ctrlFile)) !== undefined);
+    assert.equal(ctrl.response.response.updatedPermissions[0].type, "addRules");
+    await waitFor(() => store.getThread(thread.id).status === "done");
+    assert.equal(store.getThread(thread.id).alwaysAllowKeys.length, 1);
+
+    // The remembered command skips the card on the next run.
+    fs.rmSync(ctrlFile);
+    await runner.startRun({ threadId: thread.id, prompt: "again" });
+    await waitFor(() => (ctrl = readJsonIfComplete(ctrlFile)) !== undefined);
+    assert.equal(ctrl.response.response.behavior, "allow");
+    assert.equal(runner.getPendingPermission(thread.id), null);
+    await waitFor(() => store.getThread(thread.id).status === "done");
+  });
+});
+
+describe("setPermissionMode × auto-approve (#1721)", () => {
+  let tmpDir;
+  let store;
+  let thread;
+  beforeEach(async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "coder-aa-svc-"));
+    store = new Store(path.join(tmpDir, "store.json"));
+    const repo = path.join(tmpDir, "app");
+    fs.mkdirSync(repo);
+    execFileSync("git", ["init"], { cwd: repo, stdio: "ignore" });
+    const project = await services.addProject(store, repo);
+    thread = services.createThread(store, { projectId: project.id, title: "AA" });
+  });
+  afterEach(() => rmTree(tmpDir));
+
+  it("stores the normalized matrix with its mode; a bare mode pick drops it, plan keeps it", () => {
+    let t = services.setPermissionMode(store, {
+      threadId: thread.id,
+      mode: "acceptEdits",
+      autoApprove: { editProject: true, editAll: true, readAll: true },
+    });
+    assert.equal(t.permissionMode, "acceptEdits");
+    assert.equal(t.autoApprove.editAll, true);
+    assert.equal(t.autoApprove.readAll, false, "child of an off parent");
+    t = services.setPermissionMode(store, { threadId: thread.id, mode: "plan" });
+    assert.equal(t.autoApprove.editProject, true);
+    t = services.setPermissionMode(store, { threadId: thread.id, mode: "default" });
+    assert.equal(t.autoApprove, null);
+  });
+
+  it("applyAgentProfile copies the profile's toggles; a profile without them clears", () => {
+    const base = { provider: "claude", model: null, reasoningEffort: null, permissionMode: "acceptEdits" };
+    store.setSettings({
+      agentProfiles: [
+        { id: "a", name: "A", ...base, autoApprove: { editProject: true } },
+        { id: "b", name: "B", ...base },
+      ],
+    });
+    services.applyAgentProfile(store, { threadId: thread.id, profileId: "a" });
+    assert.equal(store.getThread(thread.id).autoApprove.editProject, true);
+    services.applyAgentProfile(store, { threadId: thread.id, profileId: "b" });
+    assert.equal(store.getThread(thread.id).autoApprove, null);
+  });
+
+  it("survives a store reload", () => {
+    services.setPermissionMode(store, {
+      threadId: thread.id,
+      mode: "default",
+      autoApprove: { safeCommands: true, notify: false },
+    });
+    store.saveNow();
+    const again = new Store(path.join(tmpDir, "store.json"));
+    assert.equal(again.getThread(thread.id).autoApprove.safeCommands, true);
+    assert.equal(again.getThread(thread.id).autoApprove.notify, false);
+  });
 });

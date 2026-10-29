@@ -405,6 +405,7 @@ const PROVIDERS = [
       forkSessionAt,
       addDirs,
       askWriteDirs,
+      askReads,
       userHooks,
     }) {
       // NO trailing prompt: the runner delivers it on stdin (stream-json
@@ -472,6 +473,9 @@ const PROVIDERS = [
       const ask = (Array.isArray(askWriteDirs) ? askWriteDirs : []).map(
         (dir) => `Edit(/${dir.replace(/\\/g, "/").replace(/\/+$/, "")}/**)`,
       );
+      // "Read project files" off (#1721): the CLI reads its cwd unasked, so
+      // route reads to can_use_tool, where the toggles decide.
+      if (askReads === true) ask.push("Read", "Glob", "Grep");
       if (ask.length) settings.permissions = { ask };
       // User PreToolUse hooks (#1724): Claude's own hook contract.
       if (userHooks) settings.hooks = userHooks;

@@ -339,8 +339,16 @@ export function createThreads(ctx: DevCtx): Pick<CoderApi, "threads"> {
         return cloneDetail(d);
       },
       async setPermissionMode(input) {
+        // ponytail: fixture skips normalization; electron does it (#1721).
+        const autoApprove =
+          "autoApprove" in input
+            ? { autoApprove: input.autoApprove ?? null }
+            : input.mode !== "plan"
+              ? { autoApprove: null }
+              : {};
         return patchThread(input.threadId, {
           permissionMode: input.mode,
+          ...autoApprove,
           agentProfileId: null,
           updatedAt: now(),
         });
@@ -358,6 +366,7 @@ export function createThreads(ctx: DevCtx): Pick<CoderApi, "threads"> {
           model: profile.model,
           reasoningEffort: profile.reasoningEffort,
           permissionMode: profile.permissionMode,
+          autoApprove: profile.autoApprove ?? null,
           agentProfileId: profile.id,
           route: null,
           ...(profile.provider !== thread.provider ? { sessionId: null } : {}),

@@ -953,10 +953,13 @@ app.whenReady().then(async () => {
             settings.notifyEvents,
             notifyEventKey(payload.thread, next),
           );
-          if (eventOn && shouldNotify(prev, next, focused) && settings.notifications) {
+          // Auto-approve "Notify when an approval is needed" off (#1721).
+          const quiet =
+            next === "waiting" && payload.thread.autoApprove?.notify === false;
+          if (eventOn && !quiet && shouldNotify(prev, next, focused) && settings.notifications) {
             notifyThreadComplete(payload.thread);
           }
-          if (eventOn && shouldPlayAlert(settings, focused)) shell.beep();
+          if (eventOn && !quiet && shouldPlayAlert(settings, focused)) shell.beep();
           void dispatchWebhook({
             thread: payload.thread,
             prevStatus: prev,

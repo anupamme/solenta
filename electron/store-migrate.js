@@ -12,6 +12,7 @@ const { normalizeMessagePins } = require("./messagePins.js");
 const { normalizeQueued } = require("./queued.js");
 const { normalizeTrigger } = require("./automation-triggers.js");
 const { normalizeBudget } = require("./budgetCaps.js");
+const { normalizeAutoApprove } = require("./autoApprove.js");
 const { branchPrefixError } = require("./worktrees-branches.js");
 const { normalizeTrustHash } = require("./repoConfig.js");
 const {
@@ -664,6 +665,10 @@ function migrateThread(t) {
   const budget = normalizeBudget(t.budget);
   if (budget) next.budget = budget;
   else delete next.budget;
+  // Auto-approve toggles (#1721). Omitted when unset.
+  const autoApprove = normalizeAutoApprove(t.autoApprove);
+  if (autoApprove) next.autoApprove = autoApprove;
+  else delete next.autoApprove;
   return next;
 }
 

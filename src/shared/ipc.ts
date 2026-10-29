@@ -578,6 +578,24 @@ export type ThreadStatus = "idle" | "working" | "done" | "failed" | "quota-wait"
 export type PermissionMode = "default" | "acceptEdits" | "plan" | "auto" | "bypassPermissions";
 
 /**
+ * Granular auto-approve toggles (#1721), after Cline's. Each on toggle
+ * compiles to a governance allow rule (deny still wins). A child toggle
+ * (readAll, editAll, allCommands) only counts while its parent is on.
+ * Twin of electron/autoApprove.js.
+ */
+export interface AutoApprove {
+  readProject: boolean;
+  readAll: boolean;
+  editProject: boolean;
+  editAll: boolean;
+  safeCommands: boolean;
+  allCommands: boolean;
+  web: boolean;
+  mcp: boolean;
+  notify: boolean;
+}
+
+/**
  * Computed (never persisted): whether this thread's next run is actually
  * confined. Agent × repo-location; see electron/sandbox.js.
  */
@@ -984,6 +1002,11 @@ export interface ThreadInfo {
   replayContext?: boolean;
   /** Passed to the provider CLI (claude --permission-mode). Sticky per thread. */
   permissionMode: PermissionMode;
+  /**
+   * Auto-approve toggles (#1721). Absent/null: none set, the menu shows
+   * what permissionMode implies. Set via setPermissionMode's autoApprove.
+   */
+  autoApprove?: AutoApprove | null;
   /**
    * Computed at read time (#436). Whether the next run is actually confined
    * (agent × repo location). Absent on store rows and older fixtures.
@@ -4022,6 +4045,8 @@ export interface AgentProfile {
   permissionMode: PermissionMode;
   /** Permission matrix (#262). Absent = no rules, default "ask". */
   policy?: GovernancePolicy;
+  /** Auto-approve toggles (#1721), copied onto a thread when applied. */
+  autoApprove?: AutoApprove;
   /**
    * Default hard cap (#286), copied onto a thread when the profile is
    * applied. Absent leaves the thread's own cap alone.
@@ -5583,9 +5608,15 @@ export interface CoderApi {
     /**
      * Sticky permission mode for future turns of this thread. Rejects when
      * the provider cannot honour the mode, rather than storing a setting
-     * that would never reach the CLI (issue #177).
+     * that would never reach the CLI (issue #177). With `autoApprove`
+     * (#1721) the toggles are stored alongside the mode they snap to; null
+     * clears them. Without it, any mode but plan clears them.
      */
-    setPermissionMode(input: { threadId: string; mode: PermissionMode }): Promise<ThreadInfo>;
+    setPermissionMode(input: {
+      threadId: string;
+      mode: PermissionMode;
+      autoApprove?: AutoApprove | null;
+    }): Promise<ThreadInfo>;
     /**
      * Apply a saved AgentProfile (#262): provider, model, effort, permission
      * mode (snapped to what the provider honours) and `agentProfileId`.

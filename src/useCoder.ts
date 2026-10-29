@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
+  AutoApprove,
   ActivityItem,
   TeleportTarget,
   CliAgentInfo,
@@ -327,10 +328,14 @@ export interface UseCoderResult {
   /** Retained run threads for one automation; does not start a run. */
   listAutomationRuns: (id: string) => Promise<AutomationRunsResult>;
   stopRun: () => Promise<void>;
-  /** Sticky permission mode. Pass threadId to target a fork, not the open thread. */
+  /**
+   * Sticky permission mode. Pass threadId to target a fork, not the open
+   * thread. autoApprove (#1721) stores toggles with the mode; null clears.
+   */
   setPermissionMode: (
     mode: PermissionMode,
     threadId?: string,
+    autoApprove?: AutoApprove | null,
   ) => Promise<void>;
   /** Answer the selected thread's pending permission prompt. */
   respondPermission: (

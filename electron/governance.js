@@ -18,6 +18,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { WRITE_TOOLS } = require("./guardrails.js");
+const { autoApproveRules } = require("./autoApprove.js");
 
 const ACTIONS = new Set(["block", "deny", "ask", "allow"]);
 const KINDS = new Set(["tool", "bash", "write", "network"]);
@@ -281,8 +282,9 @@ function subcommands(command) {
  * @param {Call} call
  * @param {string | null | undefined} worktreePath
  * @param {boolean} writeTool
+ * @param {Record<string, unknown>} [input] - raw tool input, for `test` rules
  */
-function matchingRules(rules, call, worktreePath, writeTool) {
+function matchingRules(rules, call, worktreePath, writeTool, input = {}) {
   const subs = call.command ? subcommands(call.command) : [];
   let rel = null;
   if (call.path && worktreePath) {
@@ -298,6 +300,11 @@ function matchingRules(rules, call, worktreePath, writeTool) {
   const hits = [];
   const bashAllows = [];
   for (const rule of rules) {
+    // Auto-approve toggles (#1721) bring their own matcher.
+    if (typeof rule.test === "function") {
+      if (rule.test({ tool: call.tool, input, worktreePath })) hits.push(rule);
+      continue;
+    }
     const re = globRe(rule.match);
     if (rule.kind === "tool") {
       if (re.test(call.tool)) hits.push(rule);
@@ -341,8 +348,8 @@ function ruleLabel(r) {
  *   policy: { defaultAction: string, rules: Array<{ kind: string, match: string, action: string }> } | null | undefined,
  *   builtin: { decision: string, rule: string | null, reason: string } | null,
  *   sessionAllows?: ReadonlySet<string>,
- *   mcpRules?: Array<{ kind: string, match: string, action: string, source?: string }>,
- * }} input
+ *   mcpRules?: Array<{ kind: string, match: string, action: string, source?: string, label?: string, test?: Function }>,
+ * }} input - mcpRules: sourced non-profile rules (MCP per-tool, auto-approve)
  * @returns {{ decision: "allow" | "ask" | "deny", layer: string, rule: string | null, reason: string, actionHash: string, declared: Call }}
  */
 function evaluate(input) {
@@ -421,6 +428,7 @@ function evaluateUnsafe(input) {
     declared,
     worktreePath,
     WRITE_TOOLS.has(String(toolName || "")),
+    rawInput && typeof rawInput === "object" ? /** @type {Record<string, unknown>} */ (rawInput) : {},
   );
   for (const action of SEVERITY) {
     if (action === "allow") break;
@@ -448,11 +456,17 @@ function evaluateUnsafe(input) {
   if (sessionAllows.has(hash)) {
     return out("allow", "session", null, "allowed for this session");
   }
-  const allow = hits.find((r) => r.action === "allow");
-  if (allow) {
-    return allow.source === "mcp"
-      ? out("allow", "mcp.allow", ruleLabel(allow), "MCP tool allowed in Settings")
-      : out("allow", "profile.allow", ruleLabel(allow), "allowed by profile");
+  // A specific rule names the call better than a blanket toggle (#1721).
+  const named =
+    hits.find((r) => r.action === "allow" && r.source !== "autoApprove") ||
+    hits.find((r) => r.action === "allow");
+  if (named) {
+    if (named.source === "autoApprove") {
+      return out("allow", "autoApprove", ruleLabel(named), `auto-approved by: ${named.label}`);
+    }
+    return named.source === "mcp"
+      ? out("allow", "mcp.allow", ruleLabel(named), "MCP tool allowed in Settings")
+      : out("allow", "profile.allow", ruleLabel(named), "allowed by profile");
   }
   if (builtin.decision === "ask") {
     return out("ask", "builtin", builtin.rule, builtin.reason);
@@ -513,8 +527,23 @@ function mcpToolRules(servers) {
  */
 function threadPolicy(store, threadId) {
   const settings = store.getSettings() || {};
-  const mcpRules = mcpToolRules(settings.mcpServers);
   const thread = store.getThread(threadId);
+  // Auto-approve toggles (#1721) ride the same sourced-rule list as MCP
+  // rules, so every evaluate() call site picks them up unchanged. Read live:
+  // a toggle flipped mid-run applies to the next tool call.
+  const mcpRules = [
+    ...mcpToolRules(settings.mcpServers),
+    ...autoApproveRules(thread && thread.autoApprove, {
+      known: [thread && thread.verifyCommand],
+      // "Project" is the run's cwd: the worktree, else the project folder.
+      root:
+        (thread && thread.worktreePath) ||
+        (thread && typeof store.getProject === "function"
+          ? (store.getProject(thread.projectId) || {}).path
+          : null) ||
+        null,
+    }),
+  ];
   const id = thread && thread.agentProfileId;
   if (!id) return { profileId: null, policy: null, mcpRules };
   const profile = (settings.agentProfiles || []).find((p) => p.id === id);
