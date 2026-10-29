@@ -2343,6 +2343,18 @@ export interface ConflictForecast {
  * `ok` is the only thing that lets a run go green; everything else is what
  * the fixer gets handed when it doesn't.
  */
+/** One @-mention source read (#1722): chip label and the text sent. */
+export interface MentionSourceResult {
+  label: string;
+  text: string;
+}
+
+export interface MentionCommit {
+  sha: string;
+  short: string;
+  subject: string;
+}
+
 export interface VerifyResult {
   /** Run whose terminal triggered this check; "manual" for threads.runVerify. */
   runId: string;
@@ -6741,6 +6753,29 @@ export interface CoderApi {
       /** Type the CLI's logout command (no Enter) instead (#1714). */
       logout?: boolean;
     }): Promise<{ threadId: string; termId: string }>;
+  };
+  /**
+   * Composer @-mention context sources (#1722). Each read resolves to a
+   * chip label (host/size) and the labelled text inlined at send. All are
+   * thread-scoped: cwd is the thread's worktree, else the project checkout.
+   */
+  mentions: {
+    /** http/https only (redirects re-checked), 10s, 2 MB, ~50k chars of text. */
+    fetchUrl(input: { threadId: string; url: string }): Promise<MentionSourceResult>;
+    /** Last ~200 lines of the thread's terminal pane, ANSI stripped. */
+    terminalTail(input: { threadId: string }): Promise<MentionSourceResult>;
+    /** Run the thread's verify command; `cancelled` when cancelProblems hit it. */
+    runProblems(input: {
+      threadId: string;
+      requestId: string;
+    }): Promise<MentionSourceResult & { cancelled?: boolean }>;
+    cancelProblems(input: { requestId: string }): Promise<{ ok: boolean }>;
+    /** Staged + unstaged diff of the worktree, size-capped. */
+    gitChanges(input: { threadId: string }): Promise<MentionSourceResult>;
+    /** Last 30 commits on HEAD. */
+    listCommits(input: { threadId: string }): Promise<MentionCommit[]>;
+    /** `git show --stat --patch`; sha must match ^[0-9a-f]{4,40}$. */
+    showCommit(input: { threadId: string; sha: string }): Promise<MentionSourceResult>;
   };
   /**
    * Embedded Browser pane (issue #155). Desktop-only: the renderer hosts a

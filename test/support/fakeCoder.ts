@@ -3912,6 +3912,21 @@ export function createFakeCoder(opts: FakeOptions = {}): FakeCoder {
           termId: "signin",
         }),
     },
+    mentions: {
+      fetchUrl: (input: { url: string }) =>
+        rec("mentions.fetchUrl", [input], { label: "example.com · 1.0 KB", text: `URL: ${input.url}\n\nPage text` }),
+      terminalTail: (input: unknown) =>
+        rec("mentions.terminalTail", [input], { label: "2 lines · 20 B", text: "$ npm test\nok" }),
+      runProblems: (input: unknown) =>
+        rec("mentions.runProblems", [input], { label: "passed · 2 B", text: "ok" }),
+      cancelProblems: (input: unknown) => rec("mentions.cancelProblems", [input], { ok: true }),
+      gitChanges: (input: unknown) =>
+        rec("mentions.gitChanges", [input], { label: "1 file · 40 B", text: "diff --git a/x b/x" }),
+      listCommits: (input: unknown) =>
+        rec("mentions.listCommits", [input], [] as Array<{ sha: string; short: string; subject: string }>),
+      showCommit: (input: { sha: string }) =>
+        rec("mentions.showCommit", [input], { label: `${input.sha.slice(0, 7)} · 1.0 KB`, text: `commit ${input.sha}` }),
+    },
     simulator: {
       capabilities: (input: unknown) =>
         rec(

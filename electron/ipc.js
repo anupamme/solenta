@@ -24,6 +24,7 @@ const filesHandlers = require("./ipc-files.js");
 const devserverHandlers = require("./ipc-devserver.js");
 const simulatorHandlers = require("./ipc-simulator.js");
 const webHandlers = require("./ipc-web.js");
+const mentionsHandlers = require("./ipc-mentions.js");
 
 /**
  * Default window fan-out (desktop transport). main.js replaces this with a
@@ -116,6 +117,7 @@ const IPC_HANDLERS = {
   ...devserverHandlers,
   ...simulatorHandlers,
   ...webHandlers,
+  ...mentionsHandlers,
 };
 
 /**
