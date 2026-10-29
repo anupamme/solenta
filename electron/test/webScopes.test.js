@@ -58,6 +58,11 @@ describe("scope table", () => {
     assert.equal(scopeForChannel("mcp:save"), "full");
   });
 
+  it("a read-only device cannot make the host fetch URLs (@url, #1722)", () => {
+    assert.equal(scopeForChannel("mentions:fetchUrl"), "steer");
+    assert.equal(scopeForChannel("mentions:gitChanges"), "read");
+  });
+
   it("allows: read always, full everything, type implies observe", () => {
     assert.equal(allows(undefined, "read"), true);
     assert.equal(allows(undefined, "steer"), false);

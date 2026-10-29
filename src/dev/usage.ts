@@ -16,7 +16,7 @@ import { buildActivity } from "../activity.ts";
 import type { DevCtx } from "./context.ts";
 import { now } from "./util.ts";
 
-export function createUsage(ctx: DevCtx): Pick<CoderApi, "activity" | "governance" | "usage" | "fleet" | "insights" | "digest"> {
+export function createUsage(ctx: DevCtx): Pick<CoderApi, "activity" | "governance" | "hooks" | "usage" | "fleet" | "insights" | "digest"> {
   const { details } = ctx;
   return {
     governance: {
@@ -25,6 +25,21 @@ export function createUsage(ctx: DevCtx): Pick<CoderApi, "activity" | "governanc
       },
       async verifyAudit() {
         return { ok: true as const, entries: 0 };
+      },
+    },
+    hooks: {
+      async list() {
+        return {
+          user: { path: "~/Library/Application Support/Solenta/hooks.json", exists: false, hash: null, error: null, hooks: [] },
+          project: null,
+          nativePreToolUse: ["claude", "codex"],
+        };
+      },
+      async approve(input) {
+        return { hash: input.hash };
+      },
+      async test(input) {
+        return { id: input.id, event: "PreToolUse" as const, exitCode: 0, durationMs: 0, timedOut: false, error: null, output: "", at: now() };
       },
     },
     activity: {

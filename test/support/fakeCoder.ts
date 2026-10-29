@@ -2870,6 +2870,8 @@ export function createFakeCoder(opts: FakeOptions = {}): FakeCoder {
       setProvider: (input: unknown) => rec("threads.setProvider", [input], thread()),
       setReasoningEffort: (input: unknown) =>
         rec("threads.setReasoningEffort", [input], thread()),
+      setPlanModel: (input: unknown) =>
+        rec("threads.setPlanModel", [input], thread()),
       setWebSearch: (input: unknown) =>
         rec("threads.setWebSearch", [input], thread()),
       setFast: (input: unknown) => rec("threads.setFast", [input], thread()),
@@ -3184,6 +3186,27 @@ export function createFakeCoder(opts: FakeOptions = {}): FakeCoder {
           [],
           [...trashed.values()].map(({ thread: _thread, ...row }) => row),
         ),
+    },
+    hooks: {
+      list: (input?: unknown) =>
+        rec("hooks.list", [input], {
+          user: { path: "/u/hooks.json", exists: false, hash: null, error: null, hooks: [] },
+          project: null,
+          nativePreToolUse: ["claude", "codex"],
+        }),
+      approve: (input: { hash: string }) =>
+        rec("hooks.approve", [input], { hash: input.hash }),
+      test: (input: { id: string }) =>
+        rec("hooks.test", [input], {
+          id: input.id,
+          event: "PreToolUse" as const,
+          exitCode: 0,
+          durationMs: 1,
+          timedOut: false,
+          error: null,
+          output: "",
+          at: 0,
+        }),
     },
     governance: {
       listAudit: (input?: unknown) => rec("governance.listAudit", [input], []),
@@ -4012,6 +4035,21 @@ export function createFakeCoder(opts: FakeOptions = {}): FakeCoder {
           threadId: input.threadId || "__signin__",
           termId: "signin",
         }),
+    },
+    mentions: {
+      fetchUrl: (input: { url: string }) =>
+        rec("mentions.fetchUrl", [input], { label: "example.com · 1.0 KB", text: `URL: ${input.url}\n\nPage text` }),
+      terminalTail: (input: unknown) =>
+        rec("mentions.terminalTail", [input], { label: "2 lines · 20 B", text: "$ npm test\nok" }),
+      runProblems: (input: unknown) =>
+        rec("mentions.runProblems", [input], { label: "passed · 2 B", text: "ok" }),
+      cancelProblems: (input: unknown) => rec("mentions.cancelProblems", [input], { ok: true }),
+      gitChanges: (input: unknown) =>
+        rec("mentions.gitChanges", [input], { label: "1 file · 40 B", text: "diff --git a/x b/x" }),
+      listCommits: (input: unknown) =>
+        rec("mentions.listCommits", [input], [] as Array<{ sha: string; short: string; subject: string }>),
+      showCommit: (input: { sha: string }) =>
+        rec("mentions.showCommit", [input], { label: `${input.sha.slice(0, 7)} · 1.0 KB`, text: `commit ${input.sha}` }),
     },
     simulator: {
       capabilities: (input: unknown) =>

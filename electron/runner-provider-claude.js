@@ -3,7 +3,12 @@
 // createRunner seam: Claude (and Grok) provider run (#1447, seam 11).
 // Follows the seam convention in the header of electron/runner-watchdogs.js.
 
-const { getProvider, resolveBin, modelSupportsFast } = require("./providers.js");
+const {
+  getProvider,
+  resolveBin,
+  modelSupportsFast,
+  turnModelFor,
+} = require("./providers.js");
 const { withProjectEnv } = require("./worktreeEnv.js");
 const {
   truncate,
@@ -28,6 +33,8 @@ const {
   materializeGrokHome,
 } = require("./grok.js");
 const path = require("node:path");
+const { copyGuardrailRuntime } = require("./guardrail-hook-core.js");
+const { claudeSettingsHooks } = require("./user-hooks.js");
 const threadSecrets = require("./threadSecrets.js");
 const { classifyTool } = require("./guardrails.js");
 const { evaluate, threadPolicy } = require("./governance.js");
@@ -50,6 +57,31 @@ const { saveToolImages, extractImages } = require("./tool-images.js");
 const { extractHtml } = require("./tool-html.js");
 const fs = require("node:fs");
 const { recordCompaction } = require("./compaction.js");
+
+/**
+ * One model's growth in a claude result's modelUsage since the last result
+ * of the same process (#1716), as a recordUsage row, or null when it did
+ * not grow.
+ * @param {string} model
+ * @param {any} row
+ * @param {any} prevRow
+ */
+function modelUsageDelta(model, row, prevRow) {
+  if (!row || typeof row !== "object") return null;
+  const grew = (k) =>
+    Math.max(0, (Number(row[k]) || 0) - (Number(prevRow && prevRow[k]) || 0));
+  const out = {
+    model,
+    costUsd: grew("costUSD"),
+    inputTokens: grew("inputTokens"),
+    cachedInputTokens: grew("cacheReadInputTokens"),
+    cacheWriteTokens: grew("cacheCreationInputTokens"),
+    outputTokens: grew("outputTokens"),
+  };
+  return out.costUsd > 0 || out.inputTokens > 0 || out.outputTokens > 0
+    ? out
+    : null;
+}
 
 /**
  * @param {object} ctx - createRunner context (see runner-watchdogs.js header)
@@ -102,6 +134,7 @@ function createClaudeRun(ctx) {
     CLAUDE_ACK_MS,
     disposeClaudeSession,
     finishRunningSubagents,
+    userHookEvents,
   } = ctx;
   /** Threads already told Claude refused fast mode (#1529). */
   const fastRefusedNoted = new Set();
@@ -115,13 +148,16 @@ function createClaudeRun(ctx) {
    */
   async function startClaudeRun(threadId, prompt, runId, providerEntry) {
     if (abortIfCancelled(threadId, runId)) return { runId };
-    const thread = store.getThread(threadId);
+    const entryDef = providerEntry || getProvider("claude");
+    const stored = store.getThread(threadId);
+    // Plan-mode turns run on thread.planModel (#1716). Everything below reads
+    // the turn's model from here: argv, the reuse key, usage fallback.
+    const thread = { ...stored, ...turnModelFor(entryDef, stored) };
     const project = store.getProject(thread.projectId);
     if (!project) {
       throw new Error(`Unknown project for thread: ${threadId}`);
     }
 
-    const entryDef = providerEntry || getProvider("claude");
     assertProviderBinary(entryDef, project);
 
     const claudeState = {
@@ -439,6 +475,29 @@ function createClaudeRun(ctx) {
     const grantedDirs = writeGrants(thread);
     const askWriteDirs = extraDirs.filter((d) => !grantedDirs.includes(d));
     const askReads = Boolean(thread.autoApprove && !thread.autoApprove.readProject);
+    // User PreToolUse hooks (#1724) as a Claude settings hook. Local only:
+    // the hook commands are this host's programs.
+    let userHookSettings = null;
+    /** @type {Record<string, string> | null} */
+    let userHookEnv = null;
+    const nativeHooks =
+      entryDef.id === "claude" && !crossesBoundary(project) && userHookEvents
+        ? userHookEvents.nativePreTool(threadId)
+        : null;
+    if (nativeHooks && userDataPath) {
+      try {
+        const runtime = copyGuardrailRuntime(
+          path.join(userDataPath, "user-hooks", "runtime"),
+        );
+        userHookSettings = claudeSettingsHooks(runtime, nativeHooks.hooks);
+        userHookEnv = {
+          SOLENTA_USER_HOOKS: nativeHooks.file,
+          SOLENTA_WORKTREE: localCwd,
+        };
+      } catch {
+        // A failed copy must not block the turn; PostToolUse/Stop still run.
+      }
+    }
     const args = entryDef.buildArgs({
       prompt,
       sessionId: thread.sessionId || null,
@@ -452,6 +511,7 @@ function createClaudeRun(ctx) {
       addDirs: extraDirs,
       askWriteDirs,
       askReads,
+      userHooks: userHookSettings,
     });
     // Claude runs interactively: prompt over stdin, permission prompts via
     // the control protocol. Other claude-stream providers (e.g. grok) keep
@@ -1135,6 +1195,26 @@ function createClaudeRun(ctx) {
           const inputTokens = prev.inputTokens + turnIn;
           const outputTokens = prev.outputTokens + turnOut;
           const costUsd = prev.costUsd + costDelta;
+          // modelUsage is the process's per-model running total, like
+          // total_cost_usd. A plan approved mid-turn switched models
+          // (set_model, #1716): bill each model its own growth, then the
+          // act model owns the rest of this process.
+          const mu =
+            ev.modelUsage && typeof ev.modelUsage === "object"
+              ? ev.modelUsage
+              : null;
+          const prevMu = (handle && handle.lastModelUsage) || {};
+          if (handle && mu) handle.lastModelUsage = mu;
+          const splitRows =
+            handle && handle.modelSwitchedTo !== undefined && mu
+              ? Object.entries(mu)
+                .map(([id, row]) => modelUsageDelta(id, row, prevMu[id]))
+                .filter(Boolean)
+              : null;
+          if (handle && handle.modelSwitchedTo !== undefined) {
+            capturedModel = handle.modelSwitchedTo || capturedModel;
+            delete handle.modelSwitchedTo;
+          }
           const model =
             capturedModel || prev.model || null;
           const nextUsage = {
@@ -1159,19 +1239,31 @@ function createClaudeRun(ctx) {
           if (costDelta > 0) {
             store.recordSpend(costDelta);
           }
-          store.recordUsage({
-            provider: threadProviderRef(thread),
-            model,
-            costUsd: costDelta,
-            inputTokens: turnIn,
-            cachedInputTokens: Number(usage.cache_read_input_tokens) || 0,
-            cacheWriteTokens: Number(usage.cache_creation_input_tokens) || 0,
-            outputTokens: turnOut,
-            threadId,
-            projectId: thread.projectId,
-            projectName: store.getProject(thread.projectId)?.name,
-            title: thread.title,
-          });
+          const usageRows =
+            splitRows && splitRows.length > 0
+              ? splitRows
+              : [
+                {
+                  model,
+                  costUsd: costDelta,
+                  inputTokens: turnIn,
+                  cachedInputTokens:
+                    Number(usage.cache_read_input_tokens) || 0,
+                  cacheWriteTokens:
+                    Number(usage.cache_creation_input_tokens) || 0,
+                  outputTokens: turnOut,
+                },
+              ];
+          for (const row of usageRows) {
+            store.recordUsage({
+              provider: threadProviderRef(thread),
+              ...row,
+              threadId,
+              projectId: thread.projectId,
+              projectName: store.getProject(thread.projectId)?.name,
+              title: thread.title,
+            });
+          }
 
           const ok = ev.subtype === "success";
           // Assistant text from stream, or fall back to result field
@@ -1375,6 +1467,7 @@ function createClaudeRun(ctx) {
         local: !crossesBoundary(project),
       }) || {}),
       ...otel.claudeEnv(),
+      ...(userHookEnv || {}),
     };
     const otelEnv = Object.keys(claudeOtel).length > 0 ? claudeOtel : undefined;
     const grokMerged =

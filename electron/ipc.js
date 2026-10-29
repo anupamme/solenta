@@ -15,6 +15,7 @@ for (const id of Object.keys(require.cache)) {
 const projectsHandlers = require("./ipc-projects.js");
 const threadsHandlers = require("./ipc-threads.js");
 const insightsHandlers = require("./ipc-insights.js");
+const hooksHandlers = require("./ipc-hooks.js");
 const appHandlers = require("./ipc-app.js");
 const mcpHandlers = require("./ipc-mcp.js");
 const skillsHandlers = require("./ipc-skills.js");
@@ -24,6 +25,7 @@ const filesHandlers = require("./ipc-files.js");
 const devserverHandlers = require("./ipc-devserver.js");
 const simulatorHandlers = require("./ipc-simulator.js");
 const webHandlers = require("./ipc-web.js");
+const mentionsHandlers = require("./ipc-mentions.js");
 
 /**
  * Default window fan-out (desktop transport). main.js replaces this with a
@@ -108,6 +110,7 @@ const IPC_HANDLERS = {
   ...projectsHandlers,
   ...threadsHandlers,
   ...insightsHandlers,
+  ...hooksHandlers,
   ...appHandlers,
   ...mcpHandlers,
   ...skillsHandlers,
@@ -117,6 +120,7 @@ const IPC_HANDLERS = {
   ...devserverHandlers,
   ...simulatorHandlers,
   ...webHandlers,
+  ...mentionsHandlers,
 };
 
 /**

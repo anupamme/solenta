@@ -9,6 +9,7 @@ const {
   honouredEfforts,
   modelSupportsFast,
   codexModelAcceptsImages,
+  turnModelFor,
 } = require("./providers.js");
 const services = require("./services.js");
 const { withProjectEnv } = require("./worktreeEnv.js");
@@ -27,6 +28,7 @@ const codexParse = require("./codex.js");
 const { isCodexChildThread } = require("./codex-appserver.js");
 const { isNativeCompactTurn, recordCompaction } = require("./compaction.js");
 const { guardrailNotice } = require("./guardrail-hook-core.js");
+const { preToolBudgetSec } = require("./user-hooks.js");
 
 /**
  * @param {object} ctx - createRunner context (see runner-watchdogs.js header)
@@ -76,7 +78,9 @@ function createCodexRun(ctx) {
    */
   function startCodexRun(threadId, prompt, runId, providerEntry, images) {
     if (abortIfCancelled(threadId, runId)) return { runId };
-    const thread = store.getThread(threadId);
+    const stored = store.getThread(threadId);
+    // Plan-mode turns run on thread.planModel (#1716); turn/start takes it.
+    const thread = { ...stored, ...turnModelFor(providerEntry, stored) };
     const project = store.getProject(thread.projectId);
     if (!project) {
       throw new Error(`Unknown project for thread: ${threadId}`);
@@ -170,6 +174,8 @@ function createCodexRun(ctx) {
     // wrapCommand with env CODEX_HOME= via boundaryArgv.
     /** @type {Record<string, string> | undefined} */
     let codexWrapEnv;
+    /** @type {{ file: string, hooks: any[] } | null} */
+    let nativeHooks = null;
     if (crossesBoundary(project) && guardrailsEnabled()) {
       try {
         const dest = deployCodexGuardrailOverlay({ project, threadId });
@@ -187,14 +193,25 @@ function createCodexRun(ctx) {
       } catch {
         // Deploy miss must not kill the run; stream notice remains.
       }
-    } else if (userDataPath && !crossesBoundary(project) && guardrailsEnabled()) {
+    } else if (
+      userDataPath &&
+      !crossesBoundary(project) &&
+      // User PreToolUse hooks (#1724) ride the same overlay hook.
+      (guardrailsEnabled() || (nativeHooks = ctx.userHookEvents.nativePreTool(threadId)))
+    ) {
       try {
         const dest = path.join(userDataPath, "codex-homes", threadId);
         const sourceHome =
           instEnv.CODEX_HOME ||
           process.env.CODEX_HOME ||
           path.join(require("node:os").homedir(), ".codex");
-        materializeCodexGuardrailHome({ dest, sourceHome });
+        if (!nativeHooks) nativeHooks = ctx.userHookEvents.nativePreTool(threadId);
+        materializeCodexGuardrailHome({
+          dest,
+          sourceHome,
+          ...(nativeHooks ? { timeoutSec: preToolBudgetSec(nativeHooks.hooks) } : {}),
+        });
+        if (nativeHooks) codexMcpEnv.SOLENTA_USER_HOOKS = nativeHooks.file;
         // Isolated overlay + hooks=true. Do not pass
         // --dangerously-bypass-hook-trust: that flag is exec-only and
         // live Codex app-server exits 2 on it (#1309). Trust is written

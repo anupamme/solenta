@@ -388,6 +388,8 @@ export interface UseCoderResult {
     projectPath?: string | null;
   }) => Promise<CliAgentInfo[]>;
   setFast: (fast: boolean, threadId?: string) => Promise<void>;
+  /** Plan-mode model (#1716); null = plan on the thread's model. */
+  setPlanModel: (model: string | null, threadId?: string) => Promise<void>;
   /** Pending first-turn model route (#246); null = manual pick. */
   setRoute: (route: ModelRoute | null, threadId?: string) => Promise<void>;
   /**
@@ -790,6 +792,8 @@ export interface UseCoderResult {
   files: FilesPaneApi;
   /** Embedded Browser pane guest (issue #155). Desktop-only. */
   preview: CoderApi["preview"];
+  /** Composer @-mention sources (#1722). */
+  mentions: CoderApi["mentions"];
   /** Desktop-only iOS Simulator pane (#248). */
   simulator: CoderApi["simulator"];
   simulatorStatus: SimulatorStatus | null;
@@ -1622,6 +1626,7 @@ export function useCoder(): UseCoderResult {
     setAgent,
     listAgents,
     setFast,
+    setPlanModel,
     setRoute,
     setArchived,
     setSettled,
@@ -2182,6 +2187,7 @@ export function useCoder(): UseCoderResult {
     setAgent,
     listAgents,
     setFast,
+    setPlanModel,
     setRoute,
     setArchived,
     setSettled,
@@ -2306,6 +2312,7 @@ export function useCoder(): UseCoderResult {
     terminal,
     files: filesApi,
     preview: api.preview,
+    mentions: api.mentions,
     simulator: api.simulator,
     simulatorStatus,
     setVerifyCommand,

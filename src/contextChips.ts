@@ -2,7 +2,11 @@
  * Typed composer context chips (#1526). Stored on the draft; expanded at send.
  * Files stay `@path` text. Review comments stay their own list.
  */
-import type { PreviewInspectResult } from "./shared/ipc";
+import type {
+  MentionCommit,
+  MentionSourceResult,
+  PreviewInspectResult,
+} from "./shared/ipc";
 
 /** Same cap as replyContext.REPLY_QUOTE_CAP — keep in sync. */
 const QUOTE_CAP = 8_000;
@@ -18,7 +22,8 @@ export type ContextChipKind =
   | "skill"
   | "terminal"
   | "quote"
-  | "element";
+  | "element"
+  | "source";
 
 interface ChipBase {
   id: string;
@@ -75,13 +80,34 @@ export interface ElementChip extends ChipBase {
   comment: string;
 }
 
+/** Typed @-mention sources (#1722). Text is fetched once, at accept. */
+export type MentionSourceKind =
+  | "url"
+  | "terminal"
+  | "problems"
+  | "git-changes"
+  | "commit";
+
+/**
+ * Content frozen when the row was picked; `pending` while main fetches it
+ * (spinner chip, blocks send). `label` is main's host/count + size.
+ */
+export interface SourceChip extends ChipBase {
+  kind: "source";
+  source: MentionSourceKind;
+  label: string;
+  text: string;
+  pending?: boolean;
+}
+
 export type ContextChip =
   | ThreadChip
   | PrChip
   | SkillChip
   | TerminalChip
   | QuoteChip
-  | ElementChip;
+  | ElementChip
+  | SourceChip;
 
 export type InspectPick = Extract<PreviewInspectResult, { cancelled: false }>;
 
@@ -151,7 +177,105 @@ export function elementChipPrompt(chip: ElementChip): string {
 export type MentionExtra =
   | { kind: "thread"; id: string; title: string }
   | { kind: "pr"; number: number; title: string }
-  | { kind: "skill"; name: string; description: string };
+  | { kind: "skill"; name: string; description: string }
+  | {
+      kind: "source";
+      source: Exclude<MentionSourceKind, "commit">;
+      hint: string;
+      /** The typed URL for an `@https://…` row. */
+      arg?: string;
+      /** @problems with no verify command: the row explains, picks nothing. */
+      unavailable?: boolean;
+    }
+  | { kind: "commit"; sha: string; short: string; subject: string };
+
+/** Thread-bound readers for the source rows; ThreadView builds it. */
+export interface MentionSourceApi {
+  verifyCommand: string | null;
+  /** Where the "no verify command" row sends the user. */
+  onOpenVerifySettings?: () => void;
+  fetchUrl(url: string): Promise<MentionSourceResult>;
+  terminalTail(): Promise<MentionSourceResult>;
+  runProblems(requestId: string): Promise<MentionSourceResult & { cancelled?: boolean }>;
+  cancelProblems(requestId: string): void;
+  gitChanges(): Promise<MentionSourceResult>;
+  listCommits(): Promise<MentionCommit[]>;
+  showCommit(sha: string): Promise<MentionSourceResult>;
+}
+
+const URL_QUERY = /^https?:\/\/\S+$/i;
+const SHA_QUERY = /^[0-9a-f]{4,40}$/i;
+const SOURCE_KEYWORDS = ["url", "terminal", "problems", "git-changes"] as const;
+
+/**
+ * Source rows for `@query`: keywords by prefix, a pasted URL as one fetch
+ * row, and commits by sha prefix or subject. A typed sha that is not in
+ * the recent list still gets a row; it needs a digit so `@face` stays a word.
+ */
+export function sourceMentionRows(
+  query: string,
+  ctx: { verifyCommand: string | null; commits: readonly MentionCommit[] },
+): { sources: MentionExtra[]; commits: MentionExtra[] } {
+  const q = query.trim();
+  if (URL_QUERY.test(q)) {
+    return {
+      sources: [{ kind: "source", source: "url", hint: `Fetch ${q}`, arg: q }],
+      commits: [],
+    };
+  }
+  const lq = q.toLowerCase();
+  const sources: MentionExtra[] = SOURCE_KEYWORDS.filter((k) =>
+    k.startsWith(lq),
+  ).map((source) => {
+    if (source === "url") {
+      return { kind: "source", source, hint: "Type or paste a URL to fetch" };
+    }
+    if (source === "terminal") {
+      return { kind: "source", source, hint: "Last 200 lines of the terminal" };
+    }
+    if (source === "git-changes") {
+      return { kind: "source", source, hint: "Uncommitted diff, staged + unstaged" };
+    }
+    return ctx.verifyCommand
+      ? { kind: "source", source, hint: `Run ${ctx.verifyCommand}` }
+      : {
+          kind: "source",
+          source,
+          hint: "No verify command set. Set one in Environment › Verify",
+          unavailable: true,
+        };
+  });
+  const toRow = (c: MentionCommit): MentionExtra => ({ kind: "commit", ...c });
+  let commits: MentionExtra[];
+  if (!lq) commits = ctx.commits.slice(0, MENTION_EMPTY_CAP).map(toRow);
+  else if ("commit".startsWith(lq)) commits = ctx.commits.map(toRow);
+  else {
+    commits = ctx.commits
+      .filter(
+        (c) =>
+          c.sha.startsWith(lq) ||
+          (lq.length >= 3 && c.subject.toLowerCase().includes(lq)),
+      )
+      .map(toRow);
+    if (SHA_QUERY.test(lq) && /\d/.test(lq) && commits.length === 0) {
+      commits = [{ kind: "commit", sha: lq, short: lq.slice(0, 12), subject: "" }];
+    }
+  }
+  return { sources, commits };
+}
+
+/** Fetch one source row's content through the thread's api. */
+export function loadMentionSource(
+  api: MentionSourceApi,
+  extra: Extract<MentionExtra, { kind: "source" | "commit" }>,
+  requestId: string,
+): Promise<MentionSourceResult & { cancelled?: boolean }> {
+  if (extra.kind === "commit") return api.showCommit(extra.sha);
+  if (extra.source === "url") return api.fetchUrl(extra.arg ?? "");
+  if (extra.source === "terminal") return api.terminalTail();
+  if (extra.source === "git-changes") return api.gitChanges();
+  return api.runProblems(requestId);
+}
 
 export type PrDetailLoad =
   | { title: string; body: string; additions?: number; deletions?: number }
@@ -184,6 +308,9 @@ export function quoteChipAsReply(chip: QuoteChip): {
 }
 
 export function contextChipLabel(chip: ContextChip): string {
+  if (chip.kind === "source") {
+    return `${chip.source} · ${chip.pending ? (chip.source === "problems" ? "running…" : "loading…") : chip.label}`;
+  }
   if (chip.kind === "thread") return chip.title || chip.threadId;
   if (chip.kind === "pr") return `#${chip.number} ${chip.title}`.trim();
   if (chip.kind === "skill") return chip.name;
@@ -263,6 +390,12 @@ async function expandOne(
 ): Promise<string> {
   const label = contextChipLabel(chip);
   if (chip.kind === "element") return elementChipPrompt(chip);
+  if (chip.kind === "source") {
+    if (chip.pending) return "";
+    // Same fence trick as browser-element: fetched text cannot close the block.
+    const body = chip.text.replace(/<\/mention-context/gi, "<\\/mention-context");
+    return `<mention-context source="${chip.source}" label="${chip.label.replace(/"/g, "'")}">\n${body}\n</mention-context>`;
+  }
   if (chip.kind === "quote") {
     // Same block as wrapReplyContext; kept local so node tests need no resolver.
     const truncated = chip.truncated === true || chip.text.length > QUOTE_CAP;
@@ -381,6 +514,24 @@ function parseOneChip(row: unknown): ContextChip | null {
     if (typeof row.endLine === "number") chip.endLine = row.endLine;
     return chip;
   }
+  if (kind === "source") {
+    // A load in flight does not survive a reload; drop its spinner chip.
+    if (row.pending === true) return null;
+    const source = row.source;
+    const label = asString(row.label);
+    const text = asString(row.text);
+    if (
+      source !== "url" &&
+      source !== "terminal" &&
+      source !== "problems" &&
+      source !== "git-changes" &&
+      source !== "commit"
+    ) {
+      return null;
+    }
+    if (label == null || text == null) return null;
+    return { id, kind, source, label, text };
+  }
   if (kind === "element") {
     const threadId = asString(row.threadId);
     const url = asString(row.url);
@@ -442,6 +593,7 @@ export function filterMentionExtras(
 
 function mentionExtraHits(e: MentionExtra, q: string): boolean {
   if (!q) return true;
+  if (e.kind === "source" || e.kind === "commit") return true;
   if (e.kind === "thread") return e.title.toLowerCase().includes(q);
   if (e.kind === "pr") {
     return (

@@ -332,6 +332,31 @@ export function useCoderThreadActions({
     [api, selectedThreadId, applyThreads],
   );
 
+  const setPlanModel = useCallback(
+    async (model: string | null, threadIdArg?: string) => {
+      const threadId = threadIdArg ?? selectedThreadId;
+      if (!threadId) return;
+      try {
+        const thread = await api.threads.setPlanModel({ threadId, model });
+        applyThreads(
+          threadsRef.current.map((t) => (t.id === thread.id ? thread : t)),
+        );
+        if (selectedRef.current === threadId) {
+          setDetail((prev) =>
+            prev && prev.thread.id === thread.id
+              ? { ...prev, thread }
+              : prev,
+          );
+        }
+        setError(null);
+      } catch (err) {
+        setError({ scope: "run", message: errorMessage(err) });
+        throw err;
+      }
+    },
+    [api, selectedThreadId, applyThreads],
+  );
+
   const setRoute = useCallback(
     async (route: ModelRoute | null, threadIdArg?: string) => {
       const threadId = threadIdArg ?? selectedThreadId;
@@ -1067,6 +1092,7 @@ export function useCoderThreadActions({
     setAgent,
     listAgents,
     setFast,
+    setPlanModel,
     setRoute,
     setArchived,
     setSettled,

@@ -1018,6 +1018,13 @@ export interface ThreadInfo {
    */
   reasoningEffort: ReasoningEffort | null;
   /**
+   * Model for plan-mode turns (#1716); absent/null = plan on `model`. Only
+   * honoured when the provider has `supportsPlanModel`.
+   */
+  planModel?: string | null;
+  /** Effort for plan-mode turns; absent/null keeps `reasoningEffort`. */
+  planReasoningEffort?: ReasoningEffort | null;
+  /**
    * Codex live web search (`codex exec --search`). False/absent on every
    * other provider and on older store rows. Ignored at spawn unless the
    * provider advertises `supportsSearch`.
@@ -2378,6 +2385,18 @@ export interface ConflictForecast {
  * `ok` is the only thing that lets a run go green; everything else is what
  * the fixer gets handed when it doesn't.
  */
+/** One @-mention source read (#1722): chip label and the text sent. */
+export interface MentionSourceResult {
+  label: string;
+  text: string;
+}
+
+export interface MentionCommit {
+  sha: string;
+  short: string;
+  subject: string;
+}
+
 export interface VerifyResult {
   /** Run whose terminal triggered this check; "manual" for threads.runVerify. */
   runId: string;
@@ -3268,6 +3287,12 @@ export interface ProviderInfo {
    */
   supportsAgents?: boolean;
   /**
+   * True when plan-mode turns can run on a separate plan model and the same
+   * session resumes on the act model afterwards (#1716: claude, codex).
+   * The model picker hides "Plan with…" when this is missing or false.
+   */
+  supportsPlanModel?: boolean;
+  /**
    * True when a live turn can take mid-run guidance on stdin (issue #156).
    * Claude stream-json does; one-shot `-p` / `exec --json` CLIs do not
    * (Codex: issue #1164). The composer hides Steer when this is missing
@@ -4013,6 +4038,10 @@ export interface AgentProfile {
   model: string | null;
   /** null = provider default (no --effort flag). */
   reasoningEffort: ReasoningEffort | null;
+  /** Plan-mode model (#1716); absent = plan on `model`. */
+  planModel?: string | null;
+  /** Plan-mode effort; absent/null keeps `reasoningEffort`. */
+  planReasoningEffort?: ReasoningEffort | null;
   permissionMode: PermissionMode;
   /** Permission matrix (#262). Absent = no rules, default "ask". */
   policy?: GovernancePolicy;
@@ -4096,6 +4125,57 @@ export interface GovernanceAuditEntry {
 export type GovernanceVerifyResult =
   | { ok: true; entries: number }
   | { ok: false; seq?: number; reason: string };
+
+/** Lifecycle events a user hook can run on (#1724). */
+export type UserHookEvent =
+  | "PreToolUse"
+  | "PostToolUse"
+  | "UserPromptSubmit"
+  | "Stop";
+
+/** One hook's latest run (from a real event or the Test button). */
+export interface UserHookRunResult {
+  id: string;
+  event: UserHookEvent;
+  /** null when it timed out or failed to start. */
+  exitCode: number | null;
+  durationMs: number;
+  timedOut: boolean;
+  error: string | null;
+  /** First lines of stderr (or stdout). */
+  output: string;
+  at: number;
+}
+
+export interface UserHookRow {
+  /** `user:<index>` or `project:<index>`. */
+  id: string;
+  event: UserHookEvent;
+  matcher: string | null;
+  command: string[];
+  timeoutMs: number;
+  lastRun: UserHookRunResult | null;
+}
+
+export interface UserHookSource {
+  path: string;
+  exists: boolean;
+  /** sha256 of the file bytes; what Approve pins. */
+  hash: string | null;
+  /** Validation error; an invalid file runs no hooks. */
+  error: string | null;
+  /** Project file only: approved for exactly this hash. */
+  trusted?: boolean;
+  hooks: UserHookRow[];
+}
+
+export interface UserHooksList {
+  user: UserHookSource;
+  /** null without a (local) project. */
+  project: UserHookSource | null;
+  /** Providers that run PreToolUse before the tool; the rest are best effort. */
+  nativePreToolUse: string[];
+}
 
 /**
  * One described candidate in the worker-model pool. The lead picks by
@@ -5999,6 +6079,16 @@ export interface CoderApi {
      */
     setFast(input: { threadId: string; fast: boolean }): Promise<ThreadInfo>;
     /**
+     * Plan-mode model + effort (#1716). Plan-mode turns run on it; leaving
+     * plan mode resumes the same session on `model`. null clears both.
+     * Rejects providers without `supportsPlanModel`.
+     */
+    setPlanModel(input: {
+      threadId: string;
+      model: string | null;
+      effort?: ReasoningEffort | null;
+    }): Promise<ThreadInfo>;
+    /**
      * Pending first-turn route (#246); null = manual. Rejects once the
      * thread has a session. threads.setProvider clears it.
      */
@@ -6089,6 +6179,14 @@ export interface CoderApi {
     listAudit(input?: { threadId?: string; limit?: number }): Promise<GovernanceAuditEntry[]>;
     /** Walk the whole HMAC chain; the first bad link fails it. */
     verifyAudit(): Promise<GovernanceVerifyResult>;
+  };
+  hooks: {
+    /** User + project lifecycle hooks with trust state and last runs (#1724). */
+    list(input?: { projectId?: string | null }): Promise<UserHooksList>;
+    /** Trust the project's .solenta/hooks.json at this exact hash. Desktop only. */
+    approve(input: { projectId: string; hash: string }): Promise<{ hash: string }>;
+    /** Run one hook with a sample payload. Desktop only. */
+    test(input: { projectId?: string | null; id: string }): Promise<UserHookRunResult>;
   };
   usage: {
     /** Per-day usage ledger, by provider/model and by thread (90 days). */
@@ -6914,6 +7012,29 @@ export interface CoderApi {
       /** Type the CLI's logout command (no Enter) instead (#1714). */
       logout?: boolean;
     }): Promise<{ threadId: string; termId: string }>;
+  };
+  /**
+   * Composer @-mention context sources (#1722). Each read resolves to a
+   * chip label (host/size) and the labelled text inlined at send. All are
+   * thread-scoped: cwd is the thread's worktree, else the project checkout.
+   */
+  mentions: {
+    /** http/https only (redirects re-checked), 10s, 2 MB, ~50k chars of text. */
+    fetchUrl(input: { threadId: string; url: string }): Promise<MentionSourceResult>;
+    /** Last ~200 lines of the thread's terminal pane, ANSI stripped. */
+    terminalTail(input: { threadId: string }): Promise<MentionSourceResult>;
+    /** Run the thread's verify command; `cancelled` when cancelProblems hit it. */
+    runProblems(input: {
+      threadId: string;
+      requestId: string;
+    }): Promise<MentionSourceResult & { cancelled?: boolean }>;
+    cancelProblems(input: { requestId: string }): Promise<{ ok: boolean }>;
+    /** Staged + unstaged diff of the worktree, size-capped. */
+    gitChanges(input: { threadId: string }): Promise<MentionSourceResult>;
+    /** Last 30 commits on HEAD. */
+    listCommits(input: { threadId: string }): Promise<MentionCommit[]>;
+    /** `git show --stat --patch`; sha must match ^[0-9a-f]{4,40}$. */
+    showCommit(input: { threadId: string; sha: string }): Promise<MentionSourceResult>;
   };
   /**
    * Embedded Browser pane (issue #155). Desktop-only: the renderer hosts a
