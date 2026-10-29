@@ -341,6 +341,7 @@ function ruleLabel(r) {
  *   policy: { defaultAction: string, rules: Array<{ kind: string, match: string, action: string }> } | null | undefined,
  *   builtin: { decision: string, rule: string | null, reason: string } | null,
  *   sessionAllows?: ReadonlySet<string>,
+ *   mcpRules?: Array<{ kind: string, match: string, action: string, source?: string }>,
  * }} input
  * @returns {{ decision: "allow" | "ask" | "deny", layer: string, rule: string | null, reason: string, actionHash: string, declared: Call }}
  */
@@ -411,7 +412,10 @@ function evaluateUnsafe(input) {
     return out("ask", "builtin", builtin.rule, builtin.reason);
   }
 
-  const rules = (policy && Array.isArray(policy.rules) && policy.rules) || [];
+  const rules = [
+    ...((policy && Array.isArray(policy.rules) && policy.rules) || []),
+    ...(Array.isArray(input.mcpRules) ? input.mcpRules : []),
+  ];
   const hits = matchingRules(
     rules,
     declared,
@@ -422,6 +426,14 @@ function evaluateUnsafe(input) {
     if (action === "allow") break;
     const hit = hits.find((r) => r.action === action);
     if (!hit) continue;
+    if (hit.source === "mcp") {
+      return out(
+        action === "ask" ? "ask" : "deny",
+        `mcp.${action}`,
+        ruleLabel(hit),
+        action === "ask" ? "MCP tool set to ask" : "MCP tool denied in Settings",
+      );
+    }
     return out(
       action === "ask" ? "ask" : "deny",
       `profile.${action}`,
@@ -438,7 +450,9 @@ function evaluateUnsafe(input) {
   }
   const allow = hits.find((r) => r.action === "allow");
   if (allow) {
-    return out("allow", "profile.allow", ruleLabel(allow), "allowed by profile");
+    return allow.source === "mcp"
+      ? out("allow", "mcp.allow", ruleLabel(allow), "MCP tool allowed in Settings")
+      : out("allow", "profile.allow", ruleLabel(allow), "allowed by profile");
   }
   if (builtin.decision === "ask") {
     return out("ask", "builtin", builtin.rule, builtin.reason);
@@ -466,20 +480,46 @@ function networkVerdict(policy, host) {
   return null;
 }
 
+const MCP_SERVER_RE = /^[a-z0-9-]+$/;
+const MCP_TOOL_RE = /^[A-Za-z0-9_.-]{1,128}$/;
+
 /**
- * Policy of the profile a thread runs under, or null. A deleted or unknown
- * profile id is "no profile", never a store error.
+ * Per-tool MCP rules (#1720) as `tool` rules on `mcp__<server>__<tool>`,
+ * the name every provider reports the call under. Same matrix, same
+ * deny-wins evaluation; `source` only changes the layer label. Names are
+ * re-checked so a stored `*` can never become a wildcard.
+ * @param {unknown} servers - settings.mcpServers
+ * @returns {Array<{ kind: "tool", match: string, action: string, source: "mcp" }>}
+ */
+function mcpToolRules(servers) {
+  const out = [];
+  for (const s of Array.isArray(servers) ? servers : []) {
+    if (!s || s.enabled === false || !MCP_SERVER_RE.test(String(s.name || ""))) continue;
+    const rules = s.toolRules && typeof s.toolRules === "object" ? s.toolRules : {};
+    for (const [tool, action] of Object.entries(rules)) {
+      if (!MCP_TOOL_RE.test(tool) || !["allow", "ask", "deny"].includes(action)) continue;
+      out.push({ kind: "tool", match: `mcp__${s.name}__${tool}`, action, source: "mcp" });
+    }
+  }
+  return out;
+}
+
+/**
+ * Policy of the profile a thread runs under, or null, plus the per-tool MCP
+ * rules that apply to every thread. A deleted or unknown profile id is
+ * "no profile", never a store error.
  * @param {{ getThread: Function, getSettings: Function }} store
  * @param {string} threadId
  */
 function threadPolicy(store, threadId) {
+  const settings = store.getSettings() || {};
+  const mcpRules = mcpToolRules(settings.mcpServers);
   const thread = store.getThread(threadId);
   const id = thread && thread.agentProfileId;
-  if (!id) return { profileId: null, policy: null };
-  const settings = store.getSettings() || {};
+  if (!id) return { profileId: null, policy: null, mcpRules };
   const profile = (settings.agentProfiles || []).find((p) => p.id === id);
-  if (!profile) return { profileId: null, policy: null };
-  return { profileId: profile.id, policy: profile.policy || null };
+  if (!profile) return { profileId: null, policy: null, mcpRules };
+  return { profileId: profile.id, policy: profile.policy || null, mcpRules };
 }
 
 module.exports = {
@@ -492,4 +532,5 @@ module.exports = {
   evaluate,
   networkVerdict,
   threadPolicy,
+  mcpToolRules,
 };

@@ -186,7 +186,7 @@ describe("mcp import IPC", () => {
     assert.equal(result.installed[0].url, "https://ipc.example.com/mcp");
     assert.equal(ctx.store.getSettings().mcpServers[0].name, "ipc-tools");
     const catalog = await IPC_HANDLERS["mcp:catalog"](ctx);
-    assert.equal(catalog.length, 3);
+    assert.equal(catalog.length, require("../mcpCatalog.js").CATALOG.length);
     assert.equal(catalog.every((e) => e.installed === false), true);
   });
 

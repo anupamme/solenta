@@ -23,6 +23,7 @@ const {
   normalizeNotifyEvents,
   normalizeSpeechSettings,
   SPEECH_PROVIDERS,
+  normalizeTelegram,
   normalizeGithubHosts,
 } = require("./store-normalize.js");
 
@@ -112,6 +113,7 @@ class StoreSettingsMethods {
       speech: n.speech,
       githubHosts: n.githubHosts,
       webhook: n.webhook,
+      telegram: n.telegram,
       modelPrices: n.modelPrices,
       worktreeRoot: n.worktreeRoot,
       privacyGateway: n.privacyGateway,
@@ -539,6 +541,19 @@ class StoreSettingsMethods {
         ...this.data.settings.webhook,
         ...v,
       });
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "telegram")) {
+      // The renderer never sees botToken (redactSettings), so a patch
+      // without the key keeps the saved token; null or "" clears it.
+      const v = patch.telegram;
+      if (!v || typeof v !== "object" || Array.isArray(v)) {
+        throw new Error("telegram must be an object");
+      }
+      const { hasToken: _hasToken, ...rest } = /** @type {any} */ (v);
+      this.data.settings.telegram = normalizeTelegram(
+        { ...this.data.settings.telegram, ...rest },
+        true,
+      );
     }
     if (Object.prototype.hasOwnProperty.call(patch, "modelPrices")) {
       // Whole-map replace: the editor sends every row, so a dropped row clears.

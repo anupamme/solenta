@@ -67,6 +67,7 @@ import type {
   FsBrowseResult,
   ProviderInfo,
   FetchedModel,
+  LocalModelServer,
   SourceControlDiscovery,
   CliSlashCommand,
   SkillCatalogEntry,
@@ -109,11 +110,17 @@ import type {
   WorkflowTemplateInfo,
   GcScanResult,
   WebhookTestResult,
+  ChannelStatus,
 } from "../../src/shared/ipc";
 import { normalizeMessagePins } from "../../src/messagePins";
 import { queuedItemFiles, queuedRow } from "../../src/queuedFiles";
 import { buildActivity } from "../../src/activity";
-import { DEV_MCP_CATALOG, devMcpCatalogRows } from "../../src/devCoder.ts";
+import {
+  DEV_MCP_CATALOG,
+  devMcpCatalogRows,
+  devMcpTools,
+  withToolRule,
+} from "../../src/devCoder.ts";
 import {
   mergeMcpSettingsPatch,
   parseMcpConfigDocument,
@@ -238,6 +245,8 @@ export interface FakeOptions {
   providers?: ProviderInfo[];
   /** providers.fetchModels result (#1714). */
   fetchedModels?: FetchedModel[];
+  /** providers.detectLocal result (#1717); nothing running by default. */
+  localServers?: LocalModelServer[];
   /** threads.listAgents rows (#172); empty by default. */
   agents?: Array<{ name: string; description: string; source: "builtin" | "project" | "user" }>;
   workflows?: WorkflowTemplateInfo[];
@@ -294,6 +303,10 @@ export interface FakeOptions {
   gcScan?: GcScanResult;
   /** Override settings.testWebhook result (default: HTTP 200). */
   testWebhook?: WebhookTestResult;
+  /** Initial settings.channelStatus (default: telegram off). */
+  channelStatus?: ChannelStatus;
+  /** Make settings.connectChannel reject with this message. */
+  connectChannelError?: string;
   /** Override fs.browse result (default: demo home directories). */
   browse?: (input: unknown) => FsBrowseResult;
   /**
@@ -365,6 +378,9 @@ export function createFakeCoder(opts: FakeOptions = {}): FakeCoder {
   /** Mutable per-thread checkpoint lists (newest-first). */
   const checkpoints: Record<string, CheckpointInfo[]> = {
     ...(opts.checkpoints ?? {}),
+  };
+  let channelStatus: ChannelStatus = opts.channelStatus ?? {
+    telegram: { state: "off", botUsername: null, error: null },
   };
   let settingsState: AppSettings = {
     dailyBudgetUsd: null,
@@ -1087,6 +1103,20 @@ export function createFakeCoder(opts: FakeOptions = {}): FakeCoder {
           }
           next.modelPrices = { ...p.modelPrices };
         }
+        if (p.telegram) {
+          // Same write-only token contract as main's redactSettings (#1718).
+          const { botToken, hasToken: _h, ...rest } = p.telegram;
+          const prev = next.telegram;
+          next.telegram = {
+            enabled: false,
+            allowedSenderIds: [],
+            projectId: null,
+            agentProfileId: null,
+            ...prev,
+            ...rest,
+            hasToken: botToken === undefined ? Boolean(prev?.hasToken) : Boolean(botToken),
+          };
+        }
         settingsState = next;
         return rec(
           "settings.set",
@@ -1100,6 +1130,22 @@ export function createFakeCoder(opts: FakeOptions = {}): FakeCoder {
           [],
           opts.testWebhook ?? { ok: true, status: 200 },
         ),
+      channelStatus: () =>
+        rec("settings.channelStatus", [], channelStatus),
+      connectChannel: (input: { channel: "telegram" }) => {
+        if (opts.connectChannelError) {
+          calls.push({ channel: "settings.connectChannel", args: [input] });
+          return Promise.reject(new Error(opts.connectChannelError));
+        }
+        channelStatus = {
+          telegram: { state: "connected", botUsername: "solenta_test_bot", error: null },
+        };
+        return rec("settings.connectChannel", [input], channelStatus);
+      },
+      disconnectChannel: (input: { channel: "telegram" }) => {
+        channelStatus = { telegram: { state: "off", botUsername: null, error: null } };
+        return rec("settings.disconnectChannel", [input], channelStatus);
+      },
     },
     stayAwake: {
       // No real power blocker in tests: derive the honest shape from
@@ -1282,6 +1328,42 @@ export function createFakeCoder(opts: FakeOptions = {}): FakeCoder {
       discardImport: (input: { previewId: string }) => {
         if (pendingMcpImport?.previewId === input.previewId) pendingMcpImport = null;
         return rec("mcp.discardImport", [input], undefined);
+      },
+      oauthConnect: (input: { name: string }) => {
+        const next = settingsState.mcpServers.map((s) =>
+          s.name === input.name && s.transport !== "stdio"
+            ? { ...s, oauth: { accessToken: "fake", refreshToken: "fake", expiresAt: Date.now() + 3_600_000 } }
+            : s,
+        ) as McpServerInfo[];
+        settingsState = { ...settingsState, mcpServers: next };
+        const saved = next.find((s) => s.name === input.name);
+        if (!saved) {
+          calls.push({ channel: "mcp.oauthConnect", args: [input] });
+          return Promise.reject(new Error(`Unknown MCP server: ${input.name}`));
+        }
+        return rec("mcp.oauthConnect", [input], redactMcpServer(saved) as McpServerDefinition);
+      },
+      listTools: (input: { name: string }) =>
+        rec("mcp.listTools", [input], { tools: devMcpTools(input.name) }),
+      setToolRule: (input: { name: string; tool: string; action: "allow" | "ask" | "deny" | null }) => {
+        const next = settingsState.mcpServers.map((s) =>
+          s.name === input.name ? withToolRule(s, input.tool, input.action) : s,
+        ) as McpServerInfo[];
+        settingsState = { ...settingsState, mcpServers: next };
+        const saved = next.find((s) => s.name === input.name);
+        return rec("mcp.setToolRule", [input], redactMcpServer(saved) as McpServerDefinition);
+      },
+      oauthCancel: (input: { name: string }) =>
+        rec("mcp.oauthCancel", [input], { cancelled: false }),
+      oauthDisconnect: (input: { name: string }) => {
+        const next = settingsState.mcpServers.map((s) => {
+          if (s.name !== input.name) return s;
+          const { oauth: _drop, ...rest } = s as McpServerInfo & { oauth?: unknown };
+          return rest;
+        }) as McpServerInfo[];
+        settingsState = { ...settingsState, mcpServers: next };
+        const saved = next.find((s) => s.name === input.name);
+        return rec("mcp.oauthDisconnect", [input], redactMcpServer(saved) as McpServerDefinition);
       },
     },
     skills: {
@@ -1522,6 +1604,8 @@ export function createFakeCoder(opts: FakeOptions = {}): FakeCoder {
       list: () => rec("providers.list", [], providers),
       fetchModels: (input: { provider: string }) =>
         rec("providers.fetchModels", [input], opts.fetchedModels ?? []),
+      detectLocal: (input?: { ollamaUrl?: string | null; lmstudioUrl?: string | null }) =>
+        rec("providers.detectLocal", [input], opts.localServers ?? []),
     },
     sourceControl: {
       discover: (input?: { rescan?: boolean }) =>

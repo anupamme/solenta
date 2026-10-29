@@ -26,6 +26,7 @@ const { pathToFileURL } = require("node:url");
 const { Store } = require("./store.js");
 const { createRunner } = require("./runner.js");
 const { registerIpc } = require("./ipc.js");
+const { refreshMcpTokens } = require("./ipc-mcp.js");
 const {
   shouldNotify,
   isNotifyTransition,
@@ -234,6 +235,14 @@ let wedgedLaneWatchdog = null;
 
 /** @type {ReturnType<typeof startScheduler> | null} */
 let automationScheduler = null;
+
+/** Chat channels (#1718): Telegram long polling. */
+/** @type {ReturnType<typeof import("./channels/index.js").createChannels> | null} */
+let channels = null;
+
+/** #1720: MCP OAuth token refresh, every minute. */
+/** @type {ReturnType<typeof setInterval> | null} */
+let mcpOauthRefreshTimer = null;
 
 /** @type {ReturnType<typeof startAutoDispatch> | null} */
 let autoDispatch = null;
@@ -919,6 +928,10 @@ app.whenReady().then(async () => {
         const next = threadNotifyState(payload.thread);
         // Mute checks come after the transition test: this runs on every
         // stream chunk, and getSettings() re-normalizes the whole blob.
+        // Chat-started threads report back regardless of mute/snooze.
+        if (channels && isNotifyTransition(prev, next)) {
+          channels.onThreadUpdate(payload.thread, next);
+        }
         if (
           isNotifyTransition(prev, next) &&
           !payload.thread.muted &&
@@ -987,7 +1000,15 @@ app.whenReady().then(async () => {
     log: (msg) => console.warn(msg),
   });
 
+  channels = require("./channels/index.js").createChannels({
+    store,
+    runner,
+    broadcast,
+    log: (msg) => console.warn(msg),
+  });
+
   registered = registerIpc({
+    channels,
     webAccess,
     ipcMain,
     dialog,
@@ -1194,6 +1215,7 @@ app.whenReady().then(async () => {
     },
   });
   autoDispatch = startAutoDispatch({ store, runner, broadcast });
+  channels.start();
   postMergeScheduler = startPostMergeScheduler({ store, runner, broadcast });
   memoryConsolidateScheduler = startMemoryConsolidateScheduler({
     store,
@@ -1255,6 +1277,17 @@ app.whenReady().then(async () => {
       err && err.message ? err.message : err,
     );
   }
+
+  // #1720: refresh MCP OAuth tokens before they expire, so a run never
+  // starts with a dead bearer. Each refresh re-syncs the providers.
+  const refreshMcpOauth = () =>
+    refreshMcpTokens({
+      store,
+      userDataPath: userData,
+      log: (msg) => console.warn(msg),
+    }).catch(() => {});
+  void refreshMcpOauth();
+  mcpOauthRefreshTimer = setInterval(refreshMcpOauth, 60_000);
 });
 
 shutdown = installShutdown({
@@ -1291,6 +1324,11 @@ shutdown = installShutdown({
 /** Servers, schedulers, and child processes: last, after runs and the device. */
 function teardownServices() {
   closeRemoteConnections();
+  // No token refresh (and store write) mid-shutdown.
+  if (mcpOauthRefreshTimer) {
+    clearInterval(mcpOauthRefreshTimer);
+    mcpOauthRefreshTimer = null;
+  }
   if (webAccess) {
     void webAccess.stop().catch(() => {});
     webAccess = null;
@@ -1318,6 +1356,10 @@ function teardownServices() {
       // ignore
     }
     wedgedLaneWatchdog = null;
+  }
+  if (channels) {
+    void channels.stopAll().catch(() => {});
+    channels = null;
   }
   if (automationScheduler) {
     try {

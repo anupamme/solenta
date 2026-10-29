@@ -31,7 +31,9 @@ import type {
   AppStatus,
   MergeSpotlight,
   ProjectInfo,
+  LocalModelServer,
   ProviderInfo,
+  ProviderInstance,
   SubagentPool,
   WebhookTestResult,
 } from "../src/shared/ipc";
@@ -3135,6 +3137,97 @@ describe("SettingsModal Providers › API keys and models (#1714)", () => {
     await m.click(m.query('[data-provider-row="claude"]'));
     assert.deepEqual(m.queryAll("[data-model-row]").map((r) => r.getAttribute("data-model-row")), ["sonnet", "opus"]);
     assert.equal(m.query('[data-model-fav="sonnet"]')?.getAttribute("aria-pressed"), "true");
+  });
+
+  describe("Local models (#1717)", () => {
+    const OLLAMA_UP: LocalModelServer = {
+      kind: "ollama",
+      url: "http://127.0.0.1:11434",
+      baseUrl: "http://127.0.0.1:11434/v1",
+      running: true,
+      models: [
+        { id: "qwen3-coder:30b", label: "qwen3-coder:30b", contextTokens: 262144 },
+        { id: "llama3.2:3b", label: "llama3.2:3b", contextTokens: 8192 },
+      ],
+    };
+    const LM_DOWN: LocalModelServer = { kind: "lmstudio", url: "http://127.0.0.1:1234", baseUrl: "http://127.0.0.1:1234/v1", running: false, models: [] };
+    const OPENCODE: ProviderInfo = { ...KIMI, id: "opencode", name: "OpenCode" };
+
+    async function mountLocal(settings: Partial<AppSettings>, onSaveSettings?: (p: Partial<AppSettings>) => Promise<AppSettings>, servers = [OLLAMA_UP, LM_DOWN]) {
+      const fake = createFakeCoder({ localServers: servers });
+      const shell = await mount(<div />);
+      installFakeCoder(fake);
+      shell.unmount();
+      const m = await mount(modal({ initialPane: "providers", providers: [OPENCODE, { ...OPENCODE, id: "opencode:ollama", name: "Ollama", baseProvider: "opencode", instanceId: "ollama" }], settings: settings as AppSettings, ...(onSaveSettings ? { onSaveSettings } : {}) }));
+      await m.flush();
+      return { m, fake };
+    }
+
+    it("lists Ollama and LM Studio under Local with their state", async () => {
+      const { m } = await mountLocal({ providerInstances: [] });
+      const state = (k: string) => m.query(`[data-provider-group="local"] [data-local-row="${k}"] [data-local-state]`)?.textContent;
+      assert.equal(state("ollama"), "Running (2 models)");
+      assert.equal(state("lmstudio"), "Not running");
+    });
+
+    it("Use with Solenta saves an opencode instance for the checked models", async () => {
+      const s = saving({});
+      const { m } = await mountLocal({ providerInstances: [] }, s.onSaveSettings);
+      await m.click(m.query('[data-local-row="ollama"]'));
+      assert.ok(m.query("[data-local-detail=ollama]"));
+      assert.ok(m.query('[data-local-model="llama3.2:3b"] [data-context-warning]'), "8K warns");
+      assert.equal(m.query('[data-local-model="qwen3-coder:30b"] [data-context-warning]'), null, "256K does not");
+      assert.match(m.query("[data-local-context-hint]")?.textContent ?? "", /OLLAMA_CONTEXT_LENGTH/);
+      await m.click(m.query('[data-local-model="llama3.2:3b"] input'));
+      await m.click(m.query("[data-local-use]"));
+      // Same shape electron/test/local-models.test.js turns into opencode config.
+      assert.deepEqual(s.saved.at(-1), {
+        providerInstances: [
+          {
+            id: "ollama",
+            name: "Ollama",
+            provider: "opencode",
+            configDir: null,
+            env: {},
+            openaiCompatible: {
+              baseUrl: "http://127.0.0.1:11434/v1",
+              modelsUrl: null,
+              models: ["qwen3-coder:30b"],
+              defaultModel: "qwen3-coder:30b",
+              headers: {},
+            },
+          },
+        ],
+      });
+    });
+
+    it("an existing instance is updated in place and hidden from Custom", async () => {
+      const prev = { id: "ollama", name: "Ollama", provider: "opencode", configDir: null, env: {}, openaiCompatible: { baseUrl: "http://10.0.0.5:11434/v1", modelsUrl: null, models: ["llama3.2:3b"], defaultModel: "llama3.2:3b", headers: {} } };
+      const s = saving({ providerInstances: [prev] as ProviderInstance[] });
+      const { m, fake } = await mountLocal({ providerInstances: [prev] as ProviderInstance[] }, s.onSaveSettings);
+      assert.deepEqual(fake.calls.find((c) => c.channel === "providers.detectLocal")?.args[0], { ollamaUrl: "http://10.0.0.5:11434/v1", lmstudioUrl: null }, "probes the saved host");
+      assert.equal(m.query('[data-provider-row="opencode:ollama"]'), null, "listed under Local, not Custom");
+      await m.click(m.query('[data-local-row="ollama"]'));
+      assert.equal((m.query('[data-local-model="llama3.2:3b"] input') as HTMLInputElement).checked, true);
+      assert.equal((m.query('[data-local-model="qwen3-coder:30b"] input') as HTMLInputElement).checked, false);
+      assert.equal(m.query("[data-local-use]")?.textContent, "Update models");
+      await m.click(m.query('[data-local-model="qwen3-coder:30b"] input'));
+      await m.click(m.query("[data-local-use]"));
+      const saved = s.saved.at(-1)?.providerInstances ?? [];
+      assert.equal(saved.length, 1);
+      assert.deepEqual(saved[0]?.openaiCompatible?.models, ["qwen3-coder:30b", "llama3.2:3b"]);
+      assert.equal(saved[0]?.openaiCompatible?.defaultModel, "llama3.2:3b", "keeps the default");
+    });
+
+    it("not running shows setup steps, and Check probes a custom host", async () => {
+      const { m, fake } = await mountLocal({ providerInstances: [] });
+      await m.click(m.query('[data-local-row="lmstudio"]'));
+      assert.match(m.query("[data-local-setup=lmstudio]")?.textContent ?? "", /Start server/);
+      assert.equal(m.query("[data-local-use]"), null);
+      await m.type(m.query("[data-local-url]"), "http://192.168.1.9:1234");
+      await m.click(m.query("[data-local-check]"));
+      assert.deepEqual(fake.calls.filter((c) => c.channel === "providers.detectLocal").at(-1)?.args[0], { ollamaUrl: null, lmstudioUrl: "http://192.168.1.9:1234" });
+    });
   });
 
   it("Environment keeps arbitrary rows beside the typed fields", async () => {

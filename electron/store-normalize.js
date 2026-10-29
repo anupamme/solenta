@@ -444,6 +444,7 @@ function normalizeSettings(raw) {
     speech: normalizeSpeechSettings(null),
     githubHosts: [],
     webhook: { url: null, onDone: true, onFailed: true, onWaiting: true },
+    telegram: normalizeTelegram(null, false),
     modelPrices: {},
     worktreeRoot: null,
     privacyGateway: normalizePrivacyGateway(null),
@@ -643,6 +644,10 @@ function normalizeSettings(raw) {
   settings.speech = normalizeSpeechSettings(
     /** @type {{ speech?: unknown }} */ (obj).speech,
   );
+  settings.telegram = normalizeTelegram(
+    /** @type {{ telegram?: unknown }} */ (obj).telegram,
+    false,
+  );
   const root = /** @type {{ worktreeRoot?: unknown }} */ (obj).worktreeRoot;
   settings.worktreeRoot =
     typeof root === "string" && path.isAbsolute(root.trim()) ? root.trim() : null;
@@ -745,6 +750,55 @@ function normalizeWebhook(raw) {
 }
 
 /**
+ * Telegram chat channel (#1718). `allowedSenderIds` are numeric Telegram
+ * user ids as strings; nothing runs until one is set. strict (settings:set)
+ * throws on junk; lenient (load) drops it.
+ * @param {unknown} raw
+ * @param {boolean} strict
+ * @returns {{ enabled: boolean, botToken: string | null, allowedSenderIds: string[], projectId: string | null, agentProfileId: string | null }}
+ */
+function normalizeTelegram(raw, strict) {
+  const out = {
+    enabled: false,
+    botToken: null,
+    allowedSenderIds: [],
+    projectId: null,
+    agentProfileId: null,
+  };
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    if (strict) throw new Error("telegram must be an object");
+    return out;
+  }
+  const r = /** @type {Record<string, unknown>} */ (raw);
+  const str = (/** @type {string} */ name) => {
+    const v = r[name];
+    if (v == null || v === "") return null;
+    if (typeof v !== "string") {
+      if (strict) throw new Error(`telegram.${name} must be a string or null`);
+      return null;
+    }
+    return v.trim() || null;
+  };
+  out.enabled = r.enabled === true;
+  out.botToken = str("botToken");
+  out.projectId = str("projectId");
+  out.agentProfileId = str("agentProfileId");
+  const ids = Array.isArray(r.allowedSenderIds) ? r.allowedSenderIds : [];
+  if (strict && r.allowedSenderIds != null && !Array.isArray(r.allowedSenderIds)) {
+    throw new Error("telegram.allowedSenderIds must be an array");
+  }
+  for (const v of ids) {
+    const id = String(v ?? "").trim();
+    if (!/^\d{1,20}$/.test(id)) {
+      if (strict) throw new Error(`Telegram sender id must be a number: ${id || "(empty)"}`);
+      continue;
+    }
+    if (!out.allowedSenderIds.includes(id)) out.allowedSenderIds.push(id);
+  }
+  return out;
+}
+
+/**
  * Per-host GitHub account choice and saved token (#1528). `account` picks a
  * `gh` login for the host; `token` is used instead of gh entirely. Rows with
  * neither are dropped. strict (settings:set) throws; lenient (load) drops junk.
@@ -799,4 +853,5 @@ module.exports = {
   normalizeSpeechSettings,
   SPEECH_PROVIDERS,
   normalizeGithubHosts,
+  normalizeTelegram,
 };

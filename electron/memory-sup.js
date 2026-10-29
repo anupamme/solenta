@@ -174,6 +174,10 @@ function registerMcpServer(opts) {
     }
   }
   if (opts.user) entry.user = true;
+  // Per-tool deny (#1720), for CLIs that can hide a tool natively.
+  if (Array.isArray(opts.deniedTools) && opts.deniedTools.length) {
+    entry.deniedTools = opts.deniedTools.map(String);
+  }
   const idx = extraServers.findIndex((s) => s.name === name);
   if (idx >= 0) {
     extraServers[idx] = entry;
@@ -248,6 +252,21 @@ function unregisterMcpServer(name, opts = {}) {
  * @param {(msg: string) => void} [opts.log]
  * @param {NodeJS.ProcessEnv} [opts.env]
  */
+function userServerToken(s) {
+  if (typeof s.token === "string" && s.token) return s.token;
+  // MCP OAuth sign-in (#1720). Every provider turns `token` into an
+  // `Authorization: Bearer` header (or codex's bearer_token_env_var).
+  const oauth = s.oauth && typeof s.oauth === "object" ? s.oauth : null;
+  return oauth && typeof oauth.accessToken === "string" ? oauth.accessToken : "";
+}
+
+function deniedToolsOf(s) {
+  const rules = s.toolRules && typeof s.toolRules === "object" ? s.toolRules : {};
+  return Object.keys(rules).filter(
+    (t) => rules[t] === "deny" && /^[A-Za-z0-9_.-]{1,128}$/.test(t),
+  );
+}
+
 function syncUserMcpServers(servers, opts = {}) {
   const log = opts.log || ((msg) => console.warn(msg));
   /** @type {Map<string, object>} */
@@ -273,7 +292,7 @@ function syncUserMcpServers(servers, opts = {}) {
         name: s.name,
         transport: s.transport,
         url: typeof s.url === "string" ? s.url : "",
-        token: typeof s.token === "string" ? s.token : "",
+        token: userServerToken(s),
         headers: s.headers,
         command: s.command,
         args: s.args,
@@ -281,6 +300,7 @@ function syncUserMcpServers(servers, opts = {}) {
         cwd: s.cwd,
         trusted: s.trusted === true,
         user: true,
+        deniedTools: deniedToolsOf(s),
         userDataPath: opts.userDataPath,
         log,
         env: opts.env,
@@ -361,6 +381,12 @@ function getClaudeMcpArgs(opts = {}) {
       `--allowedTools=${allowed.map((s) => `mcp__${s.name}__*`).join(" ")}`,
     );
   }
+  // #1720: a denied MCP tool is removed outright, so it stays off even in
+  // bypassPermissions mode where can_use_tool (governance) never fires.
+  const denied = memoryOnly
+    ? []
+    : servers.flatMap((s) => (s.deniedTools || []).map((t) => `mcp__${s.name}__${t}`));
+  if (denied.length) args.push(`--disallowedTools=${denied.join(" ")}`);
   return args;
 }
 
@@ -407,6 +433,16 @@ function tomlEscape(value) {
     }
   }
   return out;
+}
+
+/** #1720: codex's own per-server deny list (McpServerConfig.disabled_tools). */
+function pushCodexDisabledTools(args, s) {
+  const denied = (s && s.deniedTools) || [];
+  if (!denied.length) return;
+  args.push(
+    "-c",
+    `mcp_servers.${s.name}.disabled_tools=[${denied.map((t) => `"${tomlEscape(t)}"`).join(", ")}]`,
+  );
 }
 
 function pushCodexFirstPartyApproval(args, s) {
@@ -468,6 +504,7 @@ function getCodexMcpArgs(opts = {}) {
       if (typeof s.cwd === "string" && s.cwd) {
         args.push("-c", `mcp_servers.${s.name}.cwd="${tomlEscape(s.cwd)}"`);
       }
+      pushCodexDisabledTools(args, s);
       pushCodexFirstPartyApproval(args, s);
       continue;
     }
@@ -507,6 +544,7 @@ function getCodexMcpArgs(opts = {}) {
           .join(", ")} }`,
       );
     }
+    pushCodexDisabledTools(args, s);
     pushCodexFirstPartyApproval(args, s);
   }
   return args;
@@ -710,7 +748,11 @@ function kimiMcpServersForRun(opts = {}) {
 function opencodeMcpConfigForRun(opts = {}) {
   /** @type {Record<string, object>} */
   const mcp = {};
+  /** @type {Record<string, boolean>} */
+  const tools = {};
   for (const s of activeServers()) {
+    // #1720: opencode registers MCP tools as <server>_<tool>.
+    for (const t of s.deniedTools || []) tools[`${s.name}_${t}`] = false;
     if (isStdioServer(s)) {
       /** @type {Record<string, unknown>} */
       const entry = {
@@ -732,7 +774,7 @@ function opencodeMcpConfigForRun(opts = {}) {
       ...(s.token ? { oauth: false } : {}),
     };
   }
-  return { mcp };
+  return Object.keys(tools).length ? { mcp, tools } : { mcp };
 }
 
 /**

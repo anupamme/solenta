@@ -611,6 +611,8 @@ export interface ThreadInfo {
   id: string;
   projectId: string;
   title: string;
+  /** Started from a chat channel (#1718); results go back to that chat. */
+  channel?: { kind: "telegram"; chatId: string } | null;
   branch: string | null;
   /**
    * Recorded merge/PR base (#187). Null/absent = repo default
@@ -3344,6 +3346,17 @@ export interface FetchedModel {
   contextTokens?: number;
 }
 
+/** A local model server probed by providers.detectLocal (#1717). */
+export interface LocalModelServer {
+  kind: "ollama" | "lmstudio";
+  /** Server root, e.g. http://127.0.0.1:11434. */
+  url: string;
+  /** OpenAI-compatible base opencode talks to: `${url}/v1`. */
+  baseUrl: string;
+  running: boolean;
+  models: FetchedModel[];
+}
+
 /** A checkout found by first-run discovery (#1501). */
 export interface RecentRepo {
   /** Main checkout; a linked worktree maps to it. */
@@ -3798,6 +3811,11 @@ export interface AppSettings {
    */
   githubHosts?: GithubHostSetting[];
   /**
+   * Telegram chat channel (issue #1718). Read back with `hasToken` only;
+   * send `botToken` to replace it, null to clear, omit to keep.
+   */
+  telegram?: TelegramSettings;
+  /**
    * Outbound webhook (issue #167). POSTs a small JSON payload when a thread
    * finishes or waits for permission. Independent of the desktop-notification
    * switch and of window focus. null URL (the default) sends nothing.
@@ -3861,6 +3879,32 @@ export interface WebhookSettings {
   onDone: boolean;
   onFailed: boolean;
   onWaiting: boolean;
+}
+
+/** Telegram chat channel config (issue #1718). */
+export interface TelegramSettings {
+  /** Connected on the last Connect; reconnects at launch. Set by Connect/Disconnect only. */
+  enabled?: boolean;
+  /** Write-only: never sent to the renderer. */
+  botToken?: string | null;
+  /** Read-only: a token is saved. */
+  hasToken?: boolean;
+  /** Numeric Telegram user ids; nothing runs until one is set. */
+  allowedSenderIds: string[];
+  /** Project new chat threads start in. */
+  projectId: string | null;
+  /** Optional AgentProfile applied to new chat threads. */
+  agentProfileId: string | null;
+}
+
+/** Live state of each chat channel (settings.channelStatus). */
+export interface ChannelStatus {
+  telegram: {
+    state: "off" | "connecting" | "connected" | "error";
+    /** Bot username without the @, once getMe succeeded. */
+    botUsername: string | null;
+    error: string | null;
+  };
 }
 
 /** Outcome of settings.testWebhook. `status` is absent on a transport error. */
@@ -4069,6 +4113,7 @@ export interface McpServerRemoteInfo {
   enabled: boolean;
   provenance?: McpServerProvenance;
   catalogId?: string;
+  toolRules?: McpToolRules;
 }
 
 /** Stored local stdio MCP server (settings slice). */
@@ -4083,6 +4128,7 @@ export interface McpServerStdioInfo {
   trusted: boolean;
   provenance?: McpServerProvenance;
   catalogId?: string;
+  toolRules?: McpToolRules;
 }
 
 /**
@@ -4102,6 +4148,19 @@ export interface McpServerRemoteDefinition {
   enabled: boolean;
   provenance?: McpServerProvenance;
   catalogId?: string;
+  /** Present when signed in through MCP OAuth (#1720). Never the token. */
+  oauth?: { refreshable: boolean; expiresAt?: number };
+  toolRules?: McpToolRules;
+}
+
+/** Per-tool allow/ask/deny for one MCP server (#1720). */
+export type McpToolAction = "allow" | "ask" | "deny";
+export type McpToolRules = Record<string, McpToolAction>;
+
+/** One tool from an MCP server's tools/list (#1720). */
+export interface McpToolInfo {
+  name: string;
+  description: string;
 }
 
 /** Public stdio MCP definition: env names only, never values. */
@@ -4117,6 +4176,7 @@ export interface McpServerStdioDefinition {
   trusted: boolean;
   provenance?: McpServerProvenance;
   catalogId?: string;
+  toolRules?: McpToolRules;
 }
 
 /** Redacted MCP definition returned by mcp.* methods. */
@@ -4303,6 +4363,14 @@ export interface McpCatalogEntry {
   risk?: string;
   requiredSecrets?: Array<{ id: string; label: string }>;
   installed: boolean;
+  /** Marketplace filter group, e.g. "Developer tools". */
+  category?: string;
+  /** "oauth": sign in after install; "key": the install form asks for one. */
+  auth?: "oauth" | "key" | "none";
+  /** Name of the installed server row, for Uninstall. */
+  installedName?: string;
+  /** The URL or command line that will be registered. */
+  summary?: string;
 }
 
 /** One-click Xcode MCP pairing (#488). */
@@ -5048,6 +5116,11 @@ export interface CoderApi {
      * toggles. Never rejects — a bad URL is an `ok: false` result.
      */
     testWebhook(): Promise<WebhookTestResult>;
+    /** Chat channel connection state (issue #1718). */
+    channelStatus(): Promise<ChannelStatus>;
+    /** Check the saved bot token and start polling; rejects on a bad token. */
+    connectChannel(input: { channel: "telegram" }): Promise<ChannelStatus>;
+    disconnectChannel(input: { channel: "telegram" }): Promise<ChannelStatus>;
   };
   /**
    * Stay-awake state (issue #364). The mode itself lives in settings
@@ -5080,6 +5153,23 @@ export interface CoderApi {
     previewImport(input: McpPreviewImportInput): Promise<McpImportPreview>;
     installImport(input: McpInstallRequest): Promise<McpInstallResult>;
     discardImport(input: { previewId: string }): Promise<void>;
+    /**
+     * MCP OAuth sign-in for a remote server (#1720): opens the browser and
+     * resolves when it redirects back. Desktop only.
+     */
+    oauthConnect(input: { name: string }): Promise<McpServerDefinition>;
+    /** Stop a sign-in that is waiting on the browser. */
+    oauthCancel(input: { name: string }): Promise<{ cancelled: boolean }>;
+    /** Forget the stored sign-in tokens. */
+    oauthDisconnect(input: { name: string }): Promise<McpServerDefinition>;
+    /** Connect to the server and list its tools (10 s limit). */
+    listTools(input: { name: string }): Promise<{ tools: McpToolInfo[] }>;
+    /** Set one tool's allow / ask / deny; null goes back to the default. */
+    setToolRule(input: {
+      name: string;
+      tool: string;
+      action: McpToolAction | null;
+    }): Promise<McpServerDefinition>;
   };
   /**
    * External MCP pairing (#157). Mint a scoped, expiring token so Claude
@@ -5158,6 +5248,12 @@ export interface CoderApi {
      * missing key, a timeout or an HTTP error.
      */
     fetchModels(input: { provider: string }): Promise<FetchedModel[]>;
+    /**
+     * Probe Ollama and LM Studio (#1717). Never throws for a server that is
+     * not running; it comes back `running: false`. URLs override the
+     * default loopback hosts (a LAN Ollama).
+     */
+    detectLocal(input?: { ollamaUrl?: string | null; lmstudioUrl?: string | null }): Promise<LocalModelServer[]>;
   };
   /**
    * Forge CLI probe (issue #608). Cached until `{ rescan: true }` or a

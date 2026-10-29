@@ -3,20 +3,23 @@
  * Run: node --import=./test/support/render.mjs --experimental-strip-types --test test/mcpImportTwins.test.ts
  */
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
 import { describe, it } from "node:test";
 import { createDevCoder } from "../src/devCoder.ts";
 import { createFakeCoder } from "./support/fakeCoder.ts";
 
+const require = createRequire(import.meta.url);
+
 describe("MCP import twins", () => {
-  it("lists the same three catalog entries and stamps catalog installs curated", async () => {
+  it("lists the main-process catalog and stamps catalog installs curated", async () => {
+    const main = (require("../electron/mcpCatalog.js") as {
+      listCatalog: () => unknown[];
+    }).listCatalog();
     for (const api of [createFakeCoder().api, createDevCoder()]) {
       const catalog = await api.mcp.catalog();
-      assert.equal(catalog.length, 3);
-      assert.deepEqual(catalog.map((e) => e.id).sort(), [
-        "context7",
-        "linear",
-        "playwright",
-      ]);
+      // The browser twin is generated from electron/mcpCatalog.js; regenerate
+      // src/dev/mcpCatalogData.ts when this fails.
+      assert.deepEqual(catalog, main);
       assert.equal(catalog.every((e) => e.installed === false), true);
       const preview = await api.mcp.previewImport({
         kind: "catalog",

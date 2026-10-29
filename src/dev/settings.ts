@@ -16,6 +16,8 @@ import type {
   ModelPrice,
   PrivacyGatewaySettings,
   WebhookSettings,
+  TelegramSettings,
+  ChannelStatus,
   ThreadInfo,
   WebAccessStatus,
   WebDeviceInfo,
@@ -88,6 +90,16 @@ export function createSettings(ctx: DevCtx): Pick<CoderApi, "settings" | "stayAw
   let otel: OtelSettings = { endpoint: null, headers: {}, claudeMetrics: false };
   let modelPrices: Record<string, ModelPrice> = {};
   let privacyGateway: PrivacyGatewaySettings = { default: "off", providers: {}, patterns: [] };
+  let telegram: TelegramSettings = {
+    enabled: false,
+    hasToken: false,
+    allowedSenderIds: [],
+    projectId: null,
+    agentProfileId: null,
+  };
+  let channelStatus: ChannelStatus = {
+    telegram: { state: "off", botUsername: null, error: null },
+  };
   let webhook: WebhookSettings = {
     url: null,
     onDone: true,
@@ -206,6 +218,7 @@ export function createSettings(ctx: DevCtx): Pick<CoderApi, "settings" | "stayAw
           },
           otel: { ...otel, headers: { ...otel.headers } },
           webhook: { ...webhook },
+          telegram: { ...telegram },
           modelPrices: { ...modelPrices },
           privacyGateway: { ...privacyGateway },
         }) as AppSettings;
@@ -517,6 +530,14 @@ export function createSettings(ctx: DevCtx): Pick<CoderApi, "settings" | "stayAw
             onWaiting: v.onWaiting !== false,
           };
         }
+        if (patch.telegram) {
+          const { botToken, hasToken: _h, ...rest } = patch.telegram;
+          telegram = {
+            ...telegram,
+            ...rest,
+            hasToken: botToken === undefined ? telegram.hasToken : Boolean(botToken),
+          };
+        }
         if (Object.prototype.hasOwnProperty.call(patch, "modelPrices")) {
           // ponytail: the desktop store validates; the dev twin trusts the editor.
           modelPrices = { ...(patch.modelPrices ?? {}) };
@@ -573,6 +594,7 @@ export function createSettings(ctx: DevCtx): Pick<CoderApi, "settings" | "stayAw
           },
           otel: { ...otel, headers: { ...otel.headers } },
           webhook: { ...webhook },
+          telegram: { ...telegram },
           modelPrices: { ...modelPrices },
           privacyGateway: { ...privacyGateway },
         };
@@ -582,6 +604,24 @@ export function createSettings(ctx: DevCtx): Pick<CoderApi, "settings" | "stayAw
         // shape the real handler returns so the Settings row stays exercisable.
         if (!webhook.url) return { ok: false, error: "Save an http(s) webhook URL first" };
         return { ok: true, status: 200 };
+      },
+      // ponytail: no main process to poll Telegram from; fake the states.
+      async channelStatus() {
+        return channelStatus;
+      },
+      async connectChannel() {
+        if (!telegram.hasToken) throw new Error("Add a bot token first");
+        if (telegram.allowedSenderIds.length === 0) {
+          throw new Error("Add at least one allowed sender ID first");
+        }
+        telegram = { ...telegram, enabled: true };
+        channelStatus = { telegram: { state: "connected", botUsername: "solenta_dev_bot", error: null } };
+        return channelStatus;
+      },
+      async disconnectChannel() {
+        telegram = { ...telegram, enabled: false };
+        channelStatus = { telegram: { state: "off", botUsername: null, error: null } };
+        return channelStatus;
       },
     },
     stayAwake: {

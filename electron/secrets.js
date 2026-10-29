@@ -108,6 +108,15 @@ function secretGroups(settings) {
     field(n, s, ["token"]);
     map(`${n}:header`, s, "headers");
     map(`${n}:env`, s, "env");
+    // MCP OAuth sign-in (#1720): tokens and a confidential client's secret.
+    groups.push({
+      name: `${n}:oauth`,
+      parent: s,
+      prop: "oauth",
+      fields: ["accessToken", "refreshToken", "clientSecret"],
+      nullable: false,
+      holder: () => s.oauth,
+    });
   }
   if (isPlainObject(settings.otel)) map("otel", settings.otel, "headers");
   field("settings", settings, ["linearApiKey", "sentryAuthToken"], true);
@@ -117,6 +126,9 @@ function secretGroups(settings) {
   if (isPlainObject(settings.webhook)) field("webhook", settings.webhook, ["url"], true);
   if (isPlainObject(settings.speech)) {
     field("speech", settings.speech, ["openaiApiKey", "elevenlabsApiKey"], true);
+  }
+  if (isPlainObject(settings.telegram)) {
+    field("telegram", settings.telegram, ["botToken"], true);
   }
   // Provider instance env (#453): every value may be a key or token.
   for (const inst of rows(settings.providerInstances)) {

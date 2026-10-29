@@ -1182,15 +1182,71 @@ describe("SkillsTab MCP servers", () => {
     m.unmount();
   });
 
-  it("splits built-in, curated, and added MCP sections", async () => {
+  it("splits built-in, marketplace, and installed MCP sections", async () => {
     const m = await mount(
       <ManagerHarness mcpServers={[httpDef()]} mcpCatalog={[]} />,
     );
     await openSkillsView(m, "mcp");
-    assert.ok(m.query('[data-mcp-section="curated"]'));
+    assert.ok(m.query('[data-mcp-section="marketplace"]'));
     assert.ok(m.query('[data-mcp-section="added"]'));
-    assert.ok(m.text().includes("No curated MCP servers"));
+    assert.ok(m.text().includes("No MCP servers in the catalog"));
     assert.ok(m.query('[data-mcp="team-tools"]'));
+    m.unmount();
+  });
+
+  it("marketplace Install previews the catalog row and installs it with trust in one click", async () => {
+    const previews: McpPreviewImportInput[] = [];
+    const installs: McpInstallRequest[] = [];
+    const m = await mount(
+      <ManagerHarness
+        mcpCatalog={[
+          {
+            id: "context7",
+            name: "Context7",
+            description: "Docs",
+            publisher: "Upstash",
+            sourceUrl: "https://context7.com/docs",
+            homepage: "https://context7.com/docs",
+            transport: "http",
+            installed: false,
+          },
+        ]}
+        onPreviewMcpImport={(input) => {
+          previews.push(input);
+          return {
+            previewId: "c".repeat(32),
+            source: { kind: "catalog", label: "Context7" },
+            warnings: [],
+            servers: [
+              {
+                name: "context7",
+                transport: "http",
+                url: "https://mcp.context7.com/mcp",
+                envNames: [],
+                headerNames: [],
+                hasToken: false,
+                requiresTrust: false,
+                collision: false,
+                warnings: [],
+                providers: [],
+              },
+            ],
+          };
+        }}
+        onInstallMcpImport={(input) => {
+          installs.push(input);
+        }}
+      />,
+    );
+    await openSkillsView(m, "mcp");
+    await m.click(m.query('button[aria-label="Install Context7"]'));
+    assert.deepEqual(previews, [{ kind: "catalog", id: "context7" }]);
+    assert.equal(installs.length, 1);
+    assert.deepEqual(installs[0].selected, ["context7"]);
+    assert.equal(installs[0].previewId, "c".repeat(32));
+    assert.equal(installs[0].trustLocalCommands, true);
+    assert.deepEqual(installs[0].secrets, {});
+    assert.equal(m.query("[data-mcp-preview]"), null, "no separate preview panel");
     m.unmount();
   });
 
