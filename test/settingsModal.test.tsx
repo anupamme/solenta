@@ -2371,6 +2371,77 @@ describe("SettingsModal governance (#262)", () => {
   });
 });
 
+describe("SettingsModal diagnostics export (#1723)", () => {
+  async function withFake(fake: ReturnType<typeof createFakeCoder>, body: () => Promise<void>) {
+    const shell = await mount(<div />);
+    installFakeCoder(fake);
+    shell.unmount();
+    try {
+      await body();
+    } finally {
+      delete (window as unknown as { coder?: unknown }).coder;
+    }
+  }
+
+  it("previews the file list, then saves through the dialog", async () => {
+    const fake = createFakeCoder();
+    await withFake(fake, async () => {
+      const m = await mount(modal({ initialPane: "advanced" }));
+      await m.flush();
+      assert.equal(m.query("[data-diagnostics-files]"), null);
+      await m.click(m.query("[data-diagnostics-export]"));
+      await m.flush();
+      const list = m.query("[data-diagnostics-files]")?.textContent || "";
+      for (const f of ["app.json", "providers.json", "settings.redacted.json", "errors.json", "secrets-status.json"]) {
+        assert.ok(list.includes(f), `preview lists ${f}, got: ${list}`);
+      }
+      assert.equal(fake.calls.some((c) => c.channel === "app.exportDiagnostics"), false);
+      await m.click(m.query("[data-diagnostics-save]"));
+      await m.flush();
+      assert.equal(fake.calls.filter((c) => c.channel === "app.exportDiagnostics").length, 1);
+      assert.equal(
+        m.query("[data-diagnostics-result]")?.textContent,
+        "Saved to /tmp/solenta-diagnostics.zip",
+      );
+      assert.equal(m.query("[data-diagnostics-files]"), null);
+      m.unmount();
+    });
+  });
+
+  it("keeps the preview open when the save dialog is cancelled", async () => {
+    const fake = createFakeCoder();
+    fake.api.app.exportDiagnostics = async () => null;
+    await withFake(fake, async () => {
+      const m = await mount(modal({ initialPane: "advanced" }));
+      await m.flush();
+      await m.click(m.query("[data-diagnostics-export]"));
+      await m.flush();
+      await m.click(m.query("[data-diagnostics-save]"));
+      await m.flush();
+      assert.ok(m.query("[data-diagnostics-files]"));
+      assert.equal(m.query("[data-diagnostics-result]"), null);
+      m.unmount();
+    });
+  });
+
+  it("shows the error when the export fails", async () => {
+    const fake = createFakeCoder();
+    fake.api.app.exportDiagnostics = async () => {
+      throw new Error("disk full");
+    };
+    await withFake(fake, async () => {
+      const m = await mount(modal({ initialPane: "advanced" }));
+      await m.flush();
+      await m.click(m.query("[data-diagnostics-export]"));
+      await m.flush();
+      await m.click(m.query("[data-diagnostics-save]"));
+      await m.flush();
+      assert.equal(m.query("[data-diagnostics-result]")?.textContent, "disk full");
+      m.unmount();
+    });
+  });
+});
+
 describe("SettingsModal focus trap", () => {
   it("opening the dialog moves focus inside; Tab stays inside; Escape restores", async () => {
     function Harness() {

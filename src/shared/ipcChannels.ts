@@ -42,6 +42,8 @@ export const IPC_CHANNELS = [
   { ns: "app", method: "downloadUpdate" },
   { ns: "app", method: "applyUpdate" },
   { ns: "app", method: "feedback" },
+  { ns: "app", method: "diagnosticsPreview" },
+  { ns: "app", method: "exportDiagnostics" },
   { ns: "app", method: "openRemoteConnection" },
   { ns: "app", method: "forgetRemoteConnection" },
   { ns: "app", method: "installRemoteSolenta" },
