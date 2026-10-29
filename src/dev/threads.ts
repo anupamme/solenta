@@ -853,6 +853,17 @@ export function createThreads(ctx: DevCtx): Pick<CoderApi, "threads"> {
             ]
           : [];
       },
+      async setPlanModel(input: {
+        threadId: string;
+        model: string | null;
+        effort?: ReasoningEffort | null;
+      }) {
+        return patchThread(input.threadId, {
+          planModel: input.model,
+          planReasoningEffort: input.model ? input.effort ?? null : null,
+          agentProfileId: null,
+        });
+      },
       async setFast(input: { threadId: string; fast: boolean }) {
         return patchThread(input.threadId, { fast: input.fast === true });
       },

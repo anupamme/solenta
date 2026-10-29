@@ -13,6 +13,7 @@ const {
   catalogCliProbeStarted,
   honouredPermissionModes,
   snapPermissionMode,
+  planActSwitchNote,
 } = require("./providers.js");
 const providerAuth = require("./providerAuth.js");
 const {
@@ -449,9 +450,58 @@ function setPermissionMode(store, input) {
     if (!thread.pendingQuestion) patch.awaitingInput = false;
   }
   const updated = store.updateThread(threadId, patch);
+  // Leaving plan mode hands the next turn to the act model (#1716).
+  const switchNote =
+    mode !== "plan" ? planActSwitchNote(entry, thread) : null;
+  if (switchNote) {
+    store.appendMessage(threadId, {
+      id: randomUUID(),
+      role: "event",
+      text: switchNote,
+      createdAt: Date.now(),
+    });
+  }
   store.save();
   const row = updated || { ...thread, ...patch };
   return decorateThread(store, row);
+}
+
+/**
+ * Set the plan-mode model + effort (#1716). null model clears both. Only
+ * providers that resume one session across models take it; others throw
+ * rather than store a setting that would silently fork or never apply.
+ *
+ * @param {import('./store').Store} store
+ * @param {{ threadId: string, model: string | null, effort?: string | null }} input
+ */
+function setPlanModel(store, input) {
+  const { threadId } = input;
+  const thread = store.getThread(threadId);
+  if (!thread) throw new Error(`Unknown thread: ${threadId}`);
+  const entry = getProvider(thread.provider);
+  /** @type {{ planModel: string | null, planReasoningEffort: string | null }} */
+  const patch = { planModel: null, planReasoningEffort: null };
+  if (input.model != null) {
+    if (!entry || entry.supportsPlanModel !== true) {
+      const providerName =
+        (entry && entry.name) || thread.provider || "provider";
+      throw new Error(`${providerName} cannot plan on a separate model`);
+    }
+    patch.planModel = normalizeModelForProvider(entry, input.model);
+    if (!patch.planModel) throw new Error("Plan model must be a model id");
+    if (input.effort != null) {
+      const level = String(input.effort);
+      if (!honouredEfforts(entry, patch.planModel).includes(level)) {
+        throw new Error(
+          `${entry.name} does not support reasoning effort "${level}"`,
+        );
+      }
+      patch.planReasoningEffort = level;
+    }
+  }
+  const updated = store.updateThread(threadId, patch);
+  store.save();
+  return decorateThread(store, updated || { ...thread, ...patch });
 }
 
 /**
@@ -488,6 +538,26 @@ function applyAgentProfile(store, input) {
   );
   if (mode !== store.getThread(threadId).permissionMode) {
     setPermissionMode(store, { threadId, mode });
+  }
+  // Plan model (#1716): set from the profile, or cleared when the profile
+  // has none, so a picked profile is the whole model setup.
+  const planEntry = getProvider(live.provider);
+  const planModel =
+    planEntry && planEntry.supportsPlanModel === true
+      ? profile.planModel || null
+      : null;
+  if (planModel || store.getThread(threadId).planModel) {
+    setPlanModel(store, {
+      threadId,
+      model: planModel,
+      effort:
+        planModel &&
+        honouredEfforts(planEntry, planModel).includes(
+          profile.planReasoningEffort,
+        )
+          ? profile.planReasoningEffort
+          : null,
+    });
   }
   // The profile's default cap becomes the thread's (#286); a profile with no
   // cap leaves the thread's own cap alone.
@@ -1091,7 +1161,7 @@ function setProvider(store, input) {
   const instanceChanging =
     ref != null && (ref.instance || null) !== (thread.providerInstance || null);
 
-  /** @type {{ provider?: string, providerInstance?: string | null, model?: string | null, sessionId?: null, replayContext?: boolean, reasoningEffort?: null, webSearch?: boolean }} */
+  /** @type {{ provider?: string, providerInstance?: string | null, model?: string | null, sessionId?: null, replayContext?: boolean, reasoningEffort?: null, webSearch?: boolean, planModel?: null, planReasoningEffort?: null }} */
   const patch = {};
 
   if ((providerChanging || instanceChanging) && thread.status === "working") {
@@ -1142,6 +1212,11 @@ function setProvider(store, input) {
         : false;
     // Agent names are per-CLI (.claude/agents vs .opencode/agent).
     patch.agent = null;
+    // So are model ids: the plan model (#1716) cannot follow either.
+    if (thread.planModel) {
+      patch.planModel = null;
+      patch.planReasoningEffort = null;
+    }
     // Same rule as effort: a permission mode the new provider cannot honour
     // must not survive the switch (issue #177). Teach-mode caps still win.
     patch.permissionMode = snapPermissionModeForThread(
@@ -1954,6 +2029,7 @@ module.exports = {
   setRoute,
   instanceAuthProbes,
   setPermissionMode,
+  setPlanModel,
   setReasoningEffort,
   setWebSearch,
   setAgent,

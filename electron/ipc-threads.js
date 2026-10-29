@@ -635,6 +635,15 @@ module.exports = {
     ctx.broadcast("threads:changed", services.listThreads(ctx.store));
     return updated;
   },
+  "threads:setPlanModel": async (ctx, input) => {
+    const updated = leaveProfile(
+      ctx,
+      input.threadId,
+      services.setPlanModel(ctx.store, input),
+    );
+    ctx.broadcast("threads:changed", services.listThreads(ctx.store));
+    return updated;
+  },
   "threads:setAgent": async (ctx, input) => {
     const updated = services.setAgent(ctx.store, input);
     ctx.broadcast("threads:changed", services.listThreads(ctx.store));

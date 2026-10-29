@@ -21,7 +21,11 @@ const {
   unsupportedError,
 } = require("./codexApprovals.js");
 const { mapOpencodeDecision } = require("./opencodeApprovals.js");
-const { getProvider, snapPermissionMode } = require("./providers.js");
+const {
+  getProvider,
+  snapPermissionMode,
+  planActSwitchNote,
+} = require("./providers.js");
 const { classifyTool } = require("./guardrails.js");
 const { evaluate, threadPolicy } = require("./governance.js");
 const { appendAudit } = require("./governanceAudit.js");
@@ -753,6 +757,17 @@ function createPermissions(ctx) {
           : "Denied by user in Coder",
       };
     }
+    // A plan written on the plan model is implemented on the act model, in
+    // this same live process and session (#1716). set_model goes ahead of
+    // the allow so the CLI's next API call already uses it.
+    const before = isPlan && decision !== "deny" ? store.getThread(threadId) : null;
+    const switchNote = before
+      ? planActSwitchNote(getProvider(before.provider), before)
+      : null;
+    if (switchNote && typeof e.handle.setModel === "function") {
+      e.handle.setModel(before.model || null);
+      e.handle.modelSwitchedTo = before.model || null;
+    }
     e.handle.respond(pending.id, response);
     if (isPlan) planPromptHandled.add(threadId);
     if (isPlan && decision !== "deny") {
@@ -789,6 +804,7 @@ function createPermissions(ctx) {
               ? `Allowed for session: ${pending.summary}${ruleNote}`
               : `Allowed: ${pending.summary}`;
     appendMessage(threadId, "event", label, e.runId);
+    if (switchNote) appendMessage(threadId, "event", switchNote, e.runId);
     if (e.pendingPermissions.length === 0) {
       store.updateThread(threadId, { awaitingInput: false });
     }
@@ -1039,6 +1055,10 @@ function createPermissions(ctx) {
       "event",
       approved ? "Plan approved" : "Plan rejected",
     );
+    const switchNote = approved
+      ? planActSwitchNote(getProvider(thread.provider), thread)
+      : null;
+    if (switchNote) appendMessage(threadId, "event", switchNote);
     // No live CLI to hear the notes: they go first in line as the next
     // turn, still in plan mode, and the drain below sends them.
     if (!approved && feedback) {
@@ -1099,6 +1119,11 @@ function createPermissions(ctx) {
         ? approved ? "Plan approved" : "Plan rejected"
         : `${approved ? "Allowed" : "Denied"} after restart: ${card.summary}`,
     );
+    const switchNote =
+      approved && card.plan
+        ? planActSwitchNote(getProvider(thread.provider), thread)
+        : null;
+    if (switchNote) appendMessage(threadId, "event", switchNote);
     if (line) {
       services.restoreQueuedHead(store, { threadId, taken: { prompt: line, items: [line] } });
     }
