@@ -656,6 +656,13 @@ app.whenReady().then(async () => {
   installAppMenu({
     applyZoom: applyUiScale,
     getUiScale: currentUiScale,
+    onExportDiagnostics: () => {
+      if (!store) return;
+      const { confirmAndExportDiagnostics } = require("./diagnostics.js");
+      confirmAndExportDiagnostics({ store, dialog, userDataPath: app.getPath("userData") })
+        .then((saved) => saved && shell.showItemInFolder(saved))
+        .catch((err) => dialog.showErrorBox("Export diagnostics failed", String((err && err.message) || err)));
+    },
   });
 
   const userData = app.getPath("userData");

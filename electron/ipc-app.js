@@ -88,6 +88,15 @@ module.exports = {
       }
     }
   },
+  // Diagnostics zip (#1723): host files and a native dialog, desktop only.
+  "app:diagnosticsPreview": async (ctx) => {
+    if (ctx.transport !== "desktop") throw new Error("Diagnostics export requires the desktop app.");
+    return require("./diagnostics.js").diagnosticsFileList({ userDataPath: ctx.userDataPath });
+  },
+  "app:exportDiagnostics": async (ctx) => {
+    if (ctx.transport !== "desktop") throw new Error("Diagnostics export requires the desktop app.");
+    return require("./diagnostics.js").exportDiagnostics(ctx);
+  },
   "app:openRemoteConnection": async (ctx, input) => {
     if (ctx.transport !== "desktop" || !ctx.openRemoteConnection) {
       throw new Error("Remote Connections require the desktop app.");

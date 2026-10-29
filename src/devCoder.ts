@@ -420,6 +420,12 @@ function buildDevCoder(): CoderApi {
         throw new Error("Remote Connections require the desktop app.");
       },
       async forgetRemoteConnection(): Promise<void> {},
+      async diagnosticsPreview(): Promise<string[]> {
+        throw new Error("Diagnostics export requires the desktop app.");
+      },
+      async exportDiagnostics(): Promise<string | null> {
+        throw new Error("Diagnostics export requires the desktop app.");
+      },
       async installRemoteSolenta(): Promise<RemoteInstallResult> {
         throw new Error("Remote Connections require the desktop app.");
       },

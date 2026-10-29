@@ -5010,6 +5010,13 @@ export interface CoderApi {
      * Rejects with a user-facing sentence when the endpoint refuses.
      */
     feedback(input: { text: string; threadId?: string }): Promise<void>;
+    /** File names the diagnostics zip will hold (#1723). Desktop only. */
+    diagnosticsPreview(): Promise<string[]>;
+    /**
+     * Save dialog, then write the redacted diagnostics zip (#1723). Resolves
+     * the written path, or null when the dialog was cancelled. Desktop only.
+     */
+    exportDiagnostics(): Promise<string | null>;
     /** Open an SSH-forwarded Solenta Web host in an isolated desktop window. */
     openRemoteConnection(input: {
       host: string;
