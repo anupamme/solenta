@@ -784,6 +784,8 @@ export function SettingsModal({
             dirtyDrafts={dirtyDrafts}
             persistOtel={persistOtel}
             onSaveSettings={onSaveSettings}
+            projects={projects}
+            currentProjectId={currentProjectId ?? null}
           />
           )}
 

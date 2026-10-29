@@ -15,6 +15,7 @@ for (const id of Object.keys(require.cache)) {
 const projectsHandlers = require("./ipc-projects.js");
 const threadsHandlers = require("./ipc-threads.js");
 const insightsHandlers = require("./ipc-insights.js");
+const hooksHandlers = require("./ipc-hooks.js");
 const appHandlers = require("./ipc-app.js");
 const mcpHandlers = require("./ipc-mcp.js");
 const skillsHandlers = require("./ipc-skills.js");
@@ -108,6 +109,7 @@ const IPC_HANDLERS = {
   ...projectsHandlers,
   ...threadsHandlers,
   ...insightsHandlers,
+  ...hooksHandlers,
   ...appHandlers,
   ...mcpHandlers,
   ...skillsHandlers,

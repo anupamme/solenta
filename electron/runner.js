@@ -28,6 +28,7 @@ const { createClaudeSessions } = require("./runner-claude-sessions.js");
 const { createVerifyGate } = require("./runner-verify-gate.js");
 const { createQuotaWait } = require("./runner-quota-wait.js");
 const { createThrash } = require("./runner-thrash.js");
+const { createUserHookEvents } = require("./runner-user-hooks.js");
 const { createAutoResume } = require("./runner-auto-resume.js");
 const { createOrchNotices } = require("./runner-orch-notices.js");
 const { createPermissions } = require("./runner-permissions.js");
@@ -744,6 +745,13 @@ function createRunner(opts) {
    * @type {Map<string, number>}
    */
   const toolStartedAt = new Map();
+  // User lifecycle hooks (#1724). The adapters below reach it through ctx.
+  const userHookEvents = createUserHookEvents({
+    store,
+    userDataPath,
+    appendMessage,
+    pushDetail,
+  });
 
   /**
    * Close the span for one tool call. Fire-and-forget; a tool whose start was
@@ -766,6 +774,7 @@ function createRunner(opts) {
     });
     // Thrash detector (#391); ctx is built after this function is declared.
     ctx.noteThrashTool(threadId, runId, String(toolId), name, Boolean(isError));
+    userHookEvents.toolFinished(threadId, runId, String(toolId), name);
   }
 
   /** Last known workflow (core Workflow or real state) per thread. */
@@ -869,6 +878,13 @@ function createRunner(opts) {
     // covered by one call site (generic/claude/codex/kimi/opencode/workflow).
     if (status === "done") {
       afterSuccessfulTurn(threadId);
+      if (userHookEvents.has(threadId, "Stop")) {
+        userHookEvents.turnDone(
+          threadId,
+          terminalRunId,
+          lastAssistantText(threadId, terminalRunId),
+        );
+      }
     } else if (status === "failed") {
       const parked = store.getThread(threadId);
       if (
@@ -1444,6 +1460,7 @@ function createRunner(opts) {
         noteToolSpan(threadId, runId, tool.id, tool.name, tool.isError);
       } else {
         toolStartedAt.set(`${runId}:${tool.id}`, msg.createdAt);
+        userHookEvents.toolStarted(threadId, runId, tool);
       }
     }
     // Session mirror: user + event immediately; assistant/tool at terminal.
@@ -2367,6 +2384,39 @@ function createRunner(opts) {
         attachments,
       });
       if (abortIfCancelled(threadId, runId)) return { runId };
+
+      // User hooks (#1724): resolve this run's set, then UserPromptSubmit.
+      // A block refuses the turn through the catch below (status failed).
+      userHookEvents.prepare({
+        threadId,
+        project: projectForGate,
+        provider,
+        model: dispatchThread.model || null,
+        cwd:
+          dispatchThread.worktreePath ||
+          (projectForGate && projectForGate.path) ||
+          "",
+        remote: Boolean(projectForGate && isRemoteProject(projectForGate)),
+      });
+      // No await without a hook: an extra async hop here shifted turn start
+      // past mocked timers (claude-idle-reap cancelled on loaded CI).
+      const promptHook = userHookEvents.has(threadId, "UserPromptSubmit")
+        ? await Promise.race([
+            userHookEvents.beforePrompt(threadId, runId, rawPrompt),
+            stopped,
+          ])
+        : null;
+      if (abortIfCancelled(threadId, runId)) return { runId };
+      if (promptHook && promptHook.blocked) {
+        appendMessage(
+          threadId,
+          "event",
+          `Hook blocked this prompt: ${promptHook.reason}`,
+          runId,
+        );
+        throw new Error(`Blocked by a UserPromptSubmit hook: ${promptHook.reason}`);
+      }
+      const hookNote = (promptHook && promptHook.context) || "";
       if (pdfNote) {
         // The transcript chip says "text only" for what actually happened.
         const userMsg = store
@@ -2386,7 +2436,7 @@ function createRunner(opts) {
         dispatchThread.sessionId,
       )
         ? "/compact"
-        : promptPrefix + pdfNote + bootNote;
+        : promptPrefix + pdfNote + bootNote + hookNote;
       // Last stop before the CLI (#295): everything above is in `outbound`.
       const { text: dispatchPrompt, note: privacyNote } =
         privacyGateway.filterOutbound(store.getSettings(), threadId, provider, outbound);
@@ -2915,6 +2965,7 @@ function createRunner(opts) {
     store,
     active,
     nowFn,
+    userHookEvents,
     resolveProvider,
     appendMessage,
     pushDetail,

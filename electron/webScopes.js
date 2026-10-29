@@ -75,6 +75,7 @@ const BY_SCOPE = {
     "activity:list",
     "governance:listAudit",
     "governance:verifyAudit",
+    "hooks:list",
     "usage:byDay",
     "usage:providerLimits",
     "insights:failureModes",
@@ -371,6 +372,9 @@ const BY_SCOPE = {
     "attachments:listWindows",
     "attachments:captureWindow",
     "attachments:captureWindowText",
+    // Hook commands (#1724) run on the host; desktop-only in ipc-hooks.js.
+    "hooks:approve",
+    "hooks:test",
     // Native dialogs on the host.
     "projects:pickDirectory",
     "projects:pickIcon",

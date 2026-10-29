@@ -3185,6 +3185,27 @@ export function createFakeCoder(opts: FakeOptions = {}): FakeCoder {
           [...trashed.values()].map(({ thread: _thread, ...row }) => row),
         ),
     },
+    hooks: {
+      list: (input?: unknown) =>
+        rec("hooks.list", [input], {
+          user: { path: "/u/hooks.json", exists: false, hash: null, error: null, hooks: [] },
+          project: null,
+          nativePreToolUse: ["claude", "codex"],
+        }),
+      approve: (input: { hash: string }) =>
+        rec("hooks.approve", [input], { hash: input.hash }),
+      test: (input: { id: string }) =>
+        rec("hooks.test", [input], {
+          id: input.id,
+          event: "PreToolUse" as const,
+          exitCode: 0,
+          durationMs: 1,
+          timedOut: false,
+          error: null,
+          output: "",
+          at: 0,
+        }),
+    },
     governance: {
       listAudit: (input?: unknown) => rec("governance.listAudit", [input], []),
       verifyAudit: () =>

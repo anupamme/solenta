@@ -28,6 +28,8 @@ const {
   materializeGrokHome,
 } = require("./grok.js");
 const path = require("node:path");
+const { copyGuardrailRuntime } = require("./guardrail-hook-core.js");
+const { claudeSettingsHooks } = require("./user-hooks.js");
 const threadSecrets = require("./threadSecrets.js");
 const { classifyTool } = require("./guardrails.js");
 const { evaluate, threadPolicy } = require("./governance.js");
@@ -102,6 +104,7 @@ function createClaudeRun(ctx) {
     CLAUDE_ACK_MS,
     disposeClaudeSession,
     finishRunningSubagents,
+    userHookEvents,
   } = ctx;
   /** Threads already told Claude refused fast mode (#1529). */
   const fastRefusedNoted = new Set();
@@ -438,6 +441,29 @@ function createClaudeRun(ctx) {
     const extraDirs = crossesBoundary(project) ? [] : secondaryFolders(project);
     const grantedDirs = writeGrants(thread);
     const askWriteDirs = extraDirs.filter((d) => !grantedDirs.includes(d));
+    // User PreToolUse hooks (#1724) as a Claude settings hook. Local only:
+    // the hook commands are this host's programs.
+    let userHookSettings = null;
+    /** @type {Record<string, string> | null} */
+    let userHookEnv = null;
+    const nativeHooks =
+      entryDef.id === "claude" && !crossesBoundary(project) && userHookEvents
+        ? userHookEvents.nativePreTool(threadId)
+        : null;
+    if (nativeHooks && userDataPath) {
+      try {
+        const runtime = copyGuardrailRuntime(
+          path.join(userDataPath, "user-hooks", "runtime"),
+        );
+        userHookSettings = claudeSettingsHooks(runtime, nativeHooks.hooks);
+        userHookEnv = {
+          SOLENTA_USER_HOOKS: nativeHooks.file,
+          SOLENTA_WORKTREE: localCwd,
+        };
+      } catch {
+        // A failed copy must not block the turn; PostToolUse/Stop still run.
+      }
+    }
     const args = entryDef.buildArgs({
       prompt,
       sessionId: thread.sessionId || null,
@@ -450,6 +476,7 @@ function createClaudeRun(ctx) {
       forkSessionAt: thread.forkSessionAt || null,
       addDirs: extraDirs,
       askWriteDirs,
+      userHooks: userHookSettings,
     });
     // Claude runs interactively: prompt over stdin, permission prompts via
     // the control protocol. Other claude-stream providers (e.g. grok) keep
@@ -1373,6 +1400,7 @@ function createClaudeRun(ctx) {
         local: !crossesBoundary(project),
       }) || {}),
       ...otel.claudeEnv(),
+      ...(userHookEnv || {}),
     };
     const otelEnv = Object.keys(claudeOtel).length > 0 ? claudeOtel : undefined;
     const grokMerged =
