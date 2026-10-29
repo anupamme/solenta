@@ -476,6 +476,7 @@ function recordSecretUse(evt) {
 module.exports = {
   PREFIX,
   UNAVAILABLE_WARNING,
+  secretGroups,
   createSecrets,
   getDefaultSecrets,
   configureDefaultSecrets,
