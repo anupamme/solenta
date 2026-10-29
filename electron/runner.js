@@ -2398,10 +2398,14 @@ function createRunner(opts) {
           "",
         remote: Boolean(projectForGate && isRemoteProject(projectForGate)),
       });
-      const promptHook = await Promise.race([
-        userHookEvents.beforePrompt(threadId, runId, rawPrompt),
-        stopped,
-      ]);
+      // No await without a hook: an extra async hop here shifted turn start
+      // past mocked timers (claude-idle-reap cancelled on loaded CI).
+      const promptHook = userHookEvents.has(threadId, "UserPromptSubmit")
+        ? await Promise.race([
+            userHookEvents.beforePrompt(threadId, runId, rawPrompt),
+            stopped,
+          ])
+        : null;
       if (abortIfCancelled(threadId, runId)) return { runId };
       if (promptHook && promptHook.blocked) {
         appendMessage(
