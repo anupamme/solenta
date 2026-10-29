@@ -183,8 +183,10 @@ function buildDevCoder(): CoderApi {
               model: "claude-opus-4",
               inputTokens: 1200,
               outputTokens: 400,
-              costUsd: 0.0091,
-              turns: 1,
+              costUsd: 1.4291,
+              turns: 3,
+              // Header cost badge tooltip (#1725).
+              costByModel: { "claude-opus-4": 1.2, "claude-sonnet-4": 0.2291 },
             }
           : null,
       });
