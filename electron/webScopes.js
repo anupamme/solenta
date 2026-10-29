@@ -83,7 +83,6 @@ const BY_SCOPE = {
     "git:status",
     "git:listBranches",
     "git:diff",
-    "mentions:fetchUrl",
     "mentions:gitChanges",
     "mentions:listCommits",
     "mentions:showCommit",
@@ -179,6 +178,8 @@ const BY_SCOPE = {
     "threads:setWebSearch",
     "threads:setAgent",
     "threads:runVerify",
+    // A host-side fetch of any URL (LAN included) is steer, not read.
+    "mentions:fetchUrl",
     "mentions:runProblems",
     "mentions:cancelProblems",
     "threads:delete",
