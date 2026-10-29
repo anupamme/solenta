@@ -611,6 +611,8 @@ export interface ThreadInfo {
   id: string;
   projectId: string;
   title: string;
+  /** Started from a chat channel (#1718); results go back to that chat. */
+  channel?: { kind: "telegram"; chatId: string } | null;
   branch: string | null;
   /**
    * Recorded merge/PR base (#187). Null/absent = repo default
@@ -3787,6 +3789,11 @@ export interface AppSettings {
    */
   githubHosts?: GithubHostSetting[];
   /**
+   * Telegram chat channel (issue #1718). Read back with `hasToken` only;
+   * send `botToken` to replace it, null to clear, omit to keep.
+   */
+  telegram?: TelegramSettings;
+  /**
    * Outbound webhook (issue #167). POSTs a small JSON payload when a thread
    * finishes or waits for permission. Independent of the desktop-notification
    * switch and of window focus. null URL (the default) sends nothing.
@@ -3850,6 +3857,32 @@ export interface WebhookSettings {
   onDone: boolean;
   onFailed: boolean;
   onWaiting: boolean;
+}
+
+/** Telegram chat channel config (issue #1718). */
+export interface TelegramSettings {
+  /** Connected on the last Connect; reconnects at launch. Set by Connect/Disconnect only. */
+  enabled?: boolean;
+  /** Write-only: never sent to the renderer. */
+  botToken?: string | null;
+  /** Read-only: a token is saved. */
+  hasToken?: boolean;
+  /** Numeric Telegram user ids; nothing runs until one is set. */
+  allowedSenderIds: string[];
+  /** Project new chat threads start in. */
+  projectId: string | null;
+  /** Optional AgentProfile applied to new chat threads. */
+  agentProfileId: string | null;
+}
+
+/** Live state of each chat channel (settings.channelStatus). */
+export interface ChannelStatus {
+  telegram: {
+    state: "off" | "connecting" | "connected" | "error";
+    /** Bot username without the @, once getMe succeeded. */
+    botUsername: string | null;
+    error: string | null;
+  };
 }
 
 /** Outcome of settings.testWebhook. `status` is absent on a transport error. */
@@ -5024,6 +5057,11 @@ export interface CoderApi {
      * toggles. Never rejects — a bad URL is an `ok: false` result.
      */
     testWebhook(): Promise<WebhookTestResult>;
+    /** Chat channel connection state (issue #1718). */
+    channelStatus(): Promise<ChannelStatus>;
+    /** Check the saved bot token and start polling; rejects on a bad token. */
+    connectChannel(input: { channel: "telegram" }): Promise<ChannelStatus>;
+    disconnectChannel(input: { channel: "telegram" }): Promise<ChannelStatus>;
   };
   /**
    * Stay-awake state (issue #364). The mode itself lives in settings

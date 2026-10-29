@@ -75,6 +75,8 @@ const EMPTY = {
   autoTurnsByThread: {},
   digestSeenAt: null,
   prViewed: {},
+  // Chat channels (#1718): per-transport poll offset and chat -> thread map.
+  channelState: {},
   // autoSettleAfterDays defaults to 3 (AUTO_SETTLE_AFTER_DAYS); null = disabled.
   settings: {
     dailyBudgetUsd: null,
@@ -1570,6 +1572,7 @@ class Store {
           : {},
       orchNoticesByThread: plainObject(parsed.orchNoticesByThread),
       autoTurnsByThread: plainObject(parsed.autoTurnsByThread),
+      channelState: plainObject(parsed.channelState),
       settings: normalizeSettings(revealed.settings),
     };
     holdRestoredNotices(data);
@@ -2394,6 +2397,22 @@ class Store {
   }
 
   /**
+   * Chat channel state (#1718) for one transport, e.g. "telegram":
+   * `{ offset, chats: { [chatId]: threadId } }`. Caller saves.
+   * @param {string} name
+   * @returns {{ offset: number, chats: Record<string, string> }}
+   */
+  getChannelState(name) {
+    const all = this.data.channelState || (this.data.channelState = {});
+    const cur = all[name] && typeof all[name] === "object" ? all[name] : {};
+    all[name] = {
+      offset: Number.isSafeInteger(cur.offset) ? cur.offset : 0,
+      chats: cur.chats && typeof cur.chats === "object" ? cur.chats : {},
+    };
+    return all[name];
+  }
+
+  /**
    * Patch an existing message by id. No-op if missing.
    * @param {string} threadId
    * @param {string} messageId
@@ -2631,6 +2650,7 @@ function cloneEmpty() {
     autoTurnsByThread: {},
     digestSeenAt: null,
     prViewed: {},
+    channelState: {},
     // autoSettleAfterDays defaults to 3 (AUTO_SETTLE_AFTER_DAYS); null = disabled.
     settings: {
       dailyBudgetUsd: null,

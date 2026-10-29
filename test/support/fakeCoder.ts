@@ -110,6 +110,7 @@ import type {
   WorkflowTemplateInfo,
   GcScanResult,
   WebhookTestResult,
+  ChannelStatus,
 } from "../../src/shared/ipc";
 import { normalizeMessagePins } from "../../src/messagePins";
 import { queuedItemFiles, queuedRow } from "../../src/queuedFiles";
@@ -297,6 +298,10 @@ export interface FakeOptions {
   gcScan?: GcScanResult;
   /** Override settings.testWebhook result (default: HTTP 200). */
   testWebhook?: WebhookTestResult;
+  /** Initial settings.channelStatus (default: telegram off). */
+  channelStatus?: ChannelStatus;
+  /** Make settings.connectChannel reject with this message. */
+  connectChannelError?: string;
   /** Override fs.browse result (default: demo home directories). */
   browse?: (input: unknown) => FsBrowseResult;
   /**
@@ -368,6 +373,9 @@ export function createFakeCoder(opts: FakeOptions = {}): FakeCoder {
   /** Mutable per-thread checkpoint lists (newest-first). */
   const checkpoints: Record<string, CheckpointInfo[]> = {
     ...(opts.checkpoints ?? {}),
+  };
+  let channelStatus: ChannelStatus = opts.channelStatus ?? {
+    telegram: { state: "off", botUsername: null, error: null },
   };
   let settingsState: AppSettings = {
     dailyBudgetUsd: null,
@@ -1083,6 +1091,20 @@ export function createFakeCoder(opts: FakeOptions = {}): FakeCoder {
           }
           next.modelPrices = { ...p.modelPrices };
         }
+        if (p.telegram) {
+          // Same write-only token contract as main's redactSettings (#1718).
+          const { botToken, hasToken: _h, ...rest } = p.telegram;
+          const prev = next.telegram;
+          next.telegram = {
+            enabled: false,
+            allowedSenderIds: [],
+            projectId: null,
+            agentProfileId: null,
+            ...prev,
+            ...rest,
+            hasToken: botToken === undefined ? Boolean(prev?.hasToken) : Boolean(botToken),
+          };
+        }
         settingsState = next;
         return rec(
           "settings.set",
@@ -1096,6 +1118,22 @@ export function createFakeCoder(opts: FakeOptions = {}): FakeCoder {
           [],
           opts.testWebhook ?? { ok: true, status: 200 },
         ),
+      channelStatus: () =>
+        rec("settings.channelStatus", [], channelStatus),
+      connectChannel: (input: { channel: "telegram" }) => {
+        if (opts.connectChannelError) {
+          calls.push({ channel: "settings.connectChannel", args: [input] });
+          return Promise.reject(new Error(opts.connectChannelError));
+        }
+        channelStatus = {
+          telegram: { state: "connected", botUsername: "solenta_test_bot", error: null },
+        };
+        return rec("settings.connectChannel", [input], channelStatus);
+      },
+      disconnectChannel: (input: { channel: "telegram" }) => {
+        channelStatus = { telegram: { state: "off", botUsername: null, error: null } };
+        return rec("settings.disconnectChannel", [input], channelStatus);
+      },
     },
     stayAwake: {
       // No real power blocker in tests: derive the honest shape from
