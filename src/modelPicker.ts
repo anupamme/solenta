@@ -270,6 +270,22 @@ export function modelTriggerLabel(
 }
 
 /**
+ * Model pill while plan mode runs on a separate plan model (#1716):
+ * "Plan: Opus 5.5 · Act: Sonnet 5.5". Null when the pill shows one model.
+ */
+export function planActTriggerLabel(
+  permissionMode: string,
+  planModel: string | null | undefined,
+  model: string | null,
+  provider: ProviderInfo | undefined | null,
+): string | null {
+  if (permissionMode !== "plan" || !planModel || !provider?.supportsPlanModel) {
+    return null;
+  }
+  return `Plan: ${modelTriggerLabel(planModel, provider)} · Act: ${modelTriggerLabel(model, provider)}`;
+}
+
+/**
  * Which row the right pane describes. Highlight index wins when provided;
  * otherwise the selected (provider, model). Falls back to the first row so
  * the pane is never empty.

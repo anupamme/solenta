@@ -70,6 +70,11 @@ const { posixQuote } = require("./ssh.js");
  *   Codex leaves this unset: `turn/start.model` overrides subsequent turns
  *   (live-verified 2026-09-10, CLI 0.153.4). Workflow / ask / commitmsg
  *   stay on exec --json and never call sessionIdForResume.
+ * @property {boolean} [supportsPlanModel] - plan-mode turns may run on a
+ *   separate thread.planModel and resume the SAME session on thread.model
+ *   once plan mode ends (#1716). Claude: `--resume <id> --model <other>`
+ *   and stream-json `set_model` mid-process (live-verified on 2.1.283).
+ *   Codex: app-server thread/resume + turn/start take `model` per turn.
  * @property {string[]} models
  * @property {ModelInfo[]} modelInfo
  * @property {Array<"low"|"medium"|"high"|"xhigh"|"max"|"ultra"|"ultracode">} efforts
@@ -387,6 +392,7 @@ const PROVIDERS = [
     // unknown-value warning). Haiku 4.5 is not effort-capable; Haiku 5.5 is.
     efforts: CLAUDE_EFFORTS.slice(),
     supportsAgents: true,
+    supportsPlanModel: true,
     permissionModes: ALL_PERMISSION_MODES.slice(),
     kind: "claude-stream",
     buildArgs({
@@ -617,6 +623,7 @@ const PROVIDERS = [
     // 5.5 / spark stop at xhigh.
     efforts: CODEX_EFFORTS.slice(),
     supportsSearch: true,
+    supportsPlanModel: true,
     // Issue #170: exec defaults to read-only unless we pass --sandbox.
     permissionModes: ALL_PERMISSION_MODES.slice(),
     kind: "codex-json",
@@ -1808,6 +1815,60 @@ function sessionIdForResume(entry, thread, usage) {
 }
 
 /**
+ * True when this turn runs on the thread's plan model (#1716): plan mode,
+ * a plan model set, and a provider that resumes across models.
+ * @param {ProviderEntry | null | undefined} entry
+ * @param {{ permissionMode?: string | null, planModel?: string | null } | null | undefined} thread
+ */
+function usesPlanModel(entry, thread) {
+  return Boolean(
+    entry &&
+      entry.supportsPlanModel === true &&
+      thread &&
+      thread.permissionMode === "plan" &&
+      thread.planModel,
+  );
+}
+
+/**
+ * Model + effort for the next turn: the plan pair while usesPlanModel, else
+ * the thread's own (act) pair. A null planReasoningEffort keeps the act one.
+ * @param {ProviderEntry | null | undefined} entry
+ * @param {{ permissionMode?: string | null, model?: string | null, reasoningEffort?: string | null, planModel?: string | null, planReasoningEffort?: string | null }} thread
+ * @returns {{ model: string | null, reasoningEffort: string | null }}
+ */
+function turnModelFor(entry, thread) {
+  if (usesPlanModel(entry, thread)) {
+    return {
+      model: String(thread.planModel),
+      reasoningEffort:
+        thread.planReasoningEffort || thread.reasoningEffort || null,
+    };
+  }
+  return {
+    model: thread.model || null,
+    reasoningEffort: thread.reasoningEffort || null,
+  };
+}
+
+/**
+ * Transcript note when a thread that planned on its plan model leaves plan
+ * mode, or null when the next turn's model does not change.
+ * @param {ProviderEntry | null | undefined} entry
+ * @param {{ permissionMode?: string | null, model?: string | null, planModel?: string | null }} thread - the row BEFORE leaving plan mode
+ * @returns {string | null}
+ */
+function planActSwitchNote(entry, thread) {
+  if (!usesPlanModel(entry, thread)) return null;
+  if (thread.planModel === (thread.model || null)) return null;
+  const info = thread.model
+    ? (entry.modelInfo || []).find((m) => m.id === thread.model)
+    : null;
+  const label = info ? info.label : thread.model || "the default model";
+  return `Switched to ${label} for implementation`;
+}
+
+/**
  * Interactive resume tail for the raw CLI (issue #554). Headless spawn
  * flags stay in buildArgs; this is what the user pastes into a terminal.
  * Flags stay unquoted; the session id is always POSIX-quoted.
@@ -2047,6 +2108,7 @@ function listProviders(opts = {}) {
       supportsSearch: entry.supportsSearch === true,
       supportsSteer: entry.supportsSteer === true,
       supportsAgents: entry.supportsAgents === true,
+      ...(entry.supportsPlanModel ? { supportsPlanModel: true } : {}),
       permissionModes: honouredPermissionModes(entry),
     };
     out.push(info);
@@ -2089,6 +2151,9 @@ module.exports = {
   ALL_PERMISSION_MODES,
   getProvider,
   sessionIdForResume,
+  usesPlanModel,
+  turnModelFor,
+  planActSwitchNote,
   ejectCommand,
   knownProviderIds,
   resolveBin,

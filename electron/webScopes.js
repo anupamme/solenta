@@ -174,6 +174,7 @@ const BY_SCOPE = {
     "threads:setGoal",
     "threads:setProvider",
     "threads:setReasoningEffort",
+    "threads:setPlanModel",
     "threads:setFast",
     "threads:setRoute",
     "threads:setWebSearch",

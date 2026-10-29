@@ -995,6 +995,13 @@ export interface ThreadInfo {
    */
   reasoningEffort: ReasoningEffort | null;
   /**
+   * Model for plan-mode turns (#1716); absent/null = plan on `model`. Only
+   * honoured when the provider has `supportsPlanModel`.
+   */
+  planModel?: string | null;
+  /** Effort for plan-mode turns; absent/null keeps `reasoningEffort`. */
+  planReasoningEffort?: ReasoningEffort | null;
+  /**
    * Codex live web search (`codex exec --search`). False/absent on every
    * other provider and on older store rows. Ignored at spawn unless the
    * provider advertises `supportsSearch`.
@@ -3257,6 +3264,12 @@ export interface ProviderInfo {
    */
   supportsAgents?: boolean;
   /**
+   * True when plan-mode turns can run on a separate plan model and the same
+   * session resumes on the act model afterwards (#1716: claude, codex).
+   * The model picker hides "Plan with…" when this is missing or false.
+   */
+  supportsPlanModel?: boolean;
+  /**
    * True when a live turn can take mid-run guidance on stdin (issue #156).
    * Claude stream-json does; one-shot `-p` / `exec --json` CLIs do not
    * (Codex: issue #1164). The composer hides Steer when this is missing
@@ -4002,6 +4015,10 @@ export interface AgentProfile {
   model: string | null;
   /** null = provider default (no --effort flag). */
   reasoningEffort: ReasoningEffort | null;
+  /** Plan-mode model (#1716); absent = plan on `model`. */
+  planModel?: string | null;
+  /** Plan-mode effort; absent/null keeps `reasoningEffort`. */
+  planReasoningEffort?: ReasoningEffort | null;
   permissionMode: PermissionMode;
   /** Permission matrix (#262). Absent = no rules, default "ask". */
   policy?: GovernancePolicy;
@@ -6030,6 +6047,16 @@ export interface CoderApi {
      * model of the thread's provider has a fast tier.
      */
     setFast(input: { threadId: string; fast: boolean }): Promise<ThreadInfo>;
+    /**
+     * Plan-mode model + effort (#1716). Plan-mode turns run on it; leaving
+     * plan mode resumes the same session on `model`. null clears both.
+     * Rejects providers without `supportsPlanModel`.
+     */
+    setPlanModel(input: {
+      threadId: string;
+      model: string | null;
+      effort?: ReasoningEffort | null;
+    }): Promise<ThreadInfo>;
     /**
      * Pending first-turn route (#246); null = manual. Rejects once the
      * thread has a session. threads.setProvider clears it.

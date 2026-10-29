@@ -2870,6 +2870,8 @@ export function createFakeCoder(opts: FakeOptions = {}): FakeCoder {
       setProvider: (input: unknown) => rec("threads.setProvider", [input], thread()),
       setReasoningEffort: (input: unknown) =>
         rec("threads.setReasoningEffort", [input], thread()),
+      setPlanModel: (input: unknown) =>
+        rec("threads.setPlanModel", [input], thread()),
       setWebSearch: (input: unknown) =>
         rec("threads.setWebSearch", [input], thread()),
       setFast: (input: unknown) => rec("threads.setFast", [input], thread()),

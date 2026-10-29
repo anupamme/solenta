@@ -93,6 +93,34 @@ function parseAgentProfile(item, strict) {
       }
     }
   }
+  // Plan model (#1716): optional, absent stays absent so fixtures deepEqual.
+  // Only providers that resume one session across models take it.
+  /** @type {{ planModel?: string, planReasoningEffort?: string }} */
+  const plan = {};
+  if (rec.planModel != null) {
+    const id = typeof rec.planModel === "string" ? rec.planModel.trim() : "";
+    if (!id || id.length > 100) {
+      return fail(
+        "agentProfiles entry planModel must be a model id of at most 100 characters, or null",
+      );
+    }
+    const providerEntry = getProvider(provider.split(":")[0]);
+    if (!providerEntry || providerEntry.supportsPlanModel !== true) {
+      return fail(
+        `agentProfiles entry planModel is not supported by ${providerEntry ? providerEntry.name : provider}`,
+      );
+    }
+    plan.planModel = id;
+    const planEffort = rec.planReasoningEffort;
+    if (planEffort != null) {
+      if (!honouredEfforts(providerEntry, id).includes(planEffort)) {
+        return fail(
+          `agentProfiles entry planReasoningEffort "${planEffort}" is not honoured by ${providerEntry.name} for ${id}`,
+        );
+      }
+      plan.planReasoningEffort = /** @type {string} */ (planEffort);
+    }
+  }
   const permissionMode = rec.permissionMode;
   if (!PERMISSION_MODES.has(permissionMode)) {
     return fail(
@@ -112,6 +140,7 @@ function parseAgentProfile(item, strict) {
     provider,
     model,
     reasoningEffort: /** @type {string | null} */ (effort),
+    ...plan,
     permissionMode: /** @type {string} */ (permissionMode),
     ...(policy ? { policy } : {}),
     ...(budget ? { budget } : {}),

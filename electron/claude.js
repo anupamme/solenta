@@ -219,6 +219,7 @@ function runClaude(opts) {
       send: () => false,
       respond: () => false,
       respondError: () => false,
+      setModel: () => false,
       getStderr: () => "",
       child: null,
     };
@@ -263,6 +264,19 @@ function runClaude(opts) {
           request_id: requestId,
           error: String(message),
         },
+      });
+    },
+    /**
+     * Switch the live process's model for its next API call, same session
+     * (#1716; stream-json `set_model`, live-verified on 2.1.283). null asks
+     * for the CLI default.
+     * @param {string | null} model
+     */
+    setModel(model) {
+      return writeLine({
+        type: "control_request",
+        request_id: `set-model-${Date.now()}`,
+        request: { subtype: "set_model", ...(model ? { model } : {}) },
       });
     },
     kill: run.kill,

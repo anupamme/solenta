@@ -383,6 +383,8 @@ export interface UseCoderResult {
     projectPath?: string | null;
   }) => Promise<CliAgentInfo[]>;
   setFast: (fast: boolean, threadId?: string) => Promise<void>;
+  /** Plan-mode model (#1716); null = plan on the thread's model. */
+  setPlanModel: (model: string | null, threadId?: string) => Promise<void>;
   /** Pending first-turn model route (#246); null = manual pick. */
   setRoute: (route: ModelRoute | null, threadId?: string) => Promise<void>;
   /**
@@ -1619,6 +1621,7 @@ export function useCoder(): UseCoderResult {
     setAgent,
     listAgents,
     setFast,
+    setPlanModel,
     setRoute,
     setArchived,
     setSettled,
@@ -2179,6 +2182,7 @@ export function useCoder(): UseCoderResult {
     setAgent,
     listAgents,
     setFast,
+    setPlanModel,
     setRoute,
     setArchived,
     setSettled,

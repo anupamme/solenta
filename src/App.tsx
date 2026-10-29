@@ -243,6 +243,7 @@ export default function App({ rendererSha: rendererShaOverride }: AppProps = {})
     applyAgentProfile,
     setWebSearch,
     setFast,
+    setPlanModel,
     setRoute,
     setAgent,
     listAgents,
@@ -2140,6 +2141,7 @@ export default function App({ rendererSha: rendererShaOverride }: AppProps = {})
         onApplyAgentProfile={applyAgentProfile}
         onSetWebSearch={setWebSearch}
         onSetFast={setFast}
+        onSetPlanModel={setPlanModel}
         onSetRoute={setRoute}
         onSetAgent={setAgent}
         onListAgents={listAgents}

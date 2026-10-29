@@ -9,6 +9,7 @@ const {
   honouredEfforts,
   modelSupportsFast,
   codexModelAcceptsImages,
+  turnModelFor,
 } = require("./providers.js");
 const services = require("./services.js");
 const { withProjectEnv } = require("./worktreeEnv.js");
@@ -77,7 +78,9 @@ function createCodexRun(ctx) {
    */
   function startCodexRun(threadId, prompt, runId, providerEntry, images) {
     if (abortIfCancelled(threadId, runId)) return { runId };
-    const thread = store.getThread(threadId);
+    const stored = store.getThread(threadId);
+    // Plan-mode turns run on thread.planModel (#1716); turn/start takes it.
+    const thread = { ...stored, ...turnModelFor(providerEntry, stored) };
     const project = store.getProject(thread.projectId);
     if (!project) {
       throw new Error(`Unknown project for thread: ${threadId}`);

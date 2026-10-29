@@ -206,6 +206,7 @@ export const IPC_CHANNELS = [
   { ns: "threads", method: "rewind" },
   { ns: "threads", method: "setProvider" },
   { ns: "threads", method: "setReasoningEffort" },
+  { ns: "threads", method: "setPlanModel" },
   { ns: "threads", method: "setWebSearch" },
   { ns: "threads", method: "setAgent" },
   { ns: "threads", method: "listAgents" },
