@@ -202,16 +202,16 @@ function setSettings(store, patch, opts) {
   return next;
 }
 
-const AUTOMATION_PRESETS = new Set(["hourly", "daily", "weekly"]);
+const AUTOMATION_PRESETS = new Set(["hourly", "daily", "weekly", "cron"]);
 const AUTOMATION_SCOPES = new Set(["private", "project"]);
 
 /**
  * @param {unknown} hour
- * @param {"hourly" | "daily" | "weekly"} preset
+ * @param {"hourly" | "daily" | "weekly" | "cron"} preset
  * @returns {number | null}
  */
 function normalizeAutomationHour(preset, hour) {
-  if (preset === "hourly") return null;
+  if (preset === "hourly" || preset === "cron") return null;
   if (hour == null || hour === "") {
     throw new Error("Hour is required for daily and weekly automations");
   }
@@ -274,8 +274,24 @@ function normalizeAutomationInput(store, input, existing) {
     : String(base.preset || "");
   if (!AUTOMATION_PRESETS.has(preset)) {
     throw new Error(
-      `Invalid preset: ${preset || "(empty)"}. Expected hourly, daily, or weekly`,
+      `Invalid preset: ${preset || "(empty)"}. Expected hourly, daily, weekly, or cron`,
     );
+  }
+
+  // #1719: preset "cron" carries a 5-field expression; parseCron throws the
+  // readable field error (or the 5-minute rate limit).
+  let cron = null;
+  if (preset === "cron") {
+    const cronRaw = Object.prototype.hasOwnProperty.call(src, "cron")
+      ? src.cron
+      : base.cron;
+    cron = String(cronRaw == null ? "" : cronRaw).trim().replace(/\s+/g, " ");
+    if (!cron) throw new Error("Cron expression is required for preset cron");
+    try {
+      require("./cron.js").parseCron(cron);
+    } catch (err) {
+      throw new Error(`Invalid cron "${cron}": ${err && err.message ? err.message : err}`);
+    }
   }
 
   const hourRaw = Object.prototype.hasOwnProperty.call(src, "hour")
@@ -355,6 +371,7 @@ function normalizeAutomationInput(store, input, existing) {
     model,
     preset,
     hour,
+    ...(cron ? { cron } : {}),
     enabled,
     trigger,
     memory,
@@ -453,6 +470,7 @@ const DEFINITION_KEYS = [
   "model",
   "preset",
   "hour",
+  "cron",
   "trigger",
   "tier",
   "budget",
@@ -484,6 +502,7 @@ function definitionRow(fields, slug) {
     model: fields.model,
     preset: fields.preset,
     hour: fields.hour,
+    ...(fields.cron ? { cron: fields.cron } : {}),
     trigger: fields.trigger || null,
     tier: fields.tier || null,
     ...(fields.budget ? { budget: fields.budget } : {}),
@@ -540,6 +559,7 @@ function addAutomation(store, input) {
       model: fields.model,
       preset: fields.preset,
       hour: fields.hour,
+      ...(fields.cron ? { cron: fields.cron } : {}),
       trigger: fields.trigger || null,
       tier: fields.tier || null,
       enabled: src.enabled !== false,
@@ -548,7 +568,7 @@ function addAutomation(store, input) {
       graduate: fields.graduate,
       stageSince: now,
       lastRunAt: null,
-      nextRunAt: nextFire(fields.preset, fields.hour, now),
+      nextRunAt: nextFire(fields.preset, fields.hour, now, null, fields.cron),
       lastError: null,
       consecutiveFailures: 0,
       pendingRunThreadId: null,
@@ -572,7 +592,7 @@ function addAutomation(store, input) {
     ...fields,
     stageSince: now,
     lastRunAt: null,
-    nextRunAt: nextFire(fields.preset, fields.hour, now),
+    nextRunAt: nextFire(fields.preset, fields.hour, now, null, fields.cron),
     lastError: null,
     consecutiveFailures: 0,
     pendingRunThreadId: null,
@@ -605,7 +625,9 @@ function updateAutomation(store, input) {
   }
   const fields = normalizeAutomationInput(store, input, existing);
   const scheduleChanged =
-    fields.preset !== existing.preset || fields.hour !== existing.hour;
+    fields.preset !== existing.preset ||
+    fields.hour !== existing.hour ||
+    fields.cron !== existing.cron;
   // #160: turning it back on is the explicit re-enable after an auto-pause.
   const reEnabled = fields.enabled && !existing.enabled;
   // #242: a different event (or filter) is a new cursor space; re-baseline
@@ -644,9 +666,12 @@ function updateAutomation(store, input) {
           Date.now(),
           // An hour edit on a weekly job keeps its weekday (#931).
           existing.preset === "weekly" ? base.nextRunAt : null,
+          fields.cron,
         )
       : base.nextRunAt,
   };
+  // Switching off cron drops the stale expression.
+  if (!fields.cron) delete updated.cron;
   store.setAutomations(
     store.getAutomations().map((a) => (a && a.id === id ? updated : a)),
   );
