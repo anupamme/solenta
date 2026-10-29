@@ -1,7 +1,8 @@
 .matrix {
-  margin: 0;
-  padding: 6px 4px 2px;
+  margin: 4px 0 0;
+  padding: 8px 4px 2px;
   border: 0;
+  border-top: 1px solid var(--border);
   min-width: 0;
 }
 
