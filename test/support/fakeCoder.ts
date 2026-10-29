@@ -394,6 +394,13 @@ export function createFakeCoder(opts: FakeOptions = {}): FakeCoder {
     updateChannel: null,
     notifications: true,
     notificationSound: false,
+    notifyEvents: {
+      approval: true,
+      turnFinished: true,
+      turnFailed: true,
+      automationFinished: true,
+      ciFailed: false,
+    },
     theme: "dark",
     agentsPanelDefault: "closed",
     agentsPanelRememberLast: false,
@@ -793,6 +800,16 @@ export function createFakeCoder(opts: FakeOptions = {}): FakeCoder {
         }),
       forgetRemoteConnection: (input: unknown) =>
         rec("app.forgetRemoteConnection", [input], undefined),
+      diagnosticsPreview: () =>
+        rec("app.diagnosticsPreview", [], [
+          "app.json",
+          "providers.json",
+          "settings.redacted.json",
+          "errors.json",
+          "secrets-status.json",
+        ]),
+      exportDiagnostics: () =>
+        rec("app.exportDiagnostics", [], "/tmp/solenta-diagnostics.zip" as string | null),
       installRemoteSolenta: (input: unknown) =>
         rec("app.installRemoteSolenta", [input], {
           tag: "v0.25.0",

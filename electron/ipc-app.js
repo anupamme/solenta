@@ -88,6 +88,15 @@ module.exports = {
       }
     }
   },
+  // Diagnostics zip (#1723): host files and a native dialog, desktop only.
+  "app:diagnosticsPreview": async (ctx) => {
+    if (ctx.transport !== "desktop") throw new Error("Diagnostics export requires the desktop app.");
+    return require("./diagnostics.js").diagnosticsFileList({ userDataPath: ctx.userDataPath });
+  },
+  "app:exportDiagnostics": async (ctx) => {
+    if (ctx.transport !== "desktop") throw new Error("Diagnostics export requires the desktop app.");
+    return require("./diagnostics.js").exportDiagnostics(ctx);
+  },
   "app:openRemoteConnection": async (ctx, input) => {
     if (ctx.transport !== "desktop" || !ctx.openRemoteConnection) {
       throw new Error("Remote Connections require the desktop app.");
@@ -187,6 +196,10 @@ module.exports = {
     }
     if (patch && Object.prototype.hasOwnProperty.call(patch, "uiScale")) {
       applyZoom(null, next.uiScale, ctx.store);
+    }
+    // A cloud provider makes the mic usable without the local model (#1725).
+    if (patch && Object.prototype.hasOwnProperty.call(patch, "speech") && ctx.speech) {
+      ctx.speech.refresh();
     }
     // stayAwake mode change (#364): re-derive the power blocker now, not on
     // the next thread tick. evaluate() is idempotent.

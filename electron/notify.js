@@ -116,6 +116,55 @@ function shouldPlayAlert(settings, windowFocused) {
 }
 
 /**
+ * Per-event notification switches (#1725). Defaults are what shipped before
+ * them: every thread transition on, CI failed (new) off.
+ */
+const NOTIFY_EVENT_DEFAULTS = Object.freeze({
+  approval: true,
+  turnFinished: true,
+  turnFailed: true,
+  automationFinished: true,
+  ciFailed: false,
+});
+
+/**
+ * Which switch governs a transition that isNotifyTransition passed.
+ * @param {{ automationId?: string | null } | null | undefined} thread
+ * @param {string | undefined | null} nextStatus
+ * @returns {"approval" | "turnFinished" | "turnFailed" | "automationFinished"}
+ */
+function notifyEventKey(thread, nextStatus) {
+  if (nextStatus === "waiting") return "approval";
+  if (thread && thread.automationId) return "automationFinished";
+  return nextStatus === "failed" ? "turnFailed" : "turnFinished";
+}
+
+/**
+ * @param {Partial<Record<keyof typeof NOTIFY_EVENT_DEFAULTS, boolean>> | null | undefined} events
+ * @param {keyof typeof NOTIFY_EVENT_DEFAULTS} key
+ */
+function notifyEventEnabled(events, key) {
+  const v = events && events[key];
+  return typeof v === "boolean" ? v : NOTIFY_EVENT_DEFAULTS[key];
+}
+
+/**
+ * Desktop notification for a newly failing check on a watched PR, or null
+ * when settings, focus or mute say no. Same gates as a thread transition.
+ * @param {{ notifications?: boolean, notifyEvents?: object }} settings
+ * @param {{ title?: string, muted?: boolean } | null | undefined} thread
+ * @param {boolean} windowFocused
+ * @param {{ number: number, checks: Array<{ name: string }> }} info
+ */
+function ciFailedNotification(settings, thread, windowFocused, info) {
+  if (windowFocused || !thread || thread.muted) return null;
+  if (settings.notifications === false) return null;
+  if (!notifyEventEnabled(settings.notifyEvents, "ciFailed")) return null;
+  const names = info.checks.map((c) => c.name).join(", ");
+  return notificationOptions(thread.title, `PR #${info.number} checks failed: ${names}`);
+}
+
+/**
  * @param {unknown} u
  * @returns {boolean}
  */
@@ -379,6 +428,10 @@ module.exports = {
   needsUser,
   notificationOptions,
   shouldPlayAlert,
+  NOTIFY_EVENT_DEFAULTS,
+  notifyEventKey,
+  notifyEventEnabled,
+  ciFailedNotification,
   notifyEvent,
   notifyBody,
   shouldPostWebhook,

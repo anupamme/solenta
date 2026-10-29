@@ -3097,6 +3097,26 @@ describe("Composer live dictation (#845)", () => {
     m.unmount();
   });
 
+  it("shows the cloud fallback note with the transcript (#1725)", async () => {
+    const fake = createFakeCoder({ speechStatus: SPEECH_READY });
+    installSpeechMedia();
+    const { m } = await mountSpeechComposer(fake);
+    const ta = m.query("textarea") as HTMLTextAreaElement;
+    await m.click(mic(m));
+    await inAct(() => {
+      fake.emitSpeech({
+        state: "ready",
+        runtimeReady: true,
+        modelReady: true,
+        transcript: "hello",
+        note: "OpenAI transcription failed (HTTP 401). Used the local model instead.",
+      });
+    });
+    assert.equal(ta.value, "hello");
+    assert.match(m.text(), /Used the local model instead/);
+    m.unmount();
+  });
+
   it("Escape cancels, restores the original draft, and does not steal from a dialog", async () => {
     const fake = createFakeCoder({ speechStatus: SPEECH_READY });
     const media = installSpeechMedia();

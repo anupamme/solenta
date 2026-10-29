@@ -31,6 +31,7 @@ import type {
 import styles from "./AutomationsView.module.css";
 import { BudgetFields } from "./BudgetFields";
 import { budgetToDraft, draftToBudget } from "../budget";
+import { cronError, nextCronFires } from "../cron";
 
 export interface AutomationsViewProps {
   automations: AutomationInfo[];
@@ -67,6 +68,7 @@ function definitionChanged(
     model: string | null;
     preset: AutomationPreset;
     hour: number | null;
+    cron?: string;
     trigger: AutomationTrigger | null;
     tier: ModelRoute | null;
     budget: ThreadBudget | null;
@@ -80,6 +82,7 @@ function definitionChanged(
     fields.model !== (existing.model ?? null) ||
     fields.preset !== existing.preset ||
     fields.hour !== (existing.hour ?? null) ||
+    fields.cron !== existing.cron ||
     JSON.stringify(fields.trigger) !==
       JSON.stringify(existing.trigger || null) ||
     fields.tier !== (existing.tier ?? null) ||
@@ -293,6 +296,8 @@ export function AutomationsView({
   // #246: "" = run on the provider/model above.
   const [tier, setTier] = useState<ModelRoute | "">("");
   const [hour, setHour] = useState("9");
+  // #1719: weekdays at 9:00 is the common first custom schedule.
+  const [cron, setCron] = useState("0 9 * * 1-5");
   // #242: "" = schedule mode, else the GitHub event this automation fires on.
   const [event, setEvent] = useState<AutomationTriggerEvent | "">("");
   const [branch, setBranch] = useState("");
@@ -344,6 +349,7 @@ export function AutomationsView({
     setPreset(auto.preset);
     setTier(auto.tier ?? "");
     setHour(auto.hour != null ? String(auto.hour) : "9");
+    setCron(auto.cron ?? "0 9 * * 1-5");
     setEvent(auto.trigger?.event ?? "");
     setBranch(auto.trigger?.branch ?? "");
     setLabel(auto.trigger?.label ?? "");
@@ -378,6 +384,7 @@ export function AutomationsView({
     setPreset("hourly");
     setTier("");
     setHour("9");
+    setCron("0 9 * * 1-5");
     setEvent("");
     setBranch("");
     setLabel("");
@@ -450,6 +457,12 @@ export function AutomationsView({
   }, [projectScopeBlocked, scope, editingId]);
 
   const needsHour = !event && (preset === "daily" || preset === "weekly");
+  const usesCron = !event && preset === "cron";
+  const cronProblem = usesCron ? cronError(cron) : null;
+  const cronPreview = useMemo(
+    () => (usesCron && !cronProblem ? nextCronFires(cron, Date.now(), 3) : []),
+    [usesCron, cronProblem, cron],
+  );
   const triggerType = isTriggerEvent(event)
     ? event.startsWith("linear_")
       ? "linear"
@@ -491,6 +504,7 @@ export function AutomationsView({
       provider,
       preset: event ? "hourly" : preset,
       hour,
+      cron,
       event,
       org,
       project,
@@ -520,6 +534,7 @@ export function AutomationsView({
           model: model.trim() || null,
           preset: event ? ("hourly" as const) : preset,
           hour: needsHour ? Number(hour) : null,
+          cron: usesCron ? cron.trim().replace(/\s+/g, " ") : undefined,
           trigger,
           tier: (tier || null) as ModelRoute | null,
           budget: cap,
@@ -533,6 +548,7 @@ export function AutomationsView({
           // Event mode ignores the schedule; hourly needs no hour.
           preset: nextDef.preset,
           hour: nextDef.hour,
+          ...(nextDef.cron ? { cron: nextDef.cron } : {}),
           trigger: nextDef.trigger,
           memory,
           stage,
@@ -559,6 +575,7 @@ export function AutomationsView({
           // Event mode ignores the schedule; hourly needs no hour.
           preset: event ? "hourly" : preset,
           hour: needsHour ? Number(hour) : null,
+          ...(usesCron ? { cron: cron.trim() } : {}),
           trigger,
           enabled: true,
           scope: writeScope,
@@ -779,6 +796,7 @@ export function AutomationsView({
                 <option value="hourly">hourly</option>
                 <option value="daily">daily</option>
                 <option value="weekly">weekly</option>
+                <option value="cron">Custom (cron)</option>
               </optgroup>
               <optgroup label="GitHub event (polled every minute)">
                 {(
@@ -962,6 +980,45 @@ export function AutomationsView({
             </label>
           ) : null}
         </div>
+        {usesCron ? (
+          <div className={styles.field}>
+            <label className={styles.field}>
+              <span className={styles.label}>
+                Cron (minute hour day-of-month month day-of-week, local time)
+              </span>
+              <input
+                className={styles.input}
+                value={cron}
+                onChange={(e) => setCron(e.target.value)}
+                name="cron"
+                aria-label="Cron expression"
+                aria-invalid={cronProblem ? true : undefined}
+                spellCheck={false}
+                placeholder="0 9 * * 1-5"
+              />
+            </label>
+            {cronProblem ? (
+              <p className={styles.formError} role="alert" data-cron-error="">
+                {cronProblem}
+              </p>
+            ) : (
+              <p className={styles.cronNext} data-cron-next="">
+                Next:{" "}
+                {cronPreview
+                  .map((t) =>
+                    new Date(t).toLocaleString(undefined, {
+                      weekday: "short",
+                      month: "short",
+                      day: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    }),
+                  )
+                  .join(" · ")}
+              </p>
+            )}
+          </div>
+        ) : null}
         <label className={styles.field}>
           <span className={styles.label}>Prompt</span>
           <textarea
@@ -1135,7 +1192,7 @@ export function AutomationsView({
                   <span className={styles.schedule}>
                     {auto.trigger
                       ? triggerLabel(auto.trigger)
-                      : scheduleLabel(auto.preset, auto.hour, auto.nextRunAt)}
+                      : scheduleLabel(auto.preset, auto.hour, auto.nextRunAt, auto.cron)}
                   </span>
                   {auto.model ? (
                     <span className={styles.schedule}>{auto.model}</span>

@@ -170,6 +170,8 @@ async function failedLogTail(cwd, checks, runGh, timeout) {
  * @param {Function} opts.runGh ghTryAsync-shaped
  * @param {(input: { threadId: string, line: string }) => void} opts.deliver
  * @param {(threadId: string) => boolean} [opts.isRunning]
+ * @param {(info: { threadId: string, number: number, checks: Array<{ name: string }> }) => void} [opts.onChecksFailed]
+ *   desktop "CI failed" notification (#1725); fires once per reported failure
  * @param {string} [opts.relayTo] lead to wake instead (archived worker, #1431)
  * @param {number} [opts.now]
  * @param {number} [opts.timeoutMs]
@@ -294,6 +296,14 @@ async function observePr(opts) {
     },
   });
   deliver({ threadId: relayTo || threadId, line: lines.join("\n") });
+  // ponytail: rides the wake gates, so a PR past WAKE_CAP stops notifying too.
+  if (newChecks && checks && typeof opts.onChecksFailed === "function") {
+    try {
+      opts.onChecksFailed({ threadId, number, checks });
+    } catch {
+      // a notification must never break the refresher
+    }
+  }
   return true;
 }
 

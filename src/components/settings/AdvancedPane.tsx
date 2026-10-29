@@ -229,8 +229,114 @@ export function AdvancedPane({
 
       <GovernanceAuditSection />
 
+      <DiagnosticsSection />
+
       <VibeKanbanSection active />
     </>
+  );
+}
+
+function appApi(): CoderApi["app"] | null {
+  try {
+    const api = resolveCoderApi();
+    return typeof api.app?.exportDiagnostics === "function" ? api.app : null;
+  } catch {
+    return null;
+  }
+}
+
+const errorText = (err: unknown) =>
+  err instanceof Error && err.message ? err.message : String(err);
+
+/** Redacted diagnostics zip (#1723): preview the file list, then save. */
+function DiagnosticsSection() {
+  const [files, setFiles] = useState<string[] | null>(null);
+  const [result, setResult] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const preview = async () => {
+    const api = appApi();
+    if (!api) return;
+    setResult(null);
+    try {
+      setFiles(await api.diagnosticsPreview());
+    } catch (err) {
+      setResult(errorText(err));
+    }
+  };
+
+  const save = async () => {
+    const api = appApi();
+    if (!api) return;
+    setBusy(true);
+    try {
+      const saved = await api.exportDiagnostics();
+      if (saved) {
+        setResult(`Saved to ${saved}`);
+        setFiles(null);
+      }
+    } catch (err) {
+      setResult(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className={styles.section} data-diagnostics="">
+      <h3 className={styles.sectionLabel}>Diagnostics</h3>
+      <p className={styles.note}>
+        Save a zip of app, provider and settings details to attach to a bug
+        report. Secrets, prompts, transcripts and memory are never included,
+        and your home folder shows as ~.
+      </p>
+      {files && (
+        <ul className={styles.note} data-diagnostics-files="">
+          {files.map((f) => (
+            <li key={f} className={styles.monoNote}>
+              {f}
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className={styles.fieldRow}>
+        {files ? (
+          <>
+            <button
+              type="button"
+              className={styles.btn}
+              data-diagnostics-save=""
+              disabled={busy}
+              onClick={() => void save()}
+            >
+              {busy ? "Saving…" : "Save…"}
+            </button>
+            <button
+              type="button"
+              className={styles.btn}
+              disabled={busy}
+              onClick={() => setFiles(null)}
+            >
+              Cancel
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            className={styles.btn}
+            data-diagnostics-export=""
+            onClick={() => void preview()}
+          >
+            Export diagnostics…
+          </button>
+        )}
+        {result && (
+          <span className={styles.note} data-diagnostics-result="">
+            {result}
+          </span>
+        )}
+      </div>
+    </section>
   );
 }
 

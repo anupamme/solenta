@@ -417,6 +417,7 @@ function normalizeSettings(raw) {
     updateChannel: null,
     notifications: true,
     notificationSound: false,
+    notifyEvents: normalizeNotifyEvents(null),
     feltEstimatePrompt: false,
     uiScale: UI_SCALE_DEFAULT,
     theme: "dark",
@@ -440,6 +441,7 @@ function normalizeSettings(raw) {
     otel: { endpoint: null, headers: {}, claudeMetrics: false },
     linearApiKey: null,
     sentryAuthToken: null,
+    speech: normalizeSpeechSettings(null),
     githubHosts: [],
     webhook: { url: null, onDone: true, onFailed: true, onWaiting: true },
     telegram: normalizeTelegram(null, false),
@@ -559,6 +561,9 @@ function normalizeSettings(raw) {
   settings.notificationSound =
     /** @type {{ notificationSound?: unknown }} */ (obj).notificationSound ===
     true;
+  settings.notifyEvents = normalizeNotifyEvents(
+    /** @type {{ notifyEvents?: unknown }} */ (obj).notifyEvents,
+  );
   settings.feltEstimatePrompt =
     /** @type {{ feltEstimatePrompt?: unknown }} */ (obj).feltEstimatePrompt ===
     true;
@@ -636,6 +641,9 @@ function normalizeSettings(raw) {
   settings.webhook = normalizeWebhook(
     /** @type {{ webhook?: unknown }} */ (obj).webhook,
   );
+  settings.speech = normalizeSpeechSettings(
+    /** @type {{ speech?: unknown }} */ (obj).speech,
+  );
   settings.telegram = normalizeTelegram(
     /** @type {{ telegram?: unknown }} */ (obj).telegram,
     false,
@@ -671,6 +679,52 @@ function normalizeOtel(raw) {
   }
   out.claudeMetrics = obj.claudeMetrics === true;
   return out;
+}
+
+/**
+ * Per-event desktop notification switches (#1725). Absent/junk keys take
+ * NOTIFY_EVENT_DEFAULTS, so a store written before them notifies as it did.
+ *
+ * @param {unknown} raw
+ * @returns {{ approval: boolean, turnFinished: boolean, turnFailed: boolean, automationFinished: boolean, ciFailed: boolean }}
+ */
+function normalizeNotifyEvents(raw) {
+  const { NOTIFY_EVENT_DEFAULTS } = require("./notify.js");
+  const obj =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? /** @type {Record<string, unknown>} */ (raw)
+      : {};
+  const out = { ...NOTIFY_EVENT_DEFAULTS };
+  for (const key of Object.keys(out)) {
+    if (typeof obj[key] === "boolean") out[key] = obj[key];
+  }
+  return out;
+}
+
+const SPEECH_PROVIDERS = ["local", "openai", "elevenlabs"];
+
+/**
+ * Voice input provider (#1725). Absent/junk → local, no keys. Keys are
+ * sealed at rest (secrets.js) and never sent to the renderer (mcp.js).
+ *
+ * @param {unknown} raw
+ * @returns {{ provider: "local" | "openai" | "elevenlabs", openaiApiKey: string | null, elevenlabsApiKey: string | null }}
+ */
+function normalizeSpeechSettings(raw) {
+  const obj =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? /** @type {Record<string, unknown>} */ (raw)
+      : {};
+  const key = (v) => (typeof v === "string" && v.trim() ? v.trim() : null);
+  return {
+    provider: /** @type {"local" | "openai" | "elevenlabs"} */ (
+      SPEECH_PROVIDERS.includes(/** @type {string} */ (obj.provider))
+        ? obj.provider
+        : "local"
+    ),
+    openaiApiKey: key(obj.openaiApiKey),
+    elevenlabsApiKey: key(obj.elevenlabsApiKey),
+  };
 }
 
 /**
@@ -795,6 +849,9 @@ module.exports = {
   normalizeSettings,
   normalizeOtel,
   normalizeWebhook,
+  normalizeNotifyEvents,
+  normalizeSpeechSettings,
+  SPEECH_PROVIDERS,
   normalizeGithubHosts,
   normalizeTelegram,
 };

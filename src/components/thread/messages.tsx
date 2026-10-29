@@ -265,7 +265,7 @@ function AutomationCreatedCard({
     parsed?.trigger
       ? triggerLabel(parsed.trigger)
       : parsed?.preset
-        ? scheduleLabel(parsed.preset, parsed.hour ?? null, parsed.nextRunAt ?? Date.now())
+        ? scheduleLabel(parsed.preset, parsed.hour ?? null, parsed.nextRunAt ?? Date.now(), parsed.cron)
         : "";
   return (
     <div className={styles.specCard} data-automation-card="" data-automation-created="">

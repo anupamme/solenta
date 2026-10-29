@@ -163,6 +163,7 @@ import {
   SandboxBadge,
   GoalChip,
   ContextRingBadge,
+  CostBadge,
   SyncPill,
   ElapsedClock,
   MemoryPill,
@@ -3456,6 +3457,7 @@ export const ThreadView = memo(function ThreadView({
               onFork={onFork}
             />
           ) : null}
+          <CostBadge usage={detail.usage} />
           {ring?.view.warn ? ringBadge : null}
           {hasDetails ? (
           <div className={styles.detailsWrap} ref={detailsRef}>

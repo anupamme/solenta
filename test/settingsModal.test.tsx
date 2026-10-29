@@ -1690,6 +1690,97 @@ describe("SettingsModal notification sound (#1506)", () => {
   });
 });
 
+describe("SettingsModal per-event notifications (#1725)", () => {
+  it("defaults match today's behaviour and save one switch at a time", async () => {
+    const patches: Partial<AppSettings>[] = [];
+    const m = await mount(
+      modal({
+        initialPane: "general",
+        settings: { dailyBudgetUsd: null, autoSettleAfterDays: 3 } as AppSettings,
+        onSaveSettings: async (patch) => {
+          patches.push(patch);
+          return { dailyBudgetUsd: null, autoSettleAfterDays: 3, ...patch } as AppSettings;
+        },
+      }),
+    );
+    const box = (k: string) =>
+      m.query(`[data-notify-event="${k}"]`) as HTMLInputElement;
+    for (const k of ["approval", "turnFinished", "turnFailed", "automationFinished"]) {
+      assert.equal(box(k).checked, true, `${k} on by default`);
+    }
+    assert.equal(box("ciFailed").checked, false, "CI failed off by default");
+    await m.click(box("turnFinished"));
+    assert.deepEqual(patches, [{ notifyEvents: { turnFinished: false } }]);
+    m.unmount();
+  });
+
+  it("disables the event switches while notifications are off", async () => {
+    const m = await mount(
+      modal({
+        initialPane: "general",
+        settings: { dailyBudgetUsd: null, autoSettleAfterDays: 3, notifications: false } as AppSettings,
+      }),
+    );
+    assert.equal((m.query('[data-notify-event="approval"]') as HTMLInputElement).disabled, true);
+    m.unmount();
+  });
+});
+
+describe("SettingsModal voice input provider (#1725)", () => {
+  const base = { dailyBudgetUsd: null, autoSettleAfterDays: 3 } as AppSettings;
+  it("defaults to local with no key field, and saves a provider pick", async () => {
+    const patches: Partial<AppSettings>[] = [];
+    const m = await mount(
+      modal({
+        initialPane: "general",
+        settings: base,
+        onSaveSettings: async (patch) => {
+          patches.push(patch);
+          return { ...base, ...patch };
+        },
+      }),
+    );
+    const select = m.query("[data-speech-provider]") as HTMLSelectElement;
+    assert.equal(select.value, "local");
+    assert.equal(m.query("[data-speech-api-key]"), null);
+    await m.change(select, "openai");
+    assert.deepEqual(patches, [{ speech: { provider: "openai" } }]);
+    m.unmount();
+  });
+
+  it("saves a write-only key and only ever shows whether one is set", async () => {
+    const patches: Partial<AppSettings>[] = [];
+    const m = await mount(
+      modal({
+        initialPane: "general",
+        settings: { ...base, speech: { provider: "elevenlabs", hasElevenlabsKey: false } },
+        onSaveSettings: async (patch) => {
+          patches.push(patch);
+          return base;
+        },
+      }),
+    );
+    const key = m.query("[data-speech-api-key]") as HTMLInputElement;
+    assert.equal(key.type, "password");
+    assert.match(m.query("[data-speech-key-state]")?.textContent ?? "", /No key saved/);
+    await m.type(key, "  el-test  ");
+    await m.click(m.query("[data-speech-api-key-save]"));
+    assert.deepEqual(patches, [{ speech: { elevenlabsApiKey: "el-test" } }]);
+    assert.equal((m.query("[data-speech-api-key]") as HTMLInputElement).value, "");
+    m.unmount();
+
+    const saved = await mount(
+      modal({
+        initialPane: "general",
+        settings: { ...base, speech: { provider: "elevenlabs", hasElevenlabsKey: true } },
+      }),
+    );
+    assert.match(saved.query("[data-speech-key-state]")?.textContent ?? "", /key is saved/);
+    assert.ok(saved.query("[data-speech-api-key-clear]"));
+    saved.unmount();
+  });
+});
+
 describe("SettingsModal quota-wait auto-resume (#462)", () => {
   it("saves the continue-at-usage-limit toggle", async () => {
     const patches: Partial<AppSettings>[] = [];
@@ -2370,6 +2461,77 @@ describe("SettingsModal governance (#262)", () => {
     } finally {
       delete (window as unknown as { coder?: unknown }).coder;
     }
+  });
+});
+
+describe("SettingsModal diagnostics export (#1723)", () => {
+  async function withFake(fake: ReturnType<typeof createFakeCoder>, body: () => Promise<void>) {
+    const shell = await mount(<div />);
+    installFakeCoder(fake);
+    shell.unmount();
+    try {
+      await body();
+    } finally {
+      delete (window as unknown as { coder?: unknown }).coder;
+    }
+  }
+
+  it("previews the file list, then saves through the dialog", async () => {
+    const fake = createFakeCoder();
+    await withFake(fake, async () => {
+      const m = await mount(modal({ initialPane: "advanced" }));
+      await m.flush();
+      assert.equal(m.query("[data-diagnostics-files]"), null);
+      await m.click(m.query("[data-diagnostics-export]"));
+      await m.flush();
+      const list = m.query("[data-diagnostics-files]")?.textContent || "";
+      for (const f of ["app.json", "providers.json", "settings.redacted.json", "errors.json", "secrets-status.json"]) {
+        assert.ok(list.includes(f), `preview lists ${f}, got: ${list}`);
+      }
+      assert.equal(fake.calls.some((c) => c.channel === "app.exportDiagnostics"), false);
+      await m.click(m.query("[data-diagnostics-save]"));
+      await m.flush();
+      assert.equal(fake.calls.filter((c) => c.channel === "app.exportDiagnostics").length, 1);
+      assert.equal(
+        m.query("[data-diagnostics-result]")?.textContent,
+        "Saved to /tmp/solenta-diagnostics.zip",
+      );
+      assert.equal(m.query("[data-diagnostics-files]"), null);
+      m.unmount();
+    });
+  });
+
+  it("keeps the preview open when the save dialog is cancelled", async () => {
+    const fake = createFakeCoder();
+    fake.api.app.exportDiagnostics = async () => null;
+    await withFake(fake, async () => {
+      const m = await mount(modal({ initialPane: "advanced" }));
+      await m.flush();
+      await m.click(m.query("[data-diagnostics-export]"));
+      await m.flush();
+      await m.click(m.query("[data-diagnostics-save]"));
+      await m.flush();
+      assert.ok(m.query("[data-diagnostics-files]"));
+      assert.equal(m.query("[data-diagnostics-result]"), null);
+      m.unmount();
+    });
+  });
+
+  it("shows the error when the export fails", async () => {
+    const fake = createFakeCoder();
+    fake.api.app.exportDiagnostics = async () => {
+      throw new Error("disk full");
+    };
+    await withFake(fake, async () => {
+      const m = await mount(modal({ initialPane: "advanced" }));
+      await m.flush();
+      await m.click(m.query("[data-diagnostics-export]"));
+      await m.flush();
+      await m.click(m.query("[data-diagnostics-save]"));
+      await m.flush();
+      assert.equal(m.query("[data-diagnostics-result]")?.textContent, "disk full");
+      m.unmount();
+    });
   });
 });
 

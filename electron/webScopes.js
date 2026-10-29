@@ -354,6 +354,9 @@ const BY_SCOPE = {
     "app:openRemoteConnection",
     "app:forgetRemoteConnection",
     "app:installRemoteSolenta",
+    // Diagnostics zip (#1723): host logs + native save dialog; desktop only.
+    "app:diagnosticsPreview",
+    "app:exportDiagnostics",
     // Teleport (#1702): writes git refs, worktrees and the Claude home on
     // this host, or hands over a whole thread. The other Solenta uses the
     // owner's full token.

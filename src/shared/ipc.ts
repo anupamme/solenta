@@ -1561,6 +1561,14 @@ export interface ChatMessage {
   commandResult?: CommandRunResult;
 }
 
+export interface NotifyEvents {
+  approval: boolean;
+  turnFinished: boolean;
+  turnFailed: boolean;
+  automationFinished: boolean;
+  ciFailed: boolean;
+}
+
 /** Cumulative session usage across turns of a thread. */
 export interface SessionUsage {
   model: string | null;
@@ -1568,6 +1576,8 @@ export interface SessionUsage {
   outputTokens: number;
   costUsd: number;
   turns: number;
+  /** costUsd split by model (#1725); absent on usage recorded before it. */
+  costByModel?: Record<string, number>;
   /**
    * Last turn's FULL prompt size: input + cache-read + cache-creation + output.
    * The numerator for the context ring. Under prompt caching plain input_tokens
@@ -3405,7 +3415,7 @@ export interface DistilledMemory {
   citations: MemoryCitation[];
 }
 
-export type AutomationPreset = "hourly" | "daily" | "weekly";
+export type AutomationPreset = "hourly" | "daily" | "weekly" | "cron";
 
 export type AutomationTriggerEvent =
   | "pr_opened"
@@ -3469,8 +3479,10 @@ export interface AutomationInfo {
   provider: string;
   model: string | null;
   preset: AutomationPreset;
-  /** 0-23 for daily/weekly; null for hourly. */
+  /** 0-23 for daily/weekly; null for hourly and cron. */
   hour: number | null;
+  /** 5-field local-time expression; set only when preset is "cron" (#1719). */
+  cron?: string;
   enabled: boolean;
   lastRunAt: number | null;
   nextRunAt: number;
@@ -3505,6 +3517,8 @@ export interface AutomationWrite {
   model?: string | null;
   preset: AutomationPreset;
   hour?: number | null;
+  /** Required when preset is "cron". */
+  cron?: string;
   enabled?: boolean;
   trigger?: AutomationTrigger | null;
   memory?: string;
@@ -3660,6 +3674,13 @@ export interface AppSettings {
    */
   notificationSound: boolean;
   /**
+   * Per-event switches under `notifications` (#1725); they gate the desktop
+   * notification and the alert sound. Defaults: all on except ciFailed.
+   * automationFinished covers done/failed on automation threads; ciFailed
+   * fires when PR watch sees a new failing check.
+   */
+  notifyEvents: NotifyEvents;
+  /**
    * Ask "how much time did this save you?" when a run finishes (issue #401).
    * Opt-in: absent/false means the card never appears and the felt-vs-actual
    * section of the Fleet view stays empty.
@@ -3783,6 +3804,11 @@ export interface AppSettings {
    */
   linearApiKey?: string | null;
   sentryAuthToken?: string | null;
+  /**
+   * Voice input provider (#1725). Keys go in on save and come back only as
+   * hasOpenaiKey / hasElevenlabsKey; omit a key in a patch to keep it.
+   */
+  speech?: SpeechSettings;
   /**
    * GitHub account / saved token per host (issue #1528). Read back with
    * `hasToken` only; the token itself never reaches the renderer.
@@ -4990,6 +5016,17 @@ export type SpeechState =
   | "stopping"
   | "error";
 
+export type SpeechProvider = "local" | "openai" | "elevenlabs";
+
+export interface SpeechSettings {
+  provider: SpeechProvider;
+  /** Write-only; null clears it. */
+  openaiApiKey?: string | null;
+  elevenlabsApiKey?: string | null;
+  hasOpenaiKey?: boolean;
+  hasElevenlabsKey?: boolean;
+}
+
 export interface SpeechStatus {
   state: SpeechState;
   runtimeReady: boolean;
@@ -5001,6 +5038,8 @@ export interface SpeechStatus {
   transcript?: string;
   /** One user-facing error string. */
   error?: string;
+  /** With a transcript: cloud failed and the local model was used (#1725). */
+  note?: string;
   sessionId?: string;
 }
 
@@ -5057,6 +5096,13 @@ export interface CoderApi {
      * Rejects with a user-facing sentence when the endpoint refuses.
      */
     feedback(input: { text: string; threadId?: string }): Promise<void>;
+    /** File names the diagnostics zip will hold (#1723). Desktop only. */
+    diagnosticsPreview(): Promise<string[]>;
+    /**
+     * Save dialog, then write the redacted diagnostics zip (#1723). Resolves
+     * the written path, or null when the dialog was cancelled. Desktop only.
+     */
+    exportDiagnostics(): Promise<string | null>;
     /** Open an SSH-forwarded Solenta Web host in an isolated desktop window. */
     openRemoteConnection(input: {
       host: string;

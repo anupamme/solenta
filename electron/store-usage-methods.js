@@ -20,6 +20,11 @@ class StoreUsageMethods {
     if (usage == null) {
       delete this.data.usageByThread[threadId];
     } else {
+      // Runners rebuild usage each turn; recordUsage owns costByModel (#1725).
+      const prev = this.data.usageByThread[threadId];
+      if (prev && prev.costByModel && !usage.costByModel) {
+        usage = { ...usage, costByModel: prev.costByModel };
+      }
       this.data.usageByThread[threadId] = usage;
     }
   }
@@ -96,6 +101,14 @@ class StoreUsageMethods {
 
     const threadId =
       input && typeof input.threadId === "string" ? input.threadId : "";
+    const session = threadId ? this.data.usageByThread[threadId] : null;
+    if (session && costUsd > 0) {
+      // Header cost tooltip (#1725): the same deltas, split by model.
+      const key = typeof model === "string" ? model : "unknown";
+      const byModel = { ...(session.costByModel || {}) };
+      byModel[key] = (Number(byModel[key]) || 0) + costUsd;
+      session.costByModel = byModel;
+    }
     if (threadId) {
       // Side-file change marker (#1475): the cells below mutate in place.
       this._usageThreadsGen += 1;
