@@ -84,8 +84,9 @@ function parseHookPayload(raw) {
 
 /**
  * Stdin wrapper: reply as soon as one JSON object is parseable.
- * Do not wait for EOF (Cursor #691).
- * @param {(payload: unknown) => object | null | undefined} handler
+ * Do not wait for EOF (Cursor #691). The handler may be async (user
+ * hooks, #1724).
+ * @param {(payload: unknown) => object | null | undefined | Promise<object | null | undefined>} handler
  */
 function runStdinHook(handler) {
   function failOpen() {
@@ -103,15 +104,14 @@ function runStdinHook(handler) {
     if (done) return;
     done = true;
     clearTimeout(timer);
-    try {
-      const out = handler(payload);
-      if (out != null) {
-        process.stdout.write(JSON.stringify(out) + "\n");
-      }
-      process.exit(0);
-    } catch {
-      failOpen();
-    }
+    Promise.resolve()
+      .then(() => handler(payload))
+      .then((out) => {
+        if (out != null) {
+          process.stdout.write(JSON.stringify(out) + "\n");
+        }
+        process.exit(0);
+      }, failOpen);
   }
 
   process.stdin.setEncoding("utf8");
@@ -134,7 +134,11 @@ function copyGuardrailRuntime(destDir) {
   const dest = path.resolve(String(destDir || ""));
   if (!dest) throw new Error("copyGuardrailRuntime: destDir required");
   fs.mkdirSync(dest, { recursive: true });
-  for (const name of ["guardrails.js", "guardrail-hook-core.js"]) {
+  for (const name of [
+    "guardrails.js",
+    "guardrail-hook-core.js",
+    "user-hooks-run.js",
+  ]) {
     fs.copyFileSync(path.join(__dirname, name), path.join(dest, name));
   }
   return dest;

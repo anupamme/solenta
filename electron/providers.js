@@ -399,6 +399,7 @@ const PROVIDERS = [
       forkSessionAt,
       addDirs,
       askWriteDirs,
+      userHooks,
     }) {
       // NO trailing prompt: the runner delivers it on stdin (stream-json
       // input), which is what lets the CLI route permission prompts to us
@@ -466,6 +467,8 @@ const PROVIDERS = [
         (dir) => `Edit(/${dir.replace(/\\/g, "/").replace(/\/+$/, "")}/**)`,
       );
       if (ask.length) settings.permissions = { ask };
+      // User PreToolUse hooks (#1724): Claude's own hook contract.
+      if (userHooks) settings.hooks = userHooks;
       if (Object.keys(settings).length) {
         args.push("--settings", JSON.stringify(settings));
       }

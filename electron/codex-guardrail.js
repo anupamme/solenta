@@ -227,6 +227,7 @@ function linkOrSkip(src, dst) {
  * @param {object} opts
  * @param {string} opts.dest
  * @param {string} [opts.sourceHome]
+ * @param {number} [opts.timeoutSec]  hook budget; default 10 s
  * @returns {string} dest
  */
 function materializeCodexGuardrailHome(opts) {
@@ -283,11 +284,16 @@ function materializeCodexGuardrailHome(opts) {
   }
 
   const command = "node " + JSON.stringify(scriptPath);
-  writeOverlayHooksJson(dest, command);
+  // User hooks (#1724) run inside this hook, so its budget covers theirs.
+  const timeoutSec =
+    Number(opts && opts.timeoutSec) > 0
+      ? Math.ceil(Number(opts.timeoutSec))
+      : OVERLAY_HOOK_TIMEOUT_SEC;
+  writeOverlayHooksJson(dest, command, timeoutSec);
   const { toml } = hookTrustTomlBlock({
     dest,
     command,
-    timeoutSec: OVERLAY_HOOK_TIMEOUT_SEC,
+    timeoutSec,
     statusMessage: OVERLAY_HOOK_STATUS,
     matcher: OVERLAY_HOOK_MATCHER,
   });
@@ -296,7 +302,7 @@ function materializeCodexGuardrailHome(opts) {
   return dest;
 }
 
-function overlayHooksJsonBody(command) {
+function overlayHooksJsonBody(command, timeoutSec = OVERLAY_HOOK_TIMEOUT_SEC) {
   return (
     JSON.stringify(
       {
@@ -309,7 +315,7 @@ function overlayHooksJsonBody(command) {
                 {
                   type: "command",
                   command,
-                  timeout: OVERLAY_HOOK_TIMEOUT_SEC,
+                  timeout: timeoutSec,
                   statusMessage: OVERLAY_HOOK_STATUS,
                 },
               ],
@@ -323,8 +329,12 @@ function overlayHooksJsonBody(command) {
   );
 }
 
-function writeOverlayHooksJson(dest, command) {
-  fs.writeFileSync(path.join(dest, "hooks.json"), overlayHooksJsonBody(command), "utf8");
+function writeOverlayHooksJson(dest, command, timeoutSec) {
+  fs.writeFileSync(
+    path.join(dest, "hooks.json"),
+    overlayHooksJsonBody(command, timeoutSec),
+    "utf8",
+  );
 }
 
 /**

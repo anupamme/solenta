@@ -5,11 +5,13 @@ import type {
   CoderApi,
   GovernanceAuditEntry,
   OtelSettings,
+  ProjectInfo,
   ProviderInfo,
 } from "../../shared/ipc";
 import styles from "../SettingsModal.module.css";
 import type { SettingsDraftKey, SettingsModalProps } from "../SettingsModal";
 import { VibeKanbanSection } from "../VibeKanbanSection";
+import { HooksSection } from "./HooksSection";
 import { PrivacyGatewayEditor } from "./PrivacyGatewayEditor";
 
 /** ponytail: one `key: value` per line; a row editor if this grows past a handful of headers. */
@@ -49,6 +51,8 @@ export function AdvancedPane({
   dirtyDrafts,
   persistOtel,
   onSaveSettings,
+  projects,
+  currentProjectId,
 }: {
   settings: AppSettings | null;
   providers: ProviderInfo[];
@@ -64,6 +68,8 @@ export function AdvancedPane({
   dirtyDrafts: RefObject<Set<SettingsDraftKey>>;
   persistOtel: (next: OtelSettings) => Promise<boolean>;
   onSaveSettings: SettingsModalProps["onSaveSettings"];
+  projects?: ProjectInfo[];
+  currentProjectId?: string | null;
 }) {
   const otelFromDrafts = (): OtelSettings => ({
     endpoint: otelEndpoint.trim() === "" ? null : otelEndpoint.trim(),
@@ -119,6 +125,11 @@ export function AdvancedPane({
           </p>
         </div>
       </section>
+
+      <HooksSection
+        projects={projects ?? []}
+        currentProjectId={currentProjectId ?? null}
+      />
 
       <PrivacyGatewayEditor
         settings={settings}

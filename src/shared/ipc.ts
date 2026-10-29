@@ -4046,6 +4046,57 @@ export type GovernanceVerifyResult =
   | { ok: true; entries: number }
   | { ok: false; seq?: number; reason: string };
 
+/** Lifecycle events a user hook can run on (#1724). */
+export type UserHookEvent =
+  | "PreToolUse"
+  | "PostToolUse"
+  | "UserPromptSubmit"
+  | "Stop";
+
+/** One hook's latest run (from a real event or the Test button). */
+export interface UserHookRunResult {
+  id: string;
+  event: UserHookEvent;
+  /** null when it timed out or failed to start. */
+  exitCode: number | null;
+  durationMs: number;
+  timedOut: boolean;
+  error: string | null;
+  /** First lines of stderr (or stdout). */
+  output: string;
+  at: number;
+}
+
+export interface UserHookRow {
+  /** `user:<index>` or `project:<index>`. */
+  id: string;
+  event: UserHookEvent;
+  matcher: string | null;
+  command: string[];
+  timeoutMs: number;
+  lastRun: UserHookRunResult | null;
+}
+
+export interface UserHookSource {
+  path: string;
+  exists: boolean;
+  /** sha256 of the file bytes; what Approve pins. */
+  hash: string | null;
+  /** Validation error; an invalid file runs no hooks. */
+  error: string | null;
+  /** Project file only: approved for exactly this hash. */
+  trusted?: boolean;
+  hooks: UserHookRow[];
+}
+
+export interface UserHooksList {
+  user: UserHookSource;
+  /** null without a (local) project. */
+  project: UserHookSource | null;
+  /** Providers that run PreToolUse before the tool; the rest are best effort. */
+  nativePreToolUse: string[];
+}
+
 /**
  * One described candidate in the worker-model pool. The lead picks by
  * `alias`; `description` is the one-liner it sees.
@@ -6012,6 +6063,14 @@ export interface CoderApi {
     listAudit(input?: { threadId?: string; limit?: number }): Promise<GovernanceAuditEntry[]>;
     /** Walk the whole HMAC chain; the first bad link fails it. */
     verifyAudit(): Promise<GovernanceVerifyResult>;
+  };
+  hooks: {
+    /** User + project lifecycle hooks with trust state and last runs (#1724). */
+    list(input?: { projectId?: string | null }): Promise<UserHooksList>;
+    /** Trust the project's .solenta/hooks.json at this exact hash. Desktop only. */
+    approve(input: { projectId: string; hash: string }): Promise<{ hash: string }>;
+    /** Run one hook with a sample payload. Desktop only. */
+    test(input: { projectId?: string | null; id: string }): Promise<UserHookRunResult>;
   };
   usage: {
     /** Per-day usage ledger, by provider/model and by thread (90 days). */
