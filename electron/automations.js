@@ -1,7 +1,5 @@
 "use strict";
 
-const PRESETS = new Set(["hourly", "daily", "weekly"]);
-
 // Issue #134: keep only the newest N threads per automation so hourly fires
 // cannot grow the store without bound. No settings knob; skipped live, pinned,
 // or unfinished threads still count toward the kept set. Quota-wait and other
@@ -75,14 +73,21 @@ function graduatedStage(auto, now) {
  * Monday job on Mondays when it is caught up or run by hand on Tuesday (#931).
  * Missed slots are skipped, never replayed. Days move by calendar date, so
  * the local wall-clock hour survives DST.
+ * cron: next match of the 5-field expression (#1719, electron/cron.js).
  *
- * @param {"hourly" | "daily" | "weekly"} preset
+ * @param {"hourly" | "daily" | "weekly" | "cron"} preset
  * @param {number | null} hour
  * @param {number} fromMs
  * @param {number | null} [anchorMs]
+ * @param {string | null} [cron]
  * @returns {number}
  */
-function nextFire(preset, hour, fromMs, anchorMs) {
+function nextFire(preset, hour, fromMs, anchorMs, cron) {
+  if (preset === "cron") {
+    const next = require("./cron.js").nextCronFire(String(cron || ""), fromMs);
+    if (next == null) throw new Error(`Cron never fires: ${cron}`);
+    return next;
+  }
   const from = new Date(fromMs);
   if (Number.isNaN(from.getTime())) {
     throw new Error(`Invalid fromMs: ${fromMs}`);
@@ -321,7 +326,7 @@ function pruneAutomationThreads(store, automationId) {
  */
 async function runAutomation(ctx, auto, now, opts) {
   const services = require("./services.js");
-  const nextRunAt = nextFire(auto.preset, auto.hour, now, auto.nextRunAt);
+  const nextRunAt = nextFire(auto.preset, auto.hour, now, auto.nextRunAt, auto.cron);
   // #388: settle ran first in the tick, so the breaker count is current.
   const life = graduatedStage(auto, now);
   patchAutomation(ctx.store, auto.id, {

@@ -10,6 +10,7 @@ export type AutomationCreateResult = {
   name: string;
   preset?: AutomationPreset;
   hour?: number | null;
+  cron?: string;
   nextRunAt?: number;
   trigger?: AutomationTrigger | null;
 };
@@ -57,7 +58,7 @@ function asTrigger(raw: unknown): AutomationTrigger | null {
 }
 
 function asPreset(raw: unknown): AutomationPreset | undefined {
-  return raw === "hourly" || raw === "daily" || raw === "weekly"
+  return raw === "hourly" || raw === "daily" || raw === "weekly" || raw === "cron"
     ? raw
     : undefined;
 }
@@ -79,6 +80,7 @@ function fromObject(value: unknown): AutomationCreateResult | null {
     name,
     preset: asPreset(o.preset),
     hour,
+    ...(typeof o.cron === "string" ? { cron: o.cron } : {}),
     nextRunAt,
     trigger: asTrigger(o.trigger),
   };

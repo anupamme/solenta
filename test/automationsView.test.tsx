@@ -239,6 +239,72 @@ describe("AutomationsView", () => {
     m.unmount();
   });
 
+  it("Custom (cron) validates inline, previews the next 3 fires, and submits cron (#1719)", async () => {
+    const created: AutomationWrite[] = [];
+    const m = await mount(
+      <AutomationsView
+        automations={[]}
+        projects={[p1]}
+        providers={providers}
+        onCreate={(input) => {
+          created.push(input);
+        }}
+        onUpdate={() => {}}
+        onRemove={() => {}}
+        onRunNow={() => {}}
+      />,
+    );
+    assert.equal(m.query('[name="cron"]'), null, "hidden for presets");
+    await m.change(m.query('[data-automation-create] [name="preset"]'), "cron");
+    const cron = m.query('[data-automation-create] [name="cron"]') as HTMLInputElement | null;
+    assert.ok(cron);
+    assert.equal(cron.value, "0 9 * * 1-5");
+    const next = m.query("[data-cron-next]");
+    assert.ok(next);
+    // Three weekday 09:00 fires, in local time.
+    assert.equal((next.textContent || "").split("·").length, 3);
+    assert.equal((next.textContent || "").match(/09[:.]00/g)?.length, 3);
+
+    await m.type(cron, "0 25 * * *");
+    assert.equal(m.query("[data-cron-next]"), null);
+    assert.ok(m.query("[data-cron-error]")?.textContent?.includes("hour must be 0-23"));
+    assert.equal(cron.getAttribute("aria-invalid"), "true");
+
+    await m.type(cron, "*/2 * * * *");
+    assert.ok(m.query("[data-cron-error]")?.textContent?.includes("at most every 5 minutes"));
+
+    await m.type(m.query('[data-automation-create] [name="name"]'), "Standup");
+    await m.type(m.query('[data-automation-create] [name="prompt"]'), "summarize");
+    const submit = m.query("[data-automation-create] button[type=submit]");
+    await m.click(submit);
+    assert.equal(created.length, 0, "invalid cron blocks submit");
+
+    await m.type(cron, "30 8 * * mon");
+    assert.ok(m.query("[data-cron-next]"));
+    await m.click(submit);
+    assert.equal(created.length, 1);
+    assert.equal(created[0].preset, "cron");
+    assert.equal(created[0].cron, "30 8 * * mon");
+    assert.equal(created[0].hour, null);
+    m.unmount();
+  });
+
+  it("labels a cron row with its expression", async () => {
+    const m = await mount(
+      <AutomationsView
+        automations={[auto({ id: "c1", name: "Standup", preset: "cron", cron: "0 9 * * 1-5" })]}
+        projects={[p1]}
+        providers={providers}
+        onCreate={() => {}}
+        onUpdate={() => {}}
+        onRemove={() => {}}
+        onRunNow={() => {}}
+      />,
+    );
+    assert.ok(m.text().includes("cron 0 9 * * 1-5"));
+    m.unmount();
+  });
+
   it("passes a typed model to onCreate when the provider has no model list", async () => {
     const created: unknown[] = [];
     const m = await mount(
